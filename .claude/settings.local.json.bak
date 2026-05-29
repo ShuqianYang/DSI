@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "Bash(docker pull *)",
+      "Bash(npx tsx *)",
+      "Bash(npx tsc *)",
+      "Bash(curl *)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(git checkout *)",
+      "Bash(mkdir -p api/scripts)",
+      "Bash(mv api/check-job.ts api/check-steps.ts api/clear-db.ts api/.env.bak api/scripts/)",
+      "Bash(git merge *)"
+    ]
+  }
+}

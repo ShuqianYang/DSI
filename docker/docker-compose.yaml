@@ -1,0 +1,110 @@
+version: "3.8"
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: ds_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: datasource
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ds_network
+
+  # Redis 缓存/队列
+  redis:
+    image: redis:7-alpine
+    container_name: ds_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ds_network
+
+  # API 服务器
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: api
+    container_name: ds_api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      API_PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/datasource
+      REDIS_URL: redis://redis:6379
+      MOCK_PLANNER: "true"
+      MOCK_ROUTER: "true"
+      DIFY_PLANNER_API_KEY: ""
+      DIFY_PLANNER_API_URL: ""
+      DIFY_ROUTER_API_KEY: ""
+      DIFY_ROUTER_API_URL: ""
+      DIFY_NEWS_API_KEY: ""
+      DIFY_NEWS_API_URL: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # 开发模式：挂载本地代码，热重载
+      - ../api/src:/app/api/src:ro
+      - ../packages/shared/src:/app/packages/shared/src:ro
+    networks:
+      - ds_network
+
+  # BullMQ Worker（异步任务执行）
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: worker
+    container_name: ds_worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/datasource
+      REDIS_URL: redis://redis:6379
+      MOCK_PLANNER: "true"
+      MOCK_ROUTER: "true"
+      DIFY_NEWS_API_KEY: ""
+      DIFY_NEWS_API_URL: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../api/src:/app/api/src:ro
+      - ../packages/shared/src:/app/packages/shared/src:ro
+    networks:
+      - ds_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  ds_network:
+    driver: bridge

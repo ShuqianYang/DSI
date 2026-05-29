@@ -1,0 +1,26 @@
+diff --git a/dev/index.js b/dev/index.js
+index 123745e860dd26c0f12b45f79a0a1fb69b45d6f0..4a3170c5ac0175221f012b163214b616214dce66 100644
+--- a/dev/index.js
++++ b/dev/index.js
+@@ -203,7 +203,7 @@ export function markdownSpace(code) {
+  * @returns
+  *   Whether it matches.
+  */
+-export const unicodePunctuation = regexCheck(/\p{P}|\p{S}/u)
++export const unicodePunctuation = regexCheck(/[!-/:-@[-`{-~]/)
+ 
+ /**
+  * Check whether the character code represents Unicode whitespace.
+diff --git a/index.js b/index.js
+index 13698f04f2ea3591b7ca012b4270e027fb73e9bf..b505c52506dec7ad3e15f71920836082d6dac96e 100644
+--- a/index.js
++++ b/index.js
+@@ -197,7 +197,7 @@ export function markdownSpace(code) {
+  * @returns
+  *   Whether it matches.
+  */
+-export const unicodePunctuation = regexCheck(/\p{P}|\p{S}/u);
++export const unicodePunctuation = regexCheck(/[!-/:-@[-`{-~]/);
+ 
+ /**
+  * Check whether the character code represents Unicode whitespace.

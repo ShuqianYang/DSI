@@ -1,0 +1,4 @@
+# 包含 docker/ 目录下的完整编排配置
+# 可以直接在此目录运行：docker compose up
+include:
+  - docker/docker-compose.yaml

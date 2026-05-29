@@ -1,0 +1,229 @@
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  jsonb,
+  integer,
+  boolean,
+  index,
+} from "drizzle-orm/pg-core";
+
+// ============================================
+// Agent 编排任务表（核心工作流）
+// ============================================
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"),
+    query: text("query").notNull(),
+    status: text("status", { enum: ["pending", "running", "completed", "failed"] })
+      .notNull()
+      .default("pending"),
+    plan: jsonb("plan"),
+    actions: jsonb("actions"),
+    result: jsonb("result"),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("tasks_user_id_idx").on(table.userId),
+    index("tasks_status_idx").on(table.status),
+    index("tasks_created_at_idx").on(table.createdAt),
+  ]
+);
+
+export const taskSteps = pgTable(
+  "task_steps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    actionType: text("action_type").notNull(),
+    actionConfig: jsonb("action_config").notNull().default({}),
+    status: text("status", { enum: ["pending", "running", "completed", "failed"] })
+      .notNull()
+      .default("pending"),
+    result: jsonb("result"),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("task_steps_task_id_idx").on(table.taskId),
+    index("task_steps_status_idx").on(table.status),
+  ]
+);
+
+// ============================================
+// 展示数据表（前端 RightPanel 用）
+// ============================================
+
+// 可执行任务列表（日报/周报/实时监测）
+export const jobTasks = pgTable(
+  "job_tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"),
+    name: text("name").notNull(),
+    type: text("type", { enum: ["daily", "weekly", "realtime"] }).notNull(),
+    executeTime: timestamp("execute_time", { withTimezone: true }),
+    status: text("status", { enum: ["running", "completed", "partial", "failed"] })
+      .notNull()
+      .default("running"),
+    dataCount: integer("data_count").default(0),
+    subTasks: jsonb("sub_tasks"),
+    agentTaskId: uuid("agent_task_id").references(() => tasks.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("job_tasks_user_id_idx").on(table.userId),
+    index("job_tasks_status_idx").on(table.status),
+    index("job_tasks_agent_task_id_idx").on(table.agentTaskId),
+  ]
+);
+
+// 事件列表
+export const events = pgTable(
+  "events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"),
+    taskId: uuid("task_id").references(() => jobTasks.id, { onDelete: "set null" }),
+    taskName: text("task_name"),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    status: text("status", { enum: ["success", "partial", "failed"] })
+      .notNull()
+      .default("success"),
+    timestamp: timestamp("timestamp", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    read: boolean("read").notNull().default(false),
+    gisData: jsonb("gis_data"),
+    agentTaskId: uuid("agent_task_id").references(() => tasks.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("events_user_id_idx").on(table.userId),
+    index("events_status_idx").on(table.status),
+    index("events_read_idx").on(table.read),
+    index("events_timestamp_idx").on(table.timestamp),
+  ]
+);
+
+// 订阅任务
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"),
+    name: text("name").notNull(),
+    type: text("type").notNull(),
+    schedule: text("schedule").notNull(),
+    nextExecuteTime: timestamp("next_execute_time", { withTimezone: true }),
+    status: text("status", { enum: ["running", "paused"] })
+      .notNull()
+      .default("running"),
+    entityId: text("entity_id"),
+    regionId: text("region_id"),
+    toolType: text("tool_type"),
+    queryParams: jsonb("query_params").default({}),
+    lastExecuteTime: timestamp("last_execute_time", { withTimezone: true }),
+    lastResult: jsonb("last_result"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("subscriptions_user_id_idx").on(table.userId),
+    index("subscriptions_status_idx").on(table.status),
+    index("subscriptions_tool_type_idx").on(table.toolType),
+  ]
+);
+
+// 定制需求（未完成需求）
+export const requirements = pgTable(
+  "requirements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"),
+    description: text("description").notNull(),
+    chatId: text("chat_id").notNull(),
+    status: text("status", { enum: ["pending", "processing", "rejected"] })
+      .notNull()
+      .default("pending"),
+    requirementId: text("requirement_id"),
+    timestamp: timestamp("timestamp", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("requirements_user_id_idx").on(table.userId),
+    index("requirements_status_idx").on(table.status),
+  ]
+);
+
+// AI 洞察
+export const insights = pgTable(
+  "insights",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"),
+    category: text("category", { enum: ["geopolitics", "military", "industry"] })
+      .notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    content: text("content").notNull(),
+    riskLevel: text("risk_level", { enum: ["high", "medium", "low", "safe"] })
+      .notNull(),
+    entityId: text("entity_id"),
+    regionId: text("region_id"),
+    sources: jsonb("sources"),
+    agentTaskId: uuid("agent_task_id").references(() => tasks.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("insights_user_id_idx").on(table.userId),
+    index("insights_category_idx").on(table.category),
+    index("insights_risk_level_idx").on(table.riskLevel),
+  ]
+);
+
+export type Task = typeof tasks.$inferSelect;
+export type NewTask = typeof tasks.$inferInsert;
+export type TaskStep = typeof taskSteps.$inferSelect;
+export type NewTaskStep = typeof taskSteps.$inferInsert;
+export type JobTask = typeof jobTasks.$inferSelect;
+export type NewJobTask = typeof jobTasks.$inferInsert;
+export type Event = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;
+export type Subscription = typeof subscriptions.$inferSelect;
+export type NewSubscription = typeof subscriptions.$inferInsert;
+export type Requirement = typeof requirements.$inferSelect;
+export type NewRequirement = typeof requirements.$inferInsert;
+export type Insight = typeof insights.$inferSelect;
+export type NewInsight = typeof insights.$inferInsert;

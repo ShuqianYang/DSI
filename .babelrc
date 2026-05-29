@@ -1,0 +1,19 @@
+{
+  "ignore": [
+    "node_modules"
+  ],
+  "presets": [
+    [
+      "next/babel",
+      {
+        "preset-react": {
+          "development": true
+        }
+      }
+    ]
+  ],
+  "plugins": [
+    "@react-dev-inspector/babel-plugin",
+    "@babel/plugin-transform-unicode-property-regex"
+  ]
+}

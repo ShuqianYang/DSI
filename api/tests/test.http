@@ -1,0 +1,32 @@
+### 基础配置
+@baseUrl = http://localhost:3001
+
+### 健康检查
+GET {{baseUrl}}/health
+
+### 创建任务 - 海域态势分析
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "query": "分析东海海域当前船舶态势，识别异常行为"
+}
+
+### 创建任务 - 情报问答
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "query": "东海海域近期有哪些值得关注的地缘动态？"
+}
+
+### 创建任务 - GIS展示
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "query": "展示东海海域风险热力图"
+}
+
+### 查询任务（把上面的 taskId 替换到这里）
+GET {{baseUrl}}/tasks/REPLACE_WITH_TASK_ID

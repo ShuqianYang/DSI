@@ -1,0 +1,49 @@
+version: "3.8"
+
+# 仅启动基础设施（PostgreSQL + Redis）
+# API 和 Worker 在本地运行，避免 Docker 中的 pnpm workspace 问题
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ds_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: datasource
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ds_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ds_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ds_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  ds_network:
+    driver: bridge

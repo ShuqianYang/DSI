@@ -1,0 +1,109 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "A",
+        "label": "bridge_washout",
+        "severity": "high",
+        "description": "桥梁主体冲毁区，灾前桥面连续，灾后中段断裂并出现大面积缺失。"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[110.89362111,29.88177776],[110.89362111,29.88108361],[110.89500184,29.88108361],[110.89500184,29.88177776],[110.89362111,29.88177776]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "B",
+        "label": "bridge_debris_in_water",
+        "severity": "high",
+        "description": "河道内可见桥面碎片和漂浮构件，说明桥体被洪水冲断后发生位移。"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[110.89395129,29.88161368],[110.89395129,29.88132341],[110.89465666,29.88132341],[110.89465666,29.88161368],[110.89395129,29.88161368]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "C",
+        "label": "approach_road_cut",
+        "severity": "high",
+        "description": "东北侧桥头连接处被冲断，桥梁与居民区道路失去连续通行能力。"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[110.89467167,29.88185348],[110.89467167,29.88160106],[110.89510690,29.88160106],[110.89510690,29.88185348],[110.89467167,29.88185348]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "D",
+        "label": "road_overtopped",
+        "severity": "medium",
+        "description": "西南侧桥头道路受到洪水影响，入口通行能力下降或中断。"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[110.89344101,29.88113409],[110.89344101,29.88090692],[110.89375618,29.88090692],[110.89375618,29.88113409],[110.89344101,29.88113409]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "E",
+        "label": "new_inundation_area",
+        "severity": "medium",
+        "description": "左下岸滩、农田或植被区域在灾后被浑水覆盖，可作为新增淹没范围。"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[110.89344101,29.88108361],[110.89344101,29.88055354],[110.89414639,29.88055354],[110.89414639,29.88108361],[110.89344101,29.88108361]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "F",
+        "label": "building_exposure_flood_edge",
+        "severity": "medium",
+        "description": "右岸临河建筑贴近洪水边界，暂未见明显倒塌，但存在进水、冲刷和后续风险。"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[110.89516693,29.88175251],[110.89516693,29.88075547],[110.89558715,29.88075547],[110.89558715,29.88175251],[110.89516693,29.88175251]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "G",
+        "label": "high_turbidity_floodwater",
+        "severity": "medium",
+        "description": "灾后水体由深绿色变为大面积浑黄色，说明洪水携带泥沙并覆盖原河面及部分岸滩。"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[110.89368114,29.88216900],[110.89368114,29.88075547],[110.89513691,29.88075547],[110.89513691,29.88216900],[110.89368114,29.88216900]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "H",
+        "label": "unaffected_road_negative_sample",
+        "severity": "none",
+        "description": "东北侧路口仍保持清晰，未被洪水覆盖，可作为未受灾道路负样本。"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[110.89530200,29.88216900],[110.89530200,29.88190396],[110.89581227,29.88190396],[110.89581227,29.88216900],[110.89530200,29.88216900]]]
+      }
+    }
+  ]
+}
