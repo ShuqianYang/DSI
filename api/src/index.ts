@@ -22,6 +22,10 @@ import insightRoutes from "./modules/insights/routes.js";
 import infoCenterRoutes from "./modules/info-center/routes.js";
 import aisRoutes from "./modules/ais/routes.js";
 import adsRoutes from "./modules/ads/routes.js";
+import phase0Routes from "./modules/harness/phase0/routes.js";
+import { registerRoutable } from "./modules/harness/matchRegistry.js";
+import { weatherSimpleSkill } from "./modules/harness/skills/weatherSimpleSkill.js";
+import { newsSummaryTemplate } from "./modules/harness/templates/newsSummaryTemplate.js";
 import { startScheduler } from "./modules/scheduler/service.js";
 import { updateAisPositions } from "./data/aisDataStore.js";
 import { initAdsAircrafts, updateAdsPositions } from "./data/adsDataStore.js";
@@ -57,6 +61,7 @@ app.use("/insights", insightRoutes);
 app.use("/info-center", infoCenterRoutes);
 app.use("/ais", aisRoutes);              // AIS 船舶数据
 app.use("/ads", adsRoutes);              // ADS-B 航空数据
+app.use("/agent/phase0", phase0Routes);  // Phase 0 Agent Harness debug
 
 // 全局 SSE 通道：接收 subscription_triggered_task 等跨任务事件
 app.get("/sse/global", (_req, res) => {
@@ -131,6 +136,11 @@ redisSubscriber.on("message", (channel: string, message: string) => {
     console.error("[SSE] Failed to parse Redis message:", err);
   }
 });
+
+// 注册 Skill / Template（Agent Harness matchRegistry）
+registerRoutable(weatherSimpleSkill);
+registerRoutable(newsSummaryTemplate);
+console.log("[Harness] Registered skill: weather.simple_query, template: news.summary_template");
 
 app.listen(PORT, HOST, () => {
   console.log(`[API] Server listening on http://${HOST}:${PORT}`);

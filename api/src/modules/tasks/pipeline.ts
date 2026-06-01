@@ -9,7 +9,16 @@ import { executorService } from "../executor/service.js";
 import { actionsService } from "../actions/service.js";
 import { createSubscription } from "../subscriptions/service.js";
 import { notifyTaskUpdate, notifyGlobalClients } from "../../sse/sseManager.js";
+import { runHarnessPipeline } from "../harness/runAgentPipeline.js";
 import type { CreateTaskRequest, Action } from "@datasourceintelligence/shared";
+
+// ============================================================
+// Agent Harness 环境变量开关
+// ============================================================
+// AGENT_HARNESS_ENABLED=true  ：启用新 harness 路径（template/skill + Agent Loop）
+// AGENT_HARNESS_ENABLED=false ：直接走旧 Planner → Router → Executor 路径
+// 默认 false（保守策略，确保生产环境不受影响）
+const HARNESS_ENABLED = process.env.AGENT_HARNESS_ENABLED === "true";
 
 export function inferJobType(
   actions: Array<{ type?: string; params?: Record<string, unknown> }>
@@ -83,31 +92,83 @@ async function runMissingParamsFlow(
 // ==================== 主入口：Intent 路由 ====================
 
 export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) {
-  try {
+  // 开关关闭：直接走旧路径（仍需 classifyIntent 命中硬编码场景）
+  if (!HARNESS_ENABLED) {
+    console.log(`[Pipeline] Harness disabled, running legacy pipeline for task ${taskId}`);
     const classification = await plannerService.classifyIntent(body.query);
     console.log(
       `[Pipeline] Intent=${classification.intent}, hardcoded=${classification.hardcoded}`
     );
-
-    // 1. 硬编码场景：缺参数 → 提示补充；参数完整 → 走写死流程
     if (classification.hardcoded) {
       if (classification.missingParams.length > 0) {
         return runMissingParamsFlow(taskId, body, classification);
       }
       return runLegacyAgentPipeline(taskId, body, classification);
     }
+    return runLegacyAgentPipeline(taskId, body);
+  }
 
-    // 2. 非硬编码场景：全部交给 DeepSeek Planner 自主解析
-    return runLegacyAgentPipeline(taskId, body);
+  try {
+    // Phase 0.5：新 harness 入口（Template-first + Observation-driven Agent Loop）
+    // 先尝试 harness，如果返回 legacy_fallback 再回退旧 pipeline
+    console.log(`[Pipeline] Phase 0.5: Trying harness for task ${taskId}`);
+    const harnessResult = await runHarnessPipeline(taskId, body);
+
+    if (harnessResult.status === "legacy_fallback") {
+      console.log(`[Pipeline] Harness returned legacy_fallback, falling back to old pipeline`);
+      const classification = await plannerService.classifyIntent(body.query);
+      console.log(
+        `[Pipeline] Intent=${classification.intent}, hardcoded=${classification.hardcoded}`
+      );
+
+      if (classification.hardcoded) {
+        if (classification.missingParams.length > 0) {
+          return runMissingParamsFlow(taskId, body, classification);
+        }
+        return runLegacyAgentPipeline(taskId, body, classification);
+      }
+
+      return runLegacyAgentPipeline(taskId, body);
+    }
+
+    // harness 处理完成，保存结果并更新 task 状态
+    const resultData: Record<string, unknown> = {};
+    if (harnessResult.finalText) {
+      resultData.finalText = harnessResult.finalText;
+    }
+    if (harnessResult.observations) {
+      resultData.observations = harnessResult.observations;
+    }
+    resultData.mode = harnessResult.status;
+    await taskService.updateTaskResult(
+      taskId,
+      resultData,
+      harnessResult.status === "failed" ? "failed" : "completed"
+    );
+    return;
   } catch (error) {
-    console.error(`[Pipeline] Intent routing failed, fallback to legacy:`, error);
-    return runLegacyAgentPipeline(taskId, body);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[Pipeline] Harness failed for task ${taskId}, fallback to legacy:`, errorMsg);
+    await taskService.updateTaskStatus(taskId, "failed", errorMsg);
+
+    try {
+      return runLegacyAgentPipeline(taskId, body);
+    } catch (legacyError) {
+      const legacyErrorMsg = legacyError instanceof Error ? legacyError.message : String(legacyError);
+      console.error(`[Pipeline] Legacy pipeline also failed:`, legacyErrorMsg);
+      notifyTaskUpdate(taskId, {
+        type: "failed",
+        taskId,
+        status: "failed",
+        message: legacyErrorMsg,
+      });
+    }
   }
 }
 
 // ==================== 原有流程（保留，场景完整参数时调用）====================
 
-async function runLegacyAgentPipeline(
+export async function runLegacyAgentPipeline(
   taskId: string,
   body: CreateTaskRequest,
   classification?: { intent: string; hardcoded?: boolean; params: Record<string, unknown>; missingParams: string[]; confidence: number }

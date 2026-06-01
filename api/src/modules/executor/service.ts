@@ -18,6 +18,7 @@ import { SSE_CHANNEL } from "../../queue/taskQueue.js";
 
 import { analyzeBlockReason } from "../blockage-analyzer/service.js";
 import { createRequirement } from "../requirements/service.js";
+import { resolveAction, extractHarnessMeta } from "./resolveActionConfig.js";
 import { submitToExternalSystem } from "../requirements/externalSubmit.js";
 import { evaluateRequirementNeed, type BlockedItem } from "../../lib/requirementEvaluator.js";
 
@@ -419,13 +420,16 @@ export const executorService: ExecutorService = {
         const existingSubTasks = (existing.subTasks || []) as Array<{ id: string; status: string; order?: number }>;
         const insightSubTask = existingSubTasks.find((s) => s.id === "insight");
         const updatedSubTasks = [
-          ...steps.map((s, i) => ({
-            id: `sub-${i + 1}`,
-            name: s.actionConfig.name || s.actionType,
-            description: (s.actionConfig as Record<string, unknown>).description as string || "",
-            status: "pending" as string,
-            order: i + 1,
-          })),
+          ...steps.map((s, i) => {
+            const resolvedAction = resolveAction(s.actionConfig);
+            return {
+              id: `sub-${i + 1}`,
+              name: resolvedAction.name || s.actionType,
+              description: resolvedAction.description || "",
+              status: "pending" as string,
+              order: i + 1,
+            };
+          }),
           ...(insightSubTask ? [insightSubTask] : []),
         ];
         await db.update(jobTasks).set({ subTasks: updatedSubTasks }).where(eq(jobTasks.id, jobTaskId));
@@ -440,13 +444,16 @@ export const executorService: ExecutorService = {
           dataCount: 0,
           agentTaskId: taskId,
           subTasks: [
-            ...steps.map((s, i) => ({
-              id: `sub-${i + 1}`,
-              name: s.actionConfig.name || s.actionType,
-              description: (s.actionConfig as Record<string, unknown>).description as string || "",
-              status: "pending" as string,
-              order: i + 1,
-            })),
+            ...steps.map((s, i) => {
+              const resolvedAction = resolveAction(s.actionConfig);
+              return {
+                id: `sub-${i + 1}`,
+                name: resolvedAction.name || s.actionType,
+                description: resolvedAction.description || "",
+                status: "pending" as string,
+                order: i + 1,
+              };
+            }),
             {
               id: "insight",
               name: "综合洞察生成",
@@ -467,13 +474,16 @@ export const executorService: ExecutorService = {
         status: "running",
         dataCount: 0,
         agentTaskId: taskId,
-        subTasks: steps.map((s, i) => ({
-          id: `sub-${i + 1}`,
-          name: s.actionConfig.name || s.actionType,
-          description: (s.actionConfig as Record<string, unknown>).description as string || "",
-          status: "pending",
-          order: i + 1,
-        })),
+        subTasks: steps.map((s, i) => {
+          const resolvedAction = resolveAction(s.actionConfig);
+          return {
+            id: `sub-${i + 1}`,
+            name: resolvedAction.name || s.actionType,
+            description: resolvedAction.description || "",
+            status: "pending",
+            order: i + 1,
+          };
+        }),
       }).returning();
       jobTask = created;
     }
@@ -501,7 +511,18 @@ export const executorService: ExecutorService = {
 
     try {
       for (const [stepIdx, step] of steps.entries()) {
-        const action = step.actionConfig as Action;
+        const action = resolveAction(step.actionConfig);
+
+        // 未知格式保护：resolve 失败时跳过该步骤
+        if (!action || typeof action !== "object" || !action.type) {
+          const meta = extractHarnessMeta(step.actionConfig);
+          const errorMsg = `Invalid actionConfig for step ${step.id}: cannot resolve action` +
+            (meta ? ` (source=${meta.source}, runId=${meta.runId})` : "");
+          console.error(`[Executor] ${errorMsg}`);
+          await taskService.updateStepStatus(step.id, "failed", undefined, errorMsg);
+          publishStepUpdate(taskId, stepIdx, step.id, "unknown", "failed", "unknown", errorMsg, undefined, undefined, "unknown");
+          continue;
+        }
 
         if (action.dependsOn) {
           const missing = action.dependsOn.filter((dep) => !completedSteps.has(dep));

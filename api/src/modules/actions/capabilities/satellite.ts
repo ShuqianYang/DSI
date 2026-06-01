@@ -208,7 +208,7 @@ export const satelliteCapability: Capability = {
       };
       const centerLng = 76.998;
       const centerLat = 43.2635;
-      const CALLBACK_TIMEOUT_MS = 1800_000; // 10分钟
+      const CALLBACK_TIMEOUT_MS = 1_000; // 10分钟
 
       // 1. 生成 requirementId 并构造回调地址
       const requirementId = `REQ${Date.now()}`;
