@@ -21,7 +21,7 @@ export async function createTask(req: Request, res: Response) {
 }
 
 export async function getTask(req: Request, res: Response) {
-  const { taskId } = req.params;
+  const taskId = String(req.params.taskId);
   const task = await taskService.getTaskWithSteps(taskId);
 
   if (!task) {

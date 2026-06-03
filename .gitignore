@@ -110,3 +110,5 @@ public/local-tiles/
 # Workspace package build output (packages/shared uses tsc -> dist/)
 packages/shared/dist/
 
+# Local analysis workspace
+claude-code-analysis/

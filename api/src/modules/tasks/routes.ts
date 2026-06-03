@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type Request, type Response, type Router as ExpressRouter } from "express";
 import { eq } from "drizzle-orm";
 import { asyncHandler } from "../../middleware/errorHandler.js";
 import { validateBody, validateParams } from "../../middleware/validate.js";
@@ -8,7 +8,7 @@ import { addSseClient, removeSseClient, notifyTaskUpdate } from "../../sse/sseMa
 import { db } from "../../config/database.js";
 import { tasks, taskSteps } from "../../db/schema.js";
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 router.post("/", validateBody(createTaskSchema), asyncHandler(createTask));
 router.get("/", asyncHandler(listTasks));
@@ -102,7 +102,7 @@ router.get("/:taskId/stream", async (req: Request, res: Response) => {
         status: step.status,
         name: actionName,
         detail: step.error || undefined,
-        gisData: step.result?.gisData,
+        gisData: (step.result as Record<string, unknown> | null)?.gisData,
       })}\n\n`);
       await flush();
     }

@@ -1,0 +1,527 @@
+import { exec as execCallback, execFile as execFileCallback } from "node:child_process";
+import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
+import path from "node:path";
+import { promisify } from "node:util";
+import { z } from "zod";
+import type { ToolDefinition } from "./types.js";
+import type { ToolRegistry } from "./toolRegistry.js";
+
+const exec = promisify(execCallback);
+const execFile = promisify(execFileCallback);
+
+const MAX_READ_BYTES = 200_000;
+const MAX_TOOL_OUTPUT_CHARS = 60_000;
+const MAX_GLOB_RESULTS = 100;
+const DEFAULT_GREP_HEAD_LIMIT = 250;
+
+export function registerClaudeCodeBaseSystemTools(registry: ToolRegistry): void {
+  for (const tool of buildClaudeCodeBaseSystemTools()) {
+    registry.register(tool);
+  }
+}
+
+export function buildClaudeCodeBaseSystemTools(): ToolDefinition[] {
+  return [
+    buildBashTool(),
+    buildGlobTool(),
+    buildGrepTool(),
+    buildReadTool(),
+    buildWriteTool(),
+    buildEditTool(),
+    buildWebFetchTool(),
+  ];
+}
+
+function buildBashTool(): ToolDefinition {
+  return {
+    name: "Bash",
+    description:
+      'Run a shell command in the workspace. Input: {"command":"pnpm build","cwd":"optional relative dir","timeout_ms":120000}.',
+    inputSchema: z.strictObject({
+      command: z.string().min(1),
+      cwd: z.string().optional(),
+      timeout_ms: z.number().int().positive().max(120_000).optional(),
+      description: z.string().optional(),
+    }),
+    isConcurrencySafe: () => false,
+    async execute(input) {
+      const parsed = input as {
+        command: string;
+        cwd?: string;
+        timeout_ms?: number;
+      };
+      const cwd = parsed.cwd ? resolveWorkspacePath(parsed.cwd) : getWorkspaceRoot();
+      await assertDirectory(cwd);
+
+      try {
+        const result = await exec(parsed.command, {
+          cwd,
+          timeout: parsed.timeout_ms ?? 30_000,
+          maxBuffer: MAX_TOOL_OUTPUT_CHARS * 4,
+        });
+        return {
+          command: parsed.command,
+          cwd: toWorkspaceRelative(cwd),
+          exitCode: 0,
+          stdout: truncate(result.stdout, MAX_TOOL_OUTPUT_CHARS),
+          stderr: truncate(result.stderr, MAX_TOOL_OUTPUT_CHARS),
+        };
+      } catch (error) {
+        const execError = error as {
+          code?: number;
+          signal?: string;
+          stdout?: string;
+          stderr?: string;
+          message?: string;
+        };
+        const output = {
+          command: parsed.command,
+          cwd: toWorkspaceRelative(cwd),
+          exitCode: execError.code ?? null,
+          signal: execError.signal ?? null,
+          stdout: truncate(execError.stdout ?? "", MAX_TOOL_OUTPUT_CHARS),
+          stderr: truncate(execError.stderr ?? execError.message ?? "", MAX_TOOL_OUTPUT_CHARS),
+        };
+        const interpretation =
+          typeof output.exitCode === "number"
+            ? interpretCommandResult(parsed.command, output.exitCode)
+            : { isError: true, message: execError.message || "Command failed" };
+
+        if (interpretation.isError) {
+          const failure = new Error(interpretation.message || "Command failed");
+          (failure as Error & { toolOutput?: unknown }).toolOutput = output;
+          throw failure;
+        }
+
+        return {
+          ...output,
+          semanticMessage: interpretation.message,
+        };
+      }
+    },
+  };
+}
+
+function buildGlobTool(): ToolDefinition {
+  return {
+    name: "Glob",
+    description:
+      'Find files by glob pattern. Input: {"pattern":"**/*.ts","path":"optional relative directory"}. Returns up to 100 files.',
+    inputSchema: z.strictObject({
+      pattern: z.string().min(1),
+      path: z.string().optional(),
+    }),
+    isConcurrencySafe: () => true,
+    async execute(input) {
+      const parsed = input as { pattern: string; path?: string };
+      const cwd = parsed.path ? resolveWorkspacePath(parsed.path) : getWorkspaceRoot();
+      await assertDirectory(cwd);
+
+      const startedAt = Date.now();
+      const result = await runRg(["--files", "-g", parsed.pattern], cwd, [0, 1]);
+      const filenames = result.stdout
+        .split("\n")
+        .map(line => line.trim())
+        .filter(Boolean)
+        .slice(0, MAX_GLOB_RESULTS);
+
+      return {
+        durationMs: Date.now() - startedAt,
+        numFiles: filenames.length,
+        filenames,
+        truncated: result.stdout.split("\n").filter(Boolean).length > MAX_GLOB_RESULTS,
+      };
+    },
+  };
+}
+
+function buildGrepTool(): ToolDefinition {
+  return {
+    name: "Grep",
+    description:
+      'Search file contents with ripgrep. Input: {"pattern":"TODO","path":"optional file or dir","glob":"*.ts","output_mode":"content|files_with_matches|count","head_limit":100}.',
+    inputSchema: z.strictObject({
+      pattern: z.string().min(1),
+      path: z.string().optional(),
+      glob: z.string().optional(),
+      output_mode: z.enum(["content", "files_with_matches", "count"]).optional(),
+      "-B": z.number().int().min(0).optional(),
+      "-A": z.number().int().min(0).optional(),
+      "-C": z.number().int().min(0).optional(),
+      context: z.number().int().min(0).optional(),
+      "-n": z.boolean().optional(),
+      "-i": z.boolean().optional(),
+      type: z.string().optional(),
+      head_limit: z.number().int().min(0).optional(),
+      offset: z.number().int().min(0).optional(),
+      multiline: z.boolean().optional(),
+    }),
+    isConcurrencySafe: () => true,
+    async execute(input) {
+      const parsed = input as {
+        pattern: string;
+        path?: string;
+        glob?: string;
+        output_mode?: "content" | "files_with_matches" | "count";
+        "-B"?: number;
+        "-A"?: number;
+        "-C"?: number;
+        context?: number;
+        "-n"?: boolean;
+        "-i"?: boolean;
+        type?: string;
+        head_limit?: number;
+        offset?: number;
+        multiline?: boolean;
+      };
+      const cwd = getWorkspaceRoot();
+      const target = parsed.path ? resolveWorkspacePath(parsed.path) : cwd;
+      await assertExists(target);
+
+      const outputMode = parsed.output_mode ?? "files_with_matches";
+      const args = buildGrepArgs(parsed, outputMode, target);
+      const result = await runRg(args, cwd, [0, 1]);
+      const lines = result.stdout.split("\n").filter(Boolean);
+      const offset = parsed.offset ?? 0;
+      const headLimit = parsed.head_limit ?? DEFAULT_GREP_HEAD_LIMIT;
+      const selected = headLimit === 0 ? lines.slice(offset) : lines.slice(offset, offset + headLimit);
+
+      return {
+        mode: outputMode,
+        totalLines: lines.length,
+        offset,
+        headLimit: headLimit === 0 ? null : headLimit,
+        truncated: selected.length < lines.slice(offset).length,
+        output: truncate(selected.join("\n"), MAX_TOOL_OUTPUT_CHARS),
+      };
+    },
+  };
+}
+
+function buildReadTool(): ToolDefinition {
+  return {
+    name: "Read",
+    description:
+      'Read a text file in the workspace. Input: {"file_path":"src/app.ts","offset":1,"limit":200}. Offset and limit are line-based.',
+    inputSchema: z.strictObject({
+      file_path: z.string().min(1),
+      offset: z.number().int().positive().optional(),
+      limit: z.number().int().positive().max(2_000).optional(),
+    }),
+    isConcurrencySafe: () => true,
+    async execute(input) {
+      const parsed = input as { file_path: string; offset?: number; limit?: number };
+      const filePath = resolveWorkspacePath(parsed.file_path);
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile()) {
+        throw new Error(`Path is not a file: ${parsed.file_path}`);
+      }
+      if (fileStat.size > MAX_READ_BYTES) {
+        throw new Error(`File is too large to read (${fileStat.size} bytes, max ${MAX_READ_BYTES}).`);
+      }
+
+      const content = await readFile(filePath, "utf8");
+      const lines = content.split(/\r?\n/);
+      const startLine = parsed.offset ?? 1;
+      const limit = parsed.limit ?? lines.length;
+      const selected = lines.slice(startLine - 1, startLine - 1 + limit);
+
+      return {
+        filePath: toWorkspaceRelative(filePath),
+        startLine,
+        endLine: startLine + selected.length - 1,
+        totalLines: lines.length,
+        truncated: startLine - 1 + limit < lines.length,
+        content: selected.join("\n"),
+      };
+    },
+  };
+}
+
+function buildWriteTool(): ToolDefinition {
+  return {
+    name: "Write",
+    description:
+      'Create or overwrite a file in the workspace. Input: {"file_path":"path/to/file.ts","content":"..."}',
+    inputSchema: z.strictObject({
+      file_path: z.string().min(1),
+      content: z.string(),
+    }),
+    isConcurrencySafe: () => false,
+    async execute(input) {
+      const parsed = input as { file_path: string; content: string };
+      const filePath = resolveWorkspacePath(parsed.file_path);
+      assertWritableWorkspacePath(filePath);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, parsed.content, "utf8");
+      return {
+        filePath: toWorkspaceRelative(filePath),
+        bytesWritten: Buffer.byteLength(parsed.content, "utf8"),
+      };
+    },
+  };
+}
+
+function buildEditTool(): ToolDefinition {
+  return {
+    name: "Edit",
+    description:
+      'Replace text in an existing workspace file. Input: {"file_path":"path","old_string":"exact text","new_string":"replacement","replace_all":false}.',
+    inputSchema: z.strictObject({
+      file_path: z.string().min(1),
+      old_string: z.string().min(1),
+      new_string: z.string(),
+      replace_all: z.boolean().optional(),
+    }),
+    isConcurrencySafe: () => false,
+    async execute(input) {
+      const parsed = input as {
+        file_path: string;
+        old_string: string;
+        new_string: string;
+        replace_all?: boolean;
+      };
+      if (parsed.old_string === parsed.new_string) {
+        throw new Error("old_string and new_string must be different.");
+      }
+
+      const filePath = resolveWorkspacePath(parsed.file_path);
+      assertWritableWorkspacePath(filePath);
+      const content = await readFile(filePath, "utf8");
+      const matches = countOccurrences(content, parsed.old_string);
+
+      if (matches === 0) {
+        throw new Error("old_string was not found in the file.");
+      }
+      if (!parsed.replace_all && matches > 1) {
+        throw new Error(`old_string appears ${matches} times. Set replace_all=true or provide a more specific string.`);
+      }
+
+      const nextContent = parsed.replace_all
+        ? content.split(parsed.old_string).join(parsed.new_string)
+        : content.replace(parsed.old_string, parsed.new_string);
+      await writeFile(filePath, nextContent, "utf8");
+
+      return {
+        filePath: toWorkspaceRelative(filePath),
+        replacements: parsed.replace_all ? matches : 1,
+      };
+    },
+  };
+}
+
+function buildWebFetchTool(): ToolDefinition {
+  return {
+    name: "WebFetch",
+    description:
+      'Fetch text from a URL. Input: {"url":"https://example.com","max_chars":20000}. Returns truncated response text.',
+    inputSchema: z.strictObject({
+      url: z.string().url(),
+      max_chars: z.number().int().positive().max(MAX_TOOL_OUTPUT_CHARS).optional(),
+    }),
+    isConcurrencySafe: () => true,
+    async execute(input) {
+      const parsed = input as { url: string; max_chars?: number };
+      const response = await fetch(parsed.url, {
+        headers: {
+          "user-agent": "DSI-AgentLoop/0.1",
+        },
+      });
+      const text = await response.text();
+      const maxChars = parsed.max_chars ?? 20_000;
+
+      return {
+        url: parsed.url,
+        status: response.status,
+        ok: response.ok,
+        contentType: response.headers.get("content-type"),
+        truncated: text.length > maxChars,
+        text: truncate(text, maxChars),
+      };
+    },
+  };
+}
+
+function buildGrepArgs(
+  input: {
+    pattern: string;
+    glob?: string;
+    output_mode?: "content" | "files_with_matches" | "count";
+    "-B"?: number;
+    "-A"?: number;
+    "-C"?: number;
+    context?: number;
+    "-n"?: boolean;
+    "-i"?: boolean;
+    type?: string;
+    multiline?: boolean;
+  },
+  outputMode: "content" | "files_with_matches" | "count",
+  target: string,
+): string[] {
+  const args = ["--color", "never"];
+
+  if (outputMode === "files_with_matches") args.push("--files-with-matches");
+  if (outputMode === "count") args.push("--count");
+  if (outputMode === "content" && input["-n"] !== false) args.push("--line-number");
+  if (input["-i"]) args.push("--ignore-case");
+  if (input.multiline) args.push("--multiline", "--multiline-dotall");
+  if (input.glob) args.push("--glob", input.glob);
+  if (input.type) args.push("--type", input.type);
+
+  const context = input.context ?? input["-C"];
+  if (context !== undefined) args.push("-C", String(context));
+  if (input["-A"] !== undefined) args.push("-A", String(input["-A"]));
+  if (input["-B"] !== undefined) args.push("-B", String(input["-B"]));
+
+  args.push("--", input.pattern, target);
+  return args;
+}
+
+async function runRg(
+  args: string[],
+  cwd: string,
+  allowedExitCodes: number[],
+): Promise<{ stdout: string; stderr: string }> {
+  try {
+    const result = await execFile("rg", args, {
+      cwd,
+      maxBuffer: MAX_TOOL_OUTPUT_CHARS * 4,
+    });
+    return {
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } catch (error) {
+    const execError = error as {
+      code?: number;
+      stdout?: string;
+      stderr?: string;
+      message?: string;
+    };
+    if (execError.code !== undefined && allowedExitCodes.includes(execError.code)) {
+      return {
+        stdout: execError.stdout ?? "",
+        stderr: execError.stderr ?? "",
+      };
+    }
+    throw new Error(execError.stderr || execError.message || "ripgrep command failed");
+  }
+}
+
+function getWorkspaceRoot(): string {
+  const configured = process.env.AGENT_WORKSPACE_ROOT;
+  if (configured) return path.resolve(configured);
+
+  let current = process.cwd();
+  while (true) {
+    if (
+      existsSync(path.join(current, "pnpm-workspace.yaml")) ||
+      existsSync(path.join(current, ".git"))
+    ) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return process.cwd();
+    current = parent;
+  }
+}
+
+function resolveWorkspacePath(inputPath: string): string {
+  const root = getWorkspaceRoot();
+  const resolved = path.resolve(root, inputPath);
+  const relative = path.relative(root, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Path escapes workspace root: ${inputPath}`);
+  }
+  return resolved;
+}
+
+function assertWritableWorkspacePath(filePath: string): void {
+  const relative = path.relative(getWorkspaceRoot(), filePath);
+  const parts = relative.split(path.sep);
+  if (parts.includes(".git")) {
+    throw new Error("Refusing to write inside .git.");
+  }
+}
+
+async function assertDirectory(filePath: string): Promise<void> {
+  const fileStat = await stat(filePath);
+  if (!fileStat.isDirectory()) {
+    throw new Error(`Path is not a directory: ${toWorkspaceRelative(filePath)}`);
+  }
+}
+
+async function assertExists(filePath: string): Promise<void> {
+  await access(filePath, constants.F_OK);
+}
+
+function toWorkspaceRelative(filePath: string): string {
+  const relative = path.relative(getWorkspaceRoot(), filePath);
+  return relative || ".";
+}
+
+function truncate(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} chars]`;
+}
+
+function countOccurrences(text: string, needle: string): number {
+  let count = 0;
+  let index = 0;
+  while (true) {
+    index = text.indexOf(needle, index);
+    if (index === -1) return count;
+    count += 1;
+    index += needle.length;
+  }
+}
+
+function interpretCommandResult(
+  command: string,
+  exitCode: number,
+): { isError: boolean; message?: string } {
+  const baseCommand = extractExitCodeCommand(command);
+  if (baseCommand === "grep" || baseCommand === "rg") {
+    return {
+      isError: exitCode >= 2,
+      message: exitCode === 1 ? "No matches found" : undefined,
+    };
+  }
+
+  if (baseCommand === "find") {
+    return {
+      isError: exitCode >= 2,
+      message: exitCode === 1 ? "Some directories were inaccessible" : undefined,
+    };
+  }
+
+  if (baseCommand === "diff") {
+    return {
+      isError: exitCode >= 2,
+      message: exitCode === 1 ? "Files differ" : undefined,
+    };
+  }
+
+  if (baseCommand === "test" || baseCommand === "[") {
+    return {
+      isError: exitCode >= 2,
+      message: exitCode === 1 ? "Condition is false" : undefined,
+    };
+  }
+
+  return {
+    isError: exitCode !== 0,
+    message: exitCode !== 0 ? `Command failed with exit code ${exitCode}` : undefined,
+  };
+}
+
+function extractExitCodeCommand(command: string): string {
+  const segments = command
+    .split(/[;|]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const lastSegment = segments.at(-1) || command;
+  return (lastSegment.split(/\s+/)[0] || "").replace(/^["']|["']$/g, "");
+}
