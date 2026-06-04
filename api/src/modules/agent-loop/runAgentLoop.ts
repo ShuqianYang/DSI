@@ -4,7 +4,7 @@ import { notifyTaskUpdate } from "../../sse/sseManager.js";
 import { eq } from "drizzle-orm";
 import { defaultContextProvider, type ContextProvider } from "./contextProvider.js";
 import {
-  noopContextWindowManager,
+  defaultContextWindowManager,
   type ContextWindowManager,
 } from "./contextWindowManager.js";
 import { noopMemoryManager, type MemoryManager } from "./memoryManager.js";
@@ -80,7 +80,7 @@ export async function* runAgentLoopEvents(
   const modelClient = options.modelClient ?? createModelClient();
   const promptManager = options.promptManager ?? defaultPromptManager;
   const contextProvider = options.contextProvider ?? defaultContextProvider;
-  const contextWindowManager = options.contextWindowManager ?? noopContextWindowManager;
+  const contextWindowManager = options.contextWindowManager ?? defaultContextWindowManager;
   const memoryManager = options.memoryManager ?? noopMemoryManager;
   const skillManager = options.skillManager ?? noopSkillManager;
   const transcriptStore = options.transcriptStore ?? disabledTranscriptStore;

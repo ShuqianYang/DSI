@@ -123,3 +123,12 @@ slot for future approval UI.
 Long-running skills should observe `signal` and emit progress with
 `onProgress`. The gateway fills in `toolCallId` and `toolName` when omitted.
 
+## Context-window invariants
+
+`ContextWindowManager` may truncate content and remove old message groups, but it must preserve tool-call adjacency:
+
+- If an assistant message with `toolCalls` remains, its matching `tool` messages must remain immediately after it.
+- A tool result must not remain without the assistant tool call that created it.
+- The latest user request must remain.
+- The system message should remain unless a future prompt manager deliberately replaces it.
+

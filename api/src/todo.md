@@ -207,13 +207,25 @@ export interface ContextProvider {
 
 说明：
 
-- 当前 `noopContextProvider` 返回空 user/system/context 材料。
+- `noopContextProvider` 仍保留为测试/显式覆盖用；默认实现已接入 `defaultContextProvider`。
 - 当前 loop 通过 `RunAgentLoopOptions.contextProvider` 注入。
 - ContextProvider 只负责“提供上下文材料”，不负责 memory、skills、prompt 组装或窗口治理。
 - 接口仿照 Claude Code 的 `getUserContext()` / `getSystemContext()` 语义：
   1. `getUserContext`：用户/项目显式上下文，例如 AGENTS.md、CLAUDE.md、当前日期、用户设置。
   2. `getSystemContext`：系统/工作区运行态上下文，例如 Git 状态、任务状态、cache breaker。
   3. `getContextSections`：不适合 key/value 的项目、任务、业务域上下文。
+
+Implemented Phase 1:
+
+- `defaultContextProvider.getUserContext()` injects current date and bounded project instruction files.
+- `defaultContextProvider.getSystemContext()` injects workspace root, bounded git status, and task status when available.
+- `defaultContextProvider.getContextSections()` injects bounded `CONTEXT.md` as `project.domain`.
+
+Deferred:
+
+- user preference/config loading beyond project instruction files.
+- bounded include expansion for project instruction files.
+- richer task requirement sections beyond task status metadata.
 
 待实现函数：
 
@@ -281,9 +293,19 @@ export interface ContextWindowManager {
 
 说明：
 
-- 当前 `noopContextWindowManager` 原样返回 messages。
+- `noopContextWindowManager` 仍保留为测试/显式覆盖用；默认实现已接入 `defaultContextWindowManager`。
 - 当前 loop 通过 `RunAgentLoopOptions.contextWindowManager` 注入。
 - ContextWindowManager 只负责“发送给模型前的窗口治理”，不负责取 context 材料，也不负责 prompt 模板。
+
+Implemented Phase 1:
+
+- `defaultContextWindowManager.prepareMessages()` enforces a character budget, truncates large tool messages, and preserves assistant/tool adjacency.
+
+Deferred:
+
+- LLM summary compaction.
+- post-compact reinjection of file state and skill/tool declarations.
+- durable transcript-based resume.
 
 待实现函数：
 
