@@ -37,13 +37,17 @@ export interface SystemToolCatalogEntry {
   readOnly: boolean | "input_dependent";
   destructive: boolean | "input_dependent";
   claudeCodeSource: string;
-  implementation: "pending";
+  implementation: "registered" | "catalog_only";
 }
 
-function entry(entry: Omit<SystemToolCatalogEntry, "implementation">): SystemToolCatalogEntry {
+function entry(
+  entry: Omit<SystemToolCatalogEntry, "implementation"> & {
+    implementation?: SystemToolCatalogEntry["implementation"];
+  },
+): SystemToolCatalogEntry {
   return {
     ...entry,
-    implementation: "pending",
+    implementation: entry.implementation ?? "catalog_only",
   };
 }
 
@@ -82,6 +86,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: "input_dependent",
     destructive: "input_dependent",
     claudeCodeSource: "claude-code-analysis/src/tools/BashTool",
+    implementation: "registered",
   }),
   entry({
     name: "PowerShell",
@@ -102,6 +107,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: true,
     destructive: false,
     claudeCodeSource: "claude-code-analysis/src/tools/GlobTool",
+    implementation: "registered",
   }),
   entry({
     name: "Grep",
@@ -112,6 +118,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: true,
     destructive: false,
     claudeCodeSource: "claude-code-analysis/src/tools/GrepTool",
+    implementation: "registered",
   }),
   entry({
     name: "Read",
@@ -122,6 +129,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: true,
     destructive: false,
     claudeCodeSource: "claude-code-analysis/src/tools/FileReadTool",
+    implementation: "registered",
   }),
   entry({
     name: "Edit",
@@ -132,6 +140,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: false,
     destructive: "input_dependent",
     claudeCodeSource: "claude-code-analysis/src/tools/FileEditTool",
+    implementation: "registered",
   }),
   entry({
     name: "Write",
@@ -142,6 +151,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: false,
     destructive: "input_dependent",
     claudeCodeSource: "claude-code-analysis/src/tools/FileWriteTool",
+    implementation: "registered",
   }),
   entry({
     name: "NotebookEdit",
@@ -162,6 +172,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: true,
     destructive: false,
     claudeCodeSource: "claude-code-analysis/src/tools/WebFetchTool",
+    implementation: "registered",
   }),
   entry({
     name: "WebSearch",
@@ -172,6 +183,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: true,
     destructive: false,
     claudeCodeSource: "claude-code-analysis/src/tools/WebSearchTool",
+    implementation: "registered",
   }),
   entry({
     name: "WebBrowser",
@@ -192,6 +204,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: false,
     destructive: false,
     claudeCodeSource: "claude-code-analysis/src/tools/TodoWriteTool",
+    implementation: "registered",
   }),
   entry({
     name: "TaskCreate",
@@ -483,6 +496,7 @@ export const CLAUDE_CODE_SYSTEM_TOOL_CATALOG = [
     readOnly: false,
     destructive: false,
     claudeCodeSource: "claude-code-analysis/src/tools/SleepTool",
+    implementation: "registered",
   }),
   entry({
     name: "Monitor",

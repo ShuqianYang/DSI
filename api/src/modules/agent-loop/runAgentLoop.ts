@@ -10,6 +10,7 @@ import {
 import { noopMemoryManager, type MemoryManager } from "./memoryManager.js";
 import { createModelClient, type ModelClient } from "./modelClient.js";
 import { defaultPromptManager, type PromptManager } from "./promptManager.js";
+import { safeJsonStringify, sanitizeForJson } from "./serialization.js";
 import { noopSkillManager, type SkillManager } from "./skillManager.js";
 import { callTool } from "./toolGateway.js";
 import { buildDefaultToolRegistry, type ToolRegistry } from "./toolRegistry.js";
@@ -26,11 +27,13 @@ import type {
   AgentLoopResult,
   GatewayToolCall,
   PromptSection,
+  ToolPermissionHandler,
   ToolObservation,
 } from "./types.js";
 
 const MAX_MODEL_TOOL_RESULT_CHARS = 50_000;
 const MODEL_TOOL_RESULT_PREVIEW_CHARS = 2_000;
+const DEFAULT_MAX_CONCURRENT_TOOL_CALLS = 5;
 
 export interface RunAgentLoopOptions {
   taskId: string;
@@ -44,6 +47,8 @@ export interface RunAgentLoopOptions {
   memoryManager?: MemoryManager;
   skillManager?: SkillManager;
   transcriptStore?: AgentTranscriptStore;
+  maxConcurrentToolCalls?: number;
+  permissionHandler?: ToolPermissionHandler;
   signal?: AbortSignal;
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
 }
@@ -84,6 +89,8 @@ export async function* runAgentLoopEvents(
   const memoryManager = options.memoryManager ?? noopMemoryManager;
   const skillManager = options.skillManager ?? noopSkillManager;
   const transcriptStore = options.transcriptStore ?? disabledTranscriptStore;
+  const maxConcurrentToolCalls =
+    options.maxConcurrentToolCalls ?? DEFAULT_MAX_CONCURRENT_TOOL_CALLS;
 
   const observations: ToolObservation[] = [];
   const conversationMessages: AgentMessage[] = [];
@@ -182,12 +189,14 @@ export async function* runAgentLoopEvents(
 
     const callId = `call-${turn}`;
     const skillSections = [...skillListingSections, ...skillDiscoverySections];
+    const runtimeSections = buildRuntimeToolStateSections(toolUseContext);
     const rawMessages = promptManager.buildMessages({
       query: options.query,
       tools: activeTools,
       userContext,
       systemContext,
       contextSections,
+      runtimeSections,
       memorySections,
       skillSections,
       observations,
@@ -341,7 +350,7 @@ export async function* runAgentLoopEvents(
       message: assistantMessage,
     };
 
-    const batches = partitionToolCalls(registry, decision.toolCalls);
+    const batches = partitionToolCalls(registry, decision.toolCalls, maxConcurrentToolCalls);
     for (const batch of batches) {
       const batchObservations = yield* executeToolBatch({
         taskId: options.taskId,
@@ -353,6 +362,7 @@ export async function* runAgentLoopEvents(
         observationsSnapshot: [...observations],
         allocateOrder: () => nextStepOrder++,
         signal: options.signal,
+        permissionHandler: options.permissionHandler,
         onToolProgress: options.onToolProgress,
         toolUseContext,
         usedToolSignatures,
@@ -437,12 +447,12 @@ function toolObservationToMessage(observation: ToolObservation): AgentMessage {
 }
 
 function serializeToolObservationForModel(observation: ToolObservation): string {
-  const content = JSON.stringify(observation);
+  const content = safeJsonStringify(observation);
   if (content.length <= MAX_MODEL_TOOL_RESULT_CHARS) {
     return content;
   }
 
-  return JSON.stringify({
+  return safeJsonStringify({
     toolCallId: observation.toolCallId,
     toolName: observation.toolName,
     ok: observation.ok,
@@ -473,6 +483,7 @@ function createAgentLoopToolUseContext(input: {
     },
     signal: input.signal,
     readFileState: new Map(),
+    todoState: [],
     nestedMemoryAttachmentTriggers: new Set(),
     dynamicSkillDirTriggers: new Set(),
     discoveredSkillNames: new Set(),
@@ -499,6 +510,34 @@ function updateAgentLoopToolUseContext(
       tools: refreshedTools,
     },
   };
+}
+
+function buildRuntimeToolStateSections(toolUseContext: AgentLoopToolUseContext): PromptSection[] {
+  const sections: PromptSection[] = [];
+
+  if (toolUseContext.todoState.length > 0) {
+    sections.push({
+      id: "tool_state.todos",
+      content: toolUseContext.todoState
+        .map((todo) => `- [${todo.status}] ${todo.content} (${todo.activeForm})`)
+        .join("\n"),
+    });
+  }
+
+  if (toolUseContext.planModeState?.enabled) {
+    sections.push({
+      id: "tool_state.plan_mode",
+      content: [
+        `enabled: ${toolUseContext.planModeState.enabled}`,
+        `updatedAt: ${toolUseContext.planModeState.updatedAt}`,
+        toolUseContext.planModeState.plan ? `plan:\n${toolUseContext.planModeState.plan}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+  }
+
+  return sections;
 }
 
 async function consumeMemoryPrefetchIfReady(input: {
@@ -541,13 +580,25 @@ type ToolCallBatch =
   | { type: "concurrent"; toolCalls: GatewayToolCall[] }
   | { type: "sequential"; toolCalls: [GatewayToolCall] };
 
-function partitionToolCalls(registry: ToolRegistry, toolCalls: GatewayToolCall[]): ToolCallBatch[] {
+function partitionToolCalls(
+  registry: ToolRegistry,
+  toolCalls: GatewayToolCall[],
+  maxConcurrentToolCalls: number,
+): ToolCallBatch[] {
   const batches: ToolCallBatch[] = [];
   let currentConcurrent: GatewayToolCall[] = [];
+  const concurrentLimit =
+    Number.isFinite(maxConcurrentToolCalls) && maxConcurrentToolCalls > 0
+      ? Math.max(1, Math.floor(maxConcurrentToolCalls))
+      : DEFAULT_MAX_CONCURRENT_TOOL_CALLS;
 
   for (const toolCall of toolCalls) {
     if (isConcurrencySafe(registry, toolCall)) {
       currentConcurrent.push(toolCall);
+      if (currentConcurrent.length >= concurrentLimit) {
+        batches.push({ type: "concurrent", toolCalls: currentConcurrent });
+        currentConcurrent = [];
+      }
       continue;
     }
 
@@ -589,6 +640,7 @@ async function* executeToolBatch(options: {
   observationsSnapshot: ToolObservation[];
   allocateOrder: () => number;
   signal?: AbortSignal;
+  permissionHandler?: ToolPermissionHandler;
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
   toolUseContext: AgentLoopToolUseContext;
   usedToolSignatures: Map<string, ToolObservation>;
@@ -603,6 +655,11 @@ async function* executeToolBatch(options: {
 
   if (options.concurrent) {
     const executions: Array<Promise<{ observation: ToolObservation; signature?: string }>> = [];
+    const inBatchExecutions = new Map<
+      string,
+      Promise<{ observation: ToolObservation; signature?: string }>
+    >();
+
     for (const toolCall of options.toolCalls) {
       yield toolCallEvent(options, toolCall);
       const signature = getReadOnlyToolSignature(options.registry, toolCall);
@@ -615,13 +672,26 @@ async function* executeToolBatch(options: {
         );
         continue;
       }
-      executions.push(
-        executeSingleToolCall({
+
+      const inBatchExecution = signature ? inBatchExecutions.get(signature) : undefined;
+      if (signature && inBatchExecution) {
+        executions.push(
+          inBatchExecution.then((item) => ({
+            observation: createDuplicateToolObservation(toolCall, item.observation),
+          }))
+        );
+        continue;
+      }
+
+      const execution = executeSingleToolCall({
           ...options,
           toolCall,
           order: options.allocateOrder(),
-        }).then((observation) => ({ observation, signature }))
-      );
+        }).then((observation) => ({ observation, signature }));
+      executions.push(execution);
+      if (signature) {
+        inBatchExecutions.set(signature, execution);
+      }
     }
     const completed = await Promise.all(executions);
     const observations = completed.map((item) => item.observation);
@@ -666,6 +736,7 @@ async function executeSingleToolCall(options: {
   order: number;
   observationsSnapshot: ToolObservation[];
   signal?: AbortSignal;
+  permissionHandler?: ToolPermissionHandler;
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
   toolUseContext: AgentLoopToolUseContext;
 }): Promise<ToolObservation> {
@@ -677,6 +748,7 @@ async function executeSingleToolCall(options: {
     query: options.query,
     observations: options.observationsSnapshot,
     signal: options.signal,
+    permissionHandler: options.permissionHandler,
     toolUseContext: options.toolUseContext,
     onProgress: (event) => {
       options.onToolProgress?.({
@@ -867,7 +939,7 @@ async function markToolStepCompleted(stepId: string, observation: ToolObservatio
     .update(taskSteps)
     .set({
       status: observation.ok ? "completed" : "failed",
-      result: { observation },
+      result: sanitizeForJson({ observation }),
       error: observation.error?.message,
       completedAt: new Date(),
     })

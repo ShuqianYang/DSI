@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { safeJsonStringify } from "./serialization.js";
 import type {
   AgentMessage,
   GatewayToolCall,
@@ -158,7 +159,7 @@ function toDeepSeekMessage(message: AgentMessage): DeepSeekMessage {
         type: "function",
         function: {
           name: toolCall.toolName,
-          arguments: JSON.stringify(toolCall.input),
+          arguments: safeJsonStringify(toolCall.input),
         },
       })),
     };

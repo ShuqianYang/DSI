@@ -11,6 +11,8 @@ export interface PromptManagerInput {
   systemContext: Record<string, string>;
   /** Project/task/domain context loaded by ContextProvider. */
   contextSections: PromptSection[];
+  /** Runtime state maintained by tool calls during this loop, such as TodoWrite. */
+  runtimeSections: PromptSection[];
   /** Memory sections collected/consumed by the loop so far. */
   memorySections: PromptSection[];
   /** Skill listing and discovery sections collected/consumed by the loop so far. */
@@ -41,26 +43,28 @@ export const defaultPromptManager: PromptManager = {
       ...recordToPromptSections("user_context", input.userContext),
       ...recordToPromptSections("system_context", input.systemContext),
       ...input.contextSections,
+      ...input.runtimeSections,
       ...input.memorySections,
       ...input.skillSections,
     ]
       .map((section) => `## ${section.id}\n${section.content}`)
       .join("\n\n");
 
-// *****************************************************************************************************************************************************************************
-// ********************* need to change ****************************************************************************************************************************************
     const system = [
-      "You are a minimal tool-using agent.",
-      "Use the provided tool calling interface when external information or workspace actions are needed.",
-      "Do not invent tool names or tool parameters. If a tool fails, use the observation to decide whether to retry, choose another tool, or answer with the limitation.",
-      "When you have enough information, answer the user directly in natural language.",
+      "You are a tool-using agent. Work through the tool protocol instead of writing visible ReAct labels.",
+      "Use tools when external information, workspace inspection, web lookup, or workspace actions are needed.",
+      "Do not invent tool names or tool parameters. Use only the available tool schemas.",
+      "After each tool result, decide whether the observation is sufficient, whether a different tool is needed, or whether you should answer with the limitation.",
+      "When existing observations are enough to answer, stop calling tools and provide the final answer.",
+      "Do not keep calling tools merely to be more exhaustive. Avoid repeating the same tool call with the same inputs.",
+      "For complex multi-step work, use TodoWrite to maintain a concise task checklist. Keep exactly one item in_progress while actively working.",
+      "Do not use TodoWrite for trivial one-step questions.",
+      "Do not expose full private chain-of-thought. Briefly state intent or progress when useful, then use tools or answer.",
       "",
       "Available tools:",
       toolList || "(none)",
       extraSections ? `\nAdditional context:\n${extraSections}` : "",
     ].join("\n");
-// *****************************************************************************************************************************************************************************
-// *****************************************************************************************************************************************************************************
 
     const messages: AgentMessage[] = [
       { role: "system", content: system },

@@ -1,22 +1,40 @@
 import "dotenv/config";
+import { createInterface } from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
 import { eq } from "drizzle-orm";
 import { db } from "../src/config/database.js";
 import { tasks } from "../src/db/schema.js";
 import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
 import { buildClaudeCodeBaseSystemTools } from "../src/modules/agent-loop/systemTools.js";
 import { ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
-import type { AgentLoopEvent, AgentMessage, ToolDefinition } from "../src/modules/agent-loop/types.js";
+import type {
+  AgentLoopEvent,
+  AgentMessage,
+  ToolPermissionHandler,
+} from "../src/modules/agent-loop/types.js";
 
 const DEFAULT_QUERY =
   "请用只读工具查看当前仓库的 api/src/modules/agent-loop 目录，概括有哪些核心文件。";
-const DEFAULT_TOOLS = ["Read", "Grep", "Glob"];
+const DEFAULT_TOOLS = [
+  "Bash",
+  "Glob",
+  "Grep",
+  "Read",
+  "Write",
+  "Edit",
+  "TodoWrite",
+  "Sleep",
+  "WebSearch",
+  "WebFetch",
+];
 const PREVIEW_CHARS = Number.parseInt(process.env.AGENT_LOOP_SMOKE_PREVIEW_CHARS ?? "8000", 10);
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const query = options.query || DEFAULT_QUERY;
-  const registry = buildReadOnlyRegistry(options.tools);
+  const registry = buildSelectedRegistry(options.tools);
   const taskId = await createSmokeTask(query);
+  const permissionHandler = createCliPermissionHandler();
 
   console.log(`[smoke] taskId=${taskId}`);
   console.log(`[smoke] query=${query}`);
@@ -30,6 +48,7 @@ async function main() {
       query,
       registry,
       maxTurns: options.maxTurns,
+      permissionHandler,
     })) {
       printEvent(event, options);
       if (event.type === "loop_stop") {
@@ -66,12 +85,11 @@ async function main() {
   }
 }
 
-function buildReadOnlyRegistry(names: string[]): ToolRegistry {
+function buildSelectedRegistry(names: string[]): ToolRegistry {
   const selected = new Set(names);
   const registry = new ToolRegistry();
   for (const tool of buildClaudeCodeBaseSystemTools()) {
     if (selected.has(tool.name)) {
-      assertReadOnlyTool(tool);
       registry.register(tool);
     }
   }
@@ -85,21 +103,6 @@ function buildReadOnlyRegistry(names: string[]): ToolRegistry {
   return registry;
 }
 
-function assertReadOnlyTool(tool: ToolDefinition): void {
-  if (!tool.isReadOnly) {
-    throw new Error(`Smoke runner refuses non-read-only tool: ${tool.name}`);
-  }
-  try {
-    if (tool.isReadOnly({}) === false) {
-      throw new Error(`Smoke runner refuses non-read-only tool: ${tool.name}`);
-    }
-  } catch {
-    if (tool.name !== "WebFetch") {
-      throw new Error(`Smoke runner could not verify read-only tool: ${tool.name}`);
-    }
-  }
-}
-
 async function createSmokeTask(query: string): Promise<string> {
   const [task] = await db
     .insert(tasks)
@@ -109,6 +112,25 @@ async function createSmokeTask(query: string): Promise<string> {
     })
     .returning({ id: tasks.id });
   return task.id;
+}
+
+function createCliPermissionHandler(): ToolPermissionHandler {
+  const readline = createInterface({ input, output });
+  return async (request) => {
+    if (!input.isTTY) {
+      console.log(
+        `[permission] ${request.toolName}: ${request.message} Non-interactive stdin; denying.`,
+      );
+      return "deny";
+    }
+
+    console.log("\n--- permission_required ---");
+    console.log(`tool=${request.toolName}`);
+    console.log(`message=${request.message}`);
+    console.log(`input=${preview(JSON.stringify(request.input, null, 2), 2_000)}`);
+    const answer = await readline.question("Allow this tool call? [y/N] ");
+    return answer.trim().toLowerCase() === "y" ? "allow" : "deny";
+  };
 }
 
 function printEvent(event: AgentLoopEvent, options: SmokeOptions): void {
@@ -248,9 +270,9 @@ function printHelpAndExit(): never {
 Options:
   -q, --query <text>       User query to run.
   --max-turns <n>          Max loop turns. Default: 6.
-  --tools <a,b,c>          Comma-separated read-only tools. Default: Read,Grep,Glob.
-  --with-webfetch          Add WebFetch to the read-only tools.
-  --with-websearch         Add WebSearch to the read-only tools.
+  --tools <a,b,c>          Comma-separated tools. Default: all system tools.
+  --with-webfetch          Add WebFetch to the selected tools.
+  --with-websearch         Add WebSearch to the selected tools.
   --verbose-tool-messages  Also print serialized tool messages.
 `);
   process.exit(0);

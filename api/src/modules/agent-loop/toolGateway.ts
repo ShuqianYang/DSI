@@ -1,9 +1,12 @@
 import type {
   GatewayToolCall,
   ToolExecutionContext,
+  ToolPermissionDecision,
   ToolObservation,
 } from "./types.js";
+import { decideDefaultToolPolicy } from "./toolPolicy.js";
 import type { ToolRegistry } from "./toolRegistry.js";
+import { safeJsonStringify, sanitizeForJson } from "./serialization.js";
 
 const DEFAULT_MAX_RESULT_SIZE_CHARS = 60_000;
 
@@ -68,30 +71,48 @@ export async function callTool(
   }
 
   try {
+    let sandboxReason: string | undefined;
     if (tool.checkPermissions) {
       const decision = await tool.checkPermissions(input, context);
       if (decision.updatedInput !== undefined) {
         input = decision.updatedInput;
       }
-      if (decision.behavior !== "allow") {
-        return {
-          toolCallId: toolCall.id,
-          toolName: toolCall.toolName,
-          ok: false,
-          error: {
-            code: decision.behavior === "ask" ? "permission_required" : "permission_denied",
-            message:
-              decision.message ??
-              (decision.behavior === "ask"
-                ? "Tool requires user permission before execution."
-                : "Tool execution was denied by permission policy."),
-          },
-        };
+      const observation = await handlePermissionDecision({
+        toolCall,
+        input,
+        decision,
+        context,
+      });
+      if (observation) return observation;
+      if (decision.behavior === "sandbox") {
+        sandboxReason = decision.message;
+      }
+    } else {
+      const defaultDecision = decideDefaultToolPolicy(tool, input, context);
+      if (defaultDecision.updatedInput !== undefined) {
+        input = defaultDecision.updatedInput;
+      }
+      const defaultObservation = await handlePermissionDecision({
+        toolCall,
+        input,
+        decision: defaultDecision,
+        context,
+      });
+      if (defaultObservation) return defaultObservation;
+      if (defaultDecision.behavior === "sandbox") {
+        sandboxReason = defaultDecision.message;
       }
     }
 
     const output = await tool.execute(input, {
       ...context,
+      sandbox: sandboxReason
+        ? {
+            enabled: true,
+            kind: "portable",
+            reason: sandboxReason,
+          }
+        : context.sandbox,
       onProgress: (event) =>
         context.onProgress?.({
           ...event,
@@ -120,22 +141,72 @@ export async function callTool(
   }
 }
 
+async function handlePermissionDecision(input: {
+  toolCall: GatewayToolCall;
+  input: unknown;
+  decision: ToolPermissionDecision;
+  context: ToolExecutionContext;
+}): Promise<ToolObservation | undefined> {
+  const { decision, toolCall, context } = input;
+  if (decision.behavior === "allow" || decision.behavior === "sandbox") {
+    return undefined;
+  }
+
+  if (decision.behavior === "ask" && context.permissionHandler) {
+    let answer;
+    try {
+      answer = await context.permissionHandler({
+        toolName: toolCall.toolName,
+        input: input.input,
+        behavior: "ask",
+        message: decision.message ?? "Tool requires user permission before execution.",
+      });
+    } catch (error) {
+      return {
+        toolCallId: toolCall.id,
+        toolName: toolCall.toolName,
+        ok: false,
+        error: {
+          code: "permission_handler_error",
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+    if (answer === "allow") return undefined;
+    return {
+      toolCallId: toolCall.id,
+      toolName: toolCall.toolName,
+      ok: false,
+      error: {
+        code: "permission_denied",
+        message: decision.message ?? "Tool execution was denied by user.",
+      },
+    };
+  }
+
+  return {
+    toolCallId: toolCall.id,
+    toolName: toolCall.toolName,
+    ok: false,
+    error: {
+      code: decision.behavior === "ask" ? "permission_required" : "permission_denied",
+      message:
+        decision.message ??
+        (decision.behavior === "ask"
+          ? "Tool requires user permission before execution."
+          : "Tool execution was denied by permission policy."),
+    },
+  };
+}
+
 function applyResultBudget(output: unknown, maxChars = DEFAULT_MAX_RESULT_SIZE_CHARS): unknown {
   if (!Number.isFinite(maxChars) || maxChars <= 0 || output === undefined) {
     return output;
   }
 
-  let serialized: string | undefined;
-  try {
-    serialized = typeof output === "string" ? output : JSON.stringify(output);
-  } catch {
-    serialized = String(output);
-  }
-  if (serialized === undefined) {
-    return output;
-  }
+  const serialized = typeof output === "string" ? output : safeJsonStringify(output);
   if (serialized.length <= maxChars) {
-    return output;
+    return typeof output === "string" ? output : sanitizeForJson(output);
   }
 
   return {

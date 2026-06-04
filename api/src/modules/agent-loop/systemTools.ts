@@ -1,10 +1,10 @@
 import { exec as execCallback, execFile as execFileCallback } from "node:child_process";
-import { access, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { constants, existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
-import type { ToolDefinition } from "./types.js";
+import type { AgentTodoItem, ToolDefinition } from "./types.js";
 import type { ToolRegistry } from "./toolRegistry.js";
 
 const exec = promisify(execCallback);
@@ -13,8 +13,28 @@ const execFile = promisify(execFileCallback);
 const MAX_READ_BYTES = 200_000;
 const MAX_TOOL_OUTPUT_CHARS = 60_000;
 const MAX_GLOB_RESULTS = 100;
+const MAX_NODE_FALLBACK_REGEX_PATTERN_CHARS = 500;
 const DEFAULT_GREP_HEAD_LIMIT = 250;
 const GLOB_SKIP_DIR_NAMES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage"]);
+const DENIED_BASH_COMMANDS = new Set([
+  "rm",
+  "rmdir",
+  "mv",
+  "cp",
+  "chmod",
+  "chown",
+  "sudo",
+  "su",
+  "kill",
+  "pkill",
+  "killall",
+  "dd",
+  "mkfs",
+  "mount",
+  "umount",
+  "ssh",
+  "scp",
+]);
 const WEBFETCH_TIMEOUT_MS = parsePositiveIntegerEnv(process.env.WEBFETCH_TIMEOUT_MS, 30_000);
 const WEBFETCH_DEFAULT_MAX_CHARS = parsePositiveIntegerEnv(
   process.env.WEBFETCH_MAX_CHARS,
@@ -38,6 +58,8 @@ export function buildClaudeCodeBaseSystemTools(): ToolDefinition[] {
     buildReadTool(),
     buildWriteTool(),
     buildEditTool(),
+    buildTodoWriteTool(),
+    buildSleepTool(),
     buildWebSearchTool(),
     buildWebFetchTool(),
   ];
@@ -55,11 +77,39 @@ function buildBashTool(): ToolDefinition {
       timeout_ms: z.number().int().positive().max(120_000).optional(),
       description: z.string().optional(),
     }),
-    isReadOnly: () => false,
+    isReadOnly: (input) => {
+      const command = (input as { command?: unknown }).command;
+      return typeof command === "string" && classifyBashCommand(command).readOnly;
+    },
     isDestructive: () => true,
     isConcurrencySafe: () => false,
     riskLevel: "high",
     maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
+    async validateInput(input) {
+      const parsed = input as {
+        command: string;
+        cwd?: string;
+      };
+      const cwd = parsed.cwd ? resolveWorkspacePath(parsed.cwd) : getWorkspaceRoot();
+      await assertDirectory(cwd);
+    },
+    checkPermissions(input) {
+      const parsed = input as {
+        command: string;
+      };
+      const classification = classifyBashCommand(parsed.command);
+      if (!classification.allowed) {
+        return {
+          behavior: "deny",
+          message: `Bash command denied by workspace policy: ${classification.reason}`,
+        };
+      }
+      return {
+        behavior: "sandbox",
+        message:
+          "Bash commands run in the portable workspace sandbox by default. This MVP enforces workspace cwd, restricted env, timeout/output limits, and command policy checks.",
+      };
+    },
     async execute(input, context) {
       const parsed = input as {
         command: string;
@@ -68,10 +118,12 @@ function buildBashTool(): ToolDefinition {
       };
       const cwd = parsed.cwd ? resolveWorkspacePath(parsed.cwd) : getWorkspaceRoot();
       await assertDirectory(cwd);
+      const sandboxEnabled = context.sandbox?.enabled === true;
 
       try {
         const result = await exec(parsed.command, {
           cwd,
+          env: sandboxEnabled ? buildPortableSandboxEnv(cwd) : process.env,
           timeout: parsed.timeout_ms ?? 30_000,
           maxBuffer: MAX_TOOL_OUTPUT_CHARS * 4,
           signal: context.signal,
@@ -79,6 +131,13 @@ function buildBashTool(): ToolDefinition {
         return {
           command: parsed.command,
           cwd: toWorkspaceRelative(cwd),
+          sandbox: sandboxEnabled
+            ? {
+                enabled: true,
+                kind: context.sandbox?.kind ?? "portable",
+                reason: context.sandbox?.reason,
+              }
+            : { enabled: false },
           exitCode: 0,
           stdout: truncate(result.stdout, MAX_TOOL_OUTPUT_CHARS),
           stderr: truncate(result.stderr, MAX_TOOL_OUTPUT_CHARS),
@@ -94,6 +153,13 @@ function buildBashTool(): ToolDefinition {
         const output = {
           command: parsed.command,
           cwd: toWorkspaceRelative(cwd),
+          sandbox: sandboxEnabled
+            ? {
+                enabled: true,
+                kind: context.sandbox?.kind ?? "portable",
+                reason: context.sandbox?.reason,
+              }
+            : { enabled: false },
           exitCode: execError.code ?? null,
           signal: execError.signal ?? null,
           stdout: truncate(execError.stdout ?? "", MAX_TOOL_OUTPUT_CHARS),
@@ -216,13 +282,30 @@ function buildGrepTool(): ToolDefinition {
 
       const outputMode = parsed.output_mode ?? "files_with_matches";
       const args = buildGrepArgs(parsed, outputMode, target);
-      const result = await runRg(args, cwd, [0, 1]);
-      const lines = result.stdout.split("\n").filter(Boolean);
+      let source: "ripgrep" | "node_fallback" = "ripgrep";
+      let rawOutput: string;
+      try {
+        const result = await runRg(args, cwd, [0, 1]);
+        rawOutput = result.stdout;
+      } catch (error) {
+        if (!isMissingRipgrepError(error)) throw error;
+        source = "node_fallback";
+        rawOutput = await grepFilesWithNode({
+          target,
+          pattern: parsed.pattern,
+          glob: parsed.glob,
+          outputMode,
+          ignoreCase: parsed["-i"] === true,
+          includeLineNumber: outputMode === "content" && parsed["-n"] !== false,
+        });
+      }
+      const lines = rawOutput.split("\n").filter(Boolean);
       const offset = parsed.offset ?? 0;
       const headLimit = parsed.head_limit ?? DEFAULT_GREP_HEAD_LIMIT;
       const selected = headLimit === 0 ? lines.slice(offset) : lines.slice(offset, offset + headLimit);
 
       return {
+        source,
         mode: outputMode,
         totalLines: lines.length,
         offset,
@@ -254,6 +337,7 @@ function buildReadTool(): ToolDefinition {
       const parsed = input as { file_path: string; offset?: number; limit?: number };
       const filePath = resolveWorkspacePath(parsed.file_path);
       const fileStat = await stat(filePath);
+      await assertExistingPathInsideWorkspace(filePath);
       if (!fileStat.isFile()) {
         throw new Error(`Path is not a file: ${parsed.file_path}`);
       }
@@ -312,7 +396,7 @@ function buildWriteTool(): ToolDefinition {
     async execute(input) {
       const parsed = input as { file_path: string; content: string };
       const filePath = resolveWorkspacePath(parsed.file_path);
-      assertWritableWorkspacePath(filePath);
+      await assertWritableWorkspacePath(filePath);
       await mkdir(path.dirname(filePath), { recursive: true });
       await writeFile(filePath, parsed.content, "utf8");
       return {
@@ -357,7 +441,7 @@ function buildEditTool(): ToolDefinition {
         replace_all?: boolean;
       };
       const filePath = resolveWorkspacePath(parsed.file_path);
-      assertWritableWorkspacePath(filePath);
+      await assertWritableWorkspacePath(filePath);
       const content = await readFile(filePath, "utf8");
       const matches = countOccurrences(content, parsed.old_string);
 
@@ -376,6 +460,77 @@ function buildEditTool(): ToolDefinition {
       return {
         filePath: toWorkspaceRelative(filePath),
         replacements: parsed.replace_all ? matches : 1,
+      };
+    },
+  };
+}
+
+function buildTodoWriteTool(): ToolDefinition {
+  return {
+    name: "TodoWrite",
+    description:
+      'Update the session todo list. Input: {"todos":[{"content":"...","status":"pending|in_progress|completed","activeForm":"Working on ..."}]}.',
+    kind: "system",
+    inputSchema: z.strictObject({
+      todos: z.array(
+        z.strictObject({
+          content: z.string().min(1, "Content cannot be empty"),
+          status: z.enum(["pending", "in_progress", "completed"]),
+          activeForm: z.string().min(1, "Active form cannot be empty"),
+        }),
+      ),
+    }),
+    isReadOnly: () => false,
+    isDestructive: () => false,
+    isConcurrencySafe: () => false,
+    riskLevel: "low",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
+    checkPermissions(input) {
+      return { behavior: "allow", updatedInput: input };
+    },
+    async execute(input, context) {
+      const parsed = input as { todos: AgentTodoItem[] };
+      const oldTodos = [...(context.toolUseContext?.todoState ?? [])];
+      const allDone = parsed.todos.every((todo) => todo.status === "completed");
+      const newTodos = allDone ? [] : parsed.todos;
+      if (context.toolUseContext) {
+        context.toolUseContext.todoState = newTodos;
+      }
+
+      return {
+        oldTodos,
+        newTodos: parsed.todos,
+        storedTodos: newTodos,
+        message:
+          "Todos have been modified successfully. Continue to use the todo list to track current progress.",
+      };
+    },
+  };
+}
+
+function buildSleepTool(): ToolDefinition {
+  return {
+    name: "Sleep",
+    description:
+      'Wait for a short duration without holding a shell process. Input: {"duration_ms":1000}.',
+    kind: "system",
+    inputSchema: z.strictObject({
+      duration_ms: z.number().int().min(0).max(30_000),
+      reason: z.string().optional(),
+    }),
+    isReadOnly: () => false,
+    isDestructive: () => false,
+    isConcurrencySafe: () => true,
+    riskLevel: "low",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
+    async execute(input, context) {
+      const parsed = input as { duration_ms: number; reason?: string };
+      const startedAt = Date.now();
+      await sleep(parsed.duration_ms, context.signal);
+      return {
+        sleptMs: Date.now() - startedAt,
+        requestedMs: parsed.duration_ms,
+        reason: parsed.reason,
       };
     },
   };
@@ -635,6 +790,100 @@ async function globFilesWithNode(
   return results;
 }
 
+async function grepFilesWithNode(input: {
+  target: string;
+  pattern: string;
+  glob?: string;
+  outputMode: "content" | "files_with_matches" | "count";
+  ignoreCase: boolean;
+  includeLineNumber: boolean;
+}): Promise<string> {
+  const matcher = buildSearchRegExp(input.pattern, input.ignoreCase);
+  const files = await collectSearchFiles(input.target, input.glob);
+  const output: string[] = [];
+
+  for (const filePath of files) {
+    let content: string;
+    try {
+      const fileStat = await stat(filePath);
+      if (!fileStat.isFile() || fileStat.size > MAX_READ_BYTES) continue;
+      content = await readFile(filePath, "utf8");
+    } catch {
+      continue;
+    }
+
+    const lines = content.split(/\r?\n/);
+    const matches: string[] = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      matcher.lastIndex = 0;
+      if (!matcher.test(lines[index]!)) continue;
+
+      if (input.outputMode === "files_with_matches") {
+        matches.push(toWorkspaceRelative(filePath));
+        break;
+      }
+      if (input.outputMode === "count") {
+        matches.push(lines[index]!);
+        continue;
+      }
+
+      const prefix = input.includeLineNumber
+        ? `${toWorkspaceRelative(filePath)}:${index + 1}:`
+        : `${toWorkspaceRelative(filePath)}:`;
+      matches.push(`${prefix}${lines[index]}`);
+    }
+
+    if (input.outputMode === "count" && matches.length > 0) {
+      output.push(`${toWorkspaceRelative(filePath)}:${matches.length}`);
+    } else {
+      output.push(...matches);
+    }
+
+    if (output.join("\n").length > MAX_TOOL_OUTPUT_CHARS * 2) break;
+  }
+
+  return output.join("\n");
+}
+
+async function collectSearchFiles(target: string, glob?: string): Promise<string[]> {
+  const targetStat = await stat(target);
+  if (targetStat.isFile()) {
+    return glob && !matchesGlobPattern(toWorkspaceRelative(target), normalizeGlobPath(glob))
+      ? []
+      : [target];
+  }
+  if (!targetStat.isDirectory()) return [];
+
+  const relativeFiles = await globFilesWithNode(
+    target,
+    glob ? normalizeGlobPath(glob) : "**/*",
+    MAX_GLOB_RESULTS * 20,
+  );
+  return relativeFiles.map((relativePath) => path.join(target, relativePath));
+}
+
+function buildSearchRegExp(pattern: string, ignoreCase: boolean): RegExp {
+  assertSafeNodeFallbackRegex(pattern);
+  try {
+    return new RegExp(pattern, ignoreCase ? "iu" : "u");
+  } catch {
+    return new RegExp(escapeRegExp(pattern), ignoreCase ? "iu" : "u");
+  }
+}
+
+function assertSafeNodeFallbackRegex(pattern: string): void {
+  if (pattern.length > MAX_NODE_FALLBACK_REGEX_PATTERN_CHARS) {
+    throw new Error(
+      `Grep pattern is too long for the Node fallback regex engine (${pattern.length} chars, max ${MAX_NODE_FALLBACK_REGEX_PATTERN_CHARS}).`,
+    );
+  }
+  if (/[+*?}]\s*[+*?{]/.test(pattern) || /\([^)]*[+*][^)]*\)\s*[+*{]/.test(pattern)) {
+    throw new Error(
+      "Grep pattern is too complex for the Node fallback regex engine. Install ripgrep or use a simpler literal pattern.",
+    );
+  }
+}
+
 function normalizeGlobPath(input: string): string {
   return input.replace(/\\/g, "/").replace(/^\.\//, "");
 }
@@ -679,6 +928,174 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function classifyBashCommand(command: string): {
+  allowed: boolean;
+  readOnly: boolean;
+  reason?: string;
+} {
+  const trimmed = command.trim();
+  if (!trimmed) return { allowed: false, readOnly: false, reason: "empty command" };
+
+  const hardDenyReason = getHardDeniedBashReason(trimmed);
+  if (hardDenyReason) return { allowed: false, readOnly: false, reason: hardDenyReason };
+
+  const pathDenyReason = getOutsideWorkspacePathReason(trimmed);
+  if (pathDenyReason) return { allowed: false, readOnly: false, reason: pathDenyReason };
+
+  const commandNames = extractBashCommandNames(trimmed);
+  const readOnly =
+    commandNames.length > 0 &&
+    commandNames.every((name) =>
+      [
+        "pwd",
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "grep",
+        "rg",
+        "find",
+        "git",
+        "diff",
+        "test",
+        "[",
+        "echo",
+        "sed",
+      ].includes(name),
+    ) &&
+    !/\bsed\s+(-[^\s]*i|--in-place)\b/.test(trimmed) &&
+    !/\bgit\s+(add|commit|push|reset|checkout|clean|merge|rebase|pull|switch|restore|tag)\b/.test(
+      trimmed,
+    );
+
+  return { allowed: true, readOnly };
+}
+
+function getHardDeniedBashReason(command: string): string | undefined {
+  if (/`/.test(command)) {
+    return "backtick command substitution is not allowed";
+  }
+  if (/\$\s*\(/.test(command)) {
+    return "command substitution with $() is not allowed";
+  }
+  if (/(^|[^<])>>?|&>|2>/.test(command)) {
+    return "shell output redirection is not allowed; use Write/Edit for file changes";
+  }
+  if (/<<-?/.test(command)) {
+    return "heredoc shell input is not allowed";
+  }
+  if (/\b(?:curl|wget)\b[\s\S]*\|[\s\S]*\b(?:sh|bash|zsh|python|node|ruby|perl)\b/i.test(command)) {
+    return "piping downloaded content into an interpreter is not allowed";
+  }
+  if (/\b(?:npm|pnpm|yarn|bun)\s+(?:install|add|remove|update|upgrade|dlx|create)\b/.test(command)) {
+    return "package mutation commands are not allowed from Bash";
+  }
+  if (/\b(?:pip|pip3|uv)\s+(?:install|uninstall|sync|add|remove)\b/.test(command)) {
+    return "Python package mutation commands are not allowed from Bash";
+  }
+  if (/\bgit\s+(?:push|commit|reset|checkout|clean|merge|rebase|pull|switch|restore|tag)\b/.test(command)) {
+    return "git mutation commands are not allowed from Bash";
+  }
+  if (/\bsed\s+(-[^\s]*i|--in-place)\b/.test(command)) {
+    return "in-place sed edits are not allowed; use Edit instead";
+  }
+
+  const deniedCommand = extractBashCommandNames(command).find((name) =>
+    DENIED_BASH_COMMANDS.has(name),
+  );
+  if (deniedCommand) return `command '${deniedCommand}' is not allowed`;
+
+  return undefined;
+}
+
+function getOutsideWorkspacePathReason(command: string): string | undefined {
+  const root = getWorkspaceRoot();
+  for (const token of tokenizeShellLike(command)) {
+    const value = token.replace(/^["']|["']$/g, "");
+    if (!value.startsWith("/") || value.startsWith("//")) continue;
+    if (/^https?:\/\//i.test(value)) continue;
+
+    const normalized = path.resolve(value);
+    const relative = path.relative(root, normalized);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      return `absolute path outside workspace is not allowed: ${value}`;
+    }
+  }
+  return undefined;
+}
+
+function extractBashCommandNames(command: string): string[] {
+  const segments = command
+    .split(/&&|\|\||[;|]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  return segments
+    .map((segment) => {
+      const token = tokenizeShellLike(segment).find((part) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(part));
+      if (!token) return "";
+      return path.basename(token.replace(/^["']|["']$/g, ""));
+    })
+    .filter(Boolean);
+}
+
+function tokenizeShellLike(command: string): string[] {
+  return command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+}
+
+function buildPortableSandboxEnv(cwd: string): NodeJS.ProcessEnv {
+  const allowedNames = [
+    "PATH",
+    "Path",
+    "PATHEXT",
+    "SystemRoot",
+    "ComSpec",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "HOME",
+    "USERPROFILE",
+    "LANG",
+    "LC_ALL",
+  ];
+  const env: NodeJS.ProcessEnv = {};
+
+  for (const name of allowedNames) {
+    const value = process.env[name];
+    if (value !== undefined) {
+      env[name] = value;
+    }
+  }
+
+  env.AGENT_WORKSPACE_ROOT = getWorkspaceRoot();
+  env.PWD = cwd;
+  return env;
+}
+
+function sleep(durationMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new Error(formatAbortReason(signal.reason)));
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, durationMs);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new Error(formatAbortReason(signal.reason)));
+      },
+      { once: true },
+    );
+  });
+}
+
+function formatAbortReason(reason: unknown): string {
+  return typeof reason === "string" && reason.trim()
+    ? `Tool execution aborted: ${reason}`
+    : "Tool execution aborted.";
+}
+
 function getWorkspaceRoot(): string {
   const configured = process.env.AGENT_WORKSPACE_ROOT;
   if (configured) return path.resolve(configured);
@@ -707,16 +1124,22 @@ function resolveWorkspacePath(inputPath: string): string {
   return resolved;
 }
 
-function assertWritableWorkspacePath(filePath: string): void {
+async function assertWritableWorkspacePath(filePath: string): Promise<void> {
   const relative = path.relative(getWorkspaceRoot(), filePath);
   const parts = relative.split(path.sep);
   if (parts.includes(".git")) {
     throw new Error("Refusing to write inside .git.");
   }
+  if (existsSync(filePath)) {
+    await assertExistingPathInsideWorkspace(filePath);
+  } else {
+    await assertParentPathInsideWorkspace(filePath);
+  }
 }
 
 async function assertDirectory(filePath: string): Promise<void> {
   const fileStat = await stat(filePath);
+  await assertExistingPathInsideWorkspace(filePath);
   if (!fileStat.isDirectory()) {
     throw new Error(`Path is not a directory: ${toWorkspaceRelative(filePath)}`);
   }
@@ -724,6 +1147,38 @@ async function assertDirectory(filePath: string): Promise<void> {
 
 async function assertExists(filePath: string): Promise<void> {
   await access(filePath, constants.F_OK);
+  await assertExistingPathInsideWorkspace(filePath);
+}
+
+async function assertExistingPathInsideWorkspace(filePath: string): Promise<void> {
+  const [rootRealPath, targetRealPath] = await Promise.all([
+    realpath(getWorkspaceRoot()),
+    realpath(filePath),
+  ]);
+  assertPathInsideRoot(targetRealPath, rootRealPath, filePath);
+}
+
+async function assertParentPathInsideWorkspace(filePath: string): Promise<void> {
+  const rootRealPath = await realpath(getWorkspaceRoot());
+  let current = path.dirname(filePath);
+
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error(`No existing parent directory for path: ${filePath}`);
+    }
+    current = parent;
+  }
+
+  const parentRealPath = await realpath(current);
+  assertPathInsideRoot(parentRealPath, rootRealPath, filePath);
+}
+
+function assertPathInsideRoot(targetPath: string, rootPath: string, originalPath: string): void {
+  const relative = path.relative(rootPath, targetPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Path escapes workspace root: ${originalPath}`);
+  }
 }
 
 function toWorkspaceRelative(filePath: string): string {

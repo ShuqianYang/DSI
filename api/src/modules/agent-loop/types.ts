@@ -36,17 +36,36 @@ export interface ToolExecutionContext {
   signal?: AbortSignal;
   onProgress?: (event: ToolProgressEvent) => void;
   toolUseContext?: AgentLoopToolUseContext;
+  permissionHandler?: ToolPermissionHandler;
+  sandbox?: {
+    enabled: boolean;
+    kind: "portable";
+    reason?: string;
+  };
 }
 
 export type ToolKind = "system" | "skill" | "mcp";
 export type ToolRiskLevel = "low" | "medium" | "high";
-export type ToolPermissionBehavior = "allow" | "deny" | "ask";
+export type ToolPermissionBehavior = "allow" | "deny" | "ask" | "sandbox";
 
 export interface ToolPermissionDecision<Input = unknown> {
   behavior: ToolPermissionBehavior;
   message?: string;
   updatedInput?: Input;
 }
+
+export interface ToolPermissionRequest<Input = unknown> {
+  toolName: string;
+  input: Input;
+  behavior: "ask";
+  message: string;
+}
+
+export type ToolPermissionAnswer = "allow" | "deny";
+
+export type ToolPermissionHandler = <Input = unknown>(
+  request: ToolPermissionRequest<Input>
+) => Promise<ToolPermissionAnswer> | ToolPermissionAnswer;
 
 export interface ToolProgressEvent {
   toolCallId?: string;
@@ -131,9 +150,21 @@ export interface AgentLoopToolUseContext {
   };
   signal?: AbortSignal;
   readFileState: Map<string, unknown>;
+  todoState: AgentTodoItem[];
+  planModeState?: {
+    enabled: boolean;
+    plan?: string;
+    updatedAt: string;
+  };
   nestedMemoryAttachmentTriggers: Set<string>;
   dynamicSkillDirTriggers: Set<string>;
   discoveredSkillNames: Set<string>;
+}
+
+export interface AgentTodoItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  activeForm: string;
 }
 
 export interface PreparedModelMessages {

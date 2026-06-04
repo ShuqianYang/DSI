@@ -54,7 +54,6 @@ printf "请查询北京今天的天气，并用中文给出：\n1. 当前天气�
 
 ```bash
 node_modules/.bin/tsx scripts/agent-loop-smoke.ts \
-  --with-websearch \
   --query "请先读取 tmp/agent-loop-question.txt 里的问题，然后完成文件中要求的任务" \
   --max-turns 6
 ```
@@ -63,26 +62,44 @@ node_modules/.bin/tsx scripts/agent-loop-smoke.ts \
 
 ### 开放 tool 的方式
 
-当前 smoke runner 默认只开放只读文件工具：
+当前 smoke runner 默认开放全部 system tools：
 
 ```ts
-const DEFAULT_TOOLS = ["Read", "Grep", "Glob"];
+const DEFAULT_TOOLS = [
+  "Bash",
+  "Glob",
+  "Grep",
+  "Read",
+  "Write",
+  "Edit",
+  "TodoWrite",
+  "Sleep",
+  "WebSearch",
+  "WebFetch",
+];
 ```
 
-临时追加搜索/抓取工具：
+默认全开放不代表裸执行；所有 tool call 都会经过 `ToolGateway` / `ToolPolicy`：
 
-```bash
-node_modules/.bin/tsx scripts/agent-loop-smoke.ts --with-websearch --query "..."
-node_modules/.bin/tsx scripts/agent-loop-smoke.ts --with-webfetch --query "..."
-```
+- `allow`：直接执行。
+- `deny`：直接拒绝。
+- `sandbox`：优先以 portable sandbox MVP 执行。
+- `ask`：smoke runner 在终端询问 `[y/N]`，输入 `y` 执行，其他输入拒绝。
 
-直接指定工具集合：
+收窄工具集合：
 
 ```bash
 node_modules/.bin/tsx scripts/agent-loop-smoke.ts --tools Read,WebSearch --query "..."
 ```
 
-注意：smoke runner 会拒绝非只读工具，避免测试时误开放 `Write` / `Edit` / `Bash` 等高风险能力。
+`--with-websearch` / `--with-webfetch` 仍保留为兼容参数；在默认全开时通常不需要。
+
+### 权限策略位置
+
+- 默认策略：`api/src/modules/agent-loop/toolPolicy.ts`
+- 策略执行入口：`api/src/modules/agent-loop/toolGateway.ts`
+- Bash cwd 校验与命令权限判断：`api/src/modules/agent-loop/systemTools.ts`
+- ask y/n handler：`api/scripts/agent-loop-smoke.ts`
 
 ### 在哪里改开放工具
 
@@ -94,11 +111,104 @@ node_modules/.bin/tsx scripts/agent-loop-smoke.ts --tools Read,WebSearch --query
 
 ### 下一步要补的测试项
 
-- [ ] 把 txt 文件测试写成固定 smoke case，避免手工准备文件。
-- [ ] 明确 `Read` 相对路径基准，并让 smoke runner 与 `ContextProvider.systemContext.workspaceRoot` 保持一致。
-- [ ] 增加 `Read + WebSearch` 的断言：至少出现一次 `Read`、一次 `WebSearch`，并以 `final_answer` 停止。
-- [ ] 增加 `WebSearch` 结果源质量测试，检查来源数量、URL、摘要和日期字段是否进入 observation。
-- [ ] 增加工具开放策略测试，确保 smoke runner 默认不会注册非只读工具。
+- [x] 把 txt 文件测试写成固定 smoke case，避免手工准备文件。
+- [x] 明确 `Read` 相对路径基准，并让 smoke runner 与 `ContextProvider.systemContext.workspaceRoot` 保持一致。
+- [x] 增加 `Read + WebSearch` 的断言：至少出现一次 `Read`、一次 `WebSearch`，并以 `final_answer` 停止。
+- [x] 增加 `WebSearch` 结果源质量测试，检查来源数量、URL、摘要和日期字段是否进入 observation。
+- [x] 增加工具策略测试，确保默认全工具注册时 `allow/deny/sandbox/ask` 行为正确。
+
+已完成的测试套件：
+
+- `agent:smoke` — 端到端冒烟测试（需真实模型）
+- `agent:edge` — 19 个边界 case（mock model）
+- `agent:extra` — 8 个额外 case：AbortSignal、Bash sandbox、Sleep 取消、Write 边界、Edit 恢复、无效参数、并发 batch 拆分、Read offset 边界
+
+## 1. Tool safety boundary
+
+目标：做到“受控可执行”，不实现 Claude Code 完整 sandbox / approval 系统。
+
+当前已实现：
+
+- `ToolPolicy` MVP：`allow` 直接执行，`deny` 直接拒绝，`sandbox` 优先执行，`ask` 交给 `permissionHandler`。
+- 文件类工具统一以 `AGENT_WORKSPACE_ROOT` 为根做路径解析。
+- `Read` / `Glob` / `Grep` / `Write` / `Edit` 会拒绝逃逸 workspace 的路径。
+- 已补真实路径检查：symlink 指向 workspace 外时会拒绝，不只做字符串路径判断。
+- `Write` / `Edit` 拒绝写入 `.git`，且覆盖已有 symlink 文件时会检查真实目标仍在 workspace 内。
+- `Bash.cwd` 必须在 workspace 内。
+- `Bash.validateInput` 只校验 `cwd` 是否在 workspace 内；命令安全由 `Bash.checkPermissions` 判断。
+- `Bash.checkPermissions` 对明显危险命令返回 `deny`，由 `ToolGateway` 转成 `permission_denied`：
+  - `rm` / `rmdir` / `mv` / `cp` / `chmod` / `chown` / `sudo` / `kill` / `dd` 等。
+  - `git push/reset/checkout/clean/commit/merge/rebase/pull/...` 等 git mutation。
+  - `npm/pnpm/yarn/bun install/add/remove/update/...` 等包管理 mutation。
+  - `pip install/uninstall` 等 Python 包 mutation。
+  - shell 输出重定向、heredoc、`curl|sh` / `wget|bash` 这类下载即执行。
+  - Bash 命令参数中的 workspace 外绝对路径，例如 `/etc/passwd`。
+- `Bash.isReadOnly(input)` 保守识别 `pwd/ls/cat/head/tail/wc/grep/rg/find/git/diff/test/echo/sed` 等读命令，仅用于 read-only 判断；未知命令不会被标记为 read-only。
+- `Bash` 默认走 portable sandbox MVP：
+  - 强制 workspace cwd。
+  - 使用受限 env 白名单，避免把 API key / DB URL 直接暴露给 shell。
+  - 保留 timeout、输出预算、危险命令拦截。
+  - 该 MVP 可在 macOS / Linux / Windows 上运行，但不是 OS 级隔离。
+- `Write` / `Edit` 默认走 `ask`；smoke runner 会在 CLI 中询问 `[y/N]`。
+- 主 loop 对并发 tool batch 有默认上限 `5`，避免一轮内同时打出过多 `Read` / `Grep` / `Glob`。
+- 同一 concurrent batch 内的重复只读 tool call 会提前去重，只执行第一个，其余返回 duplicate observation。
+- `task_steps` 已作为第一版审计日志，记录 tool 参数、执行状态、结果和错误。
+
+已覆盖 edge-case：
+
+- `bash-policy-readonly`
+- `bash-policy-deny-outside-path`
+- `bash-policy-deny-dangerous`
+- `bash-policy-deny-command-substitution`
+- `bash-exit-code`
+- `ask-policy-deny-write`
+- `permission-handler-error`
+- `dedup-read-only-concurrent`
+- `circular-reference-output`
+- `concurrent-batch-limit`
+- `grep-large-output`
+- `abort-signal` — AbortSignal 触发后主 loop 干净停止
+- `bash-sandbox-env` — sandbox 下敏感 env 变量不泄漏
+- `sleep-signal-cancel` — Sleep 中被取消正常退出
+- `write-boundary` — Write 拒绝 workspace 外路径
+- `edit-mismatch` — old_string 不匹配时模型可恢复
+- `invalid-tool-args` — 模型返回异常/无效参数被 Zod 拒绝
+- `concurrent-batch-split` — 超过并发上限时正确拆 batch
+- `read-offset-boundary` — offset 超出文件长度返回空内容
+
+后续暂不做 / 待做：
+
+- [ ] 不做完整 shell AST 解析；当前只做轻量 token/regex 分类，复杂 shell 语义后续再补。
+- [ ] 服务端/前端审批流未接入；当前只有 smoke runner CLI y/n handler。
+- [ ] 不做系统级 sandbox；如后续需要再接 Docker / bwrap / sandbox-exec。
+- [ ] DB 访问不要通过 Bash 暴露连接串，应实现独立业务 tool，例如 `QueryDatabase` / `RunSqlReadOnly` / `ExecuteBusinessAction`。
+- [ ] Skills 只提供能力说明和参数建议，不能绕过 `ToolGateway` 直接执行。
+- [ ] `WebFetch` 的 404 用例依赖外部网络，后续改成本地 mock HTTP server，避免环境波动。
+- [ ] `WebFetch` 需要补 SSRF/内网地址限制：拒绝 `localhost`、private IP、metadata IP、非 http/https 等。
+
+## 2. Prompt / runtime state policy
+
+目标：保持 Claude Code 风格的隐式 ReAct，不要求模型输出显式 `Thought -> Action -> Observation` 文本格式。
+
+当前已实现：
+
+- `PromptManager` 负责最终 system prompt 拼装，不负责拉取 context/memory/skills。
+- system prompt 明确工具循环规则：
+  - 需要外部信息、工作区检查、web 查询或执行动作时使用工具。
+  - 工具返回 observation 后，根据 observation 决定继续、换工具、承认限制或 final answer。
+  - observation 已足够回答时必须停止继续工具调用。
+  - 不为了“更全面”重复调用工具，不重复同参数 tool call。
+  - 不暴露完整 chain-of-thought，只简短说明意图或进展。
+- `TodoWrite` 是复杂任务的 checklist 工具，不是每轮必用，也不是默认 plan 前置步骤。
+- `PromptManagerInput.runtimeSections` 用于注入 loop 当前状态，不混入 ContextProvider：
+  - 当前 `TodoWrite` 状态会以 `tool_state.todos` 注入。
+  - 后续 plan mode 状态可通过 `tool_state.plan_mode` 注入。
+
+后续待做：
+
+- [ ] 为 `TodoWrite -> tool_state.todos` 补固定 edge case，而不是只靠手工 fake model 验证。
+- [ ] 实现真正的 `EnterPlanMode` / `ExitPlanMode` 后，再把 plan approval 状态接入 `planModeState`。
+- [ ] ContextWindowManager 压缩历史 tool_result 时，必须保留 runtimeSections 中的当前 todo/plan 状态。
 
 
 ## 持久化 transcript
