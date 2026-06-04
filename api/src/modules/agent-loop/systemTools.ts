@@ -14,6 +14,12 @@ const MAX_READ_BYTES = 200_000;
 const MAX_TOOL_OUTPUT_CHARS = 60_000;
 const MAX_GLOB_RESULTS = 100;
 const DEFAULT_GREP_HEAD_LIMIT = 250;
+const WEBFETCH_TIMEOUT_MS = parsePositiveIntegerEnv(process.env.WEBFETCH_TIMEOUT_MS, 30_000);
+const WEBFETCH_DEFAULT_MAX_CHARS = parsePositiveIntegerEnv(
+  process.env.WEBFETCH_MAX_CHARS,
+  20_000,
+);
+const WEBFETCH_USER_AGENT = process.env.WEBFETCH_USER_AGENT || "DSI-AgentLoop/0.1";
 
 export function registerClaudeCodeBaseSystemTools(registry: ToolRegistry): void {
   for (const tool of buildClaudeCodeBaseSystemTools()) {
@@ -38,14 +44,19 @@ function buildBashTool(): ToolDefinition {
     name: "Bash",
     description:
       'Run a shell command in the workspace. Input: {"command":"pnpm build","cwd":"optional relative dir","timeout_ms":120000}.',
+    kind: "system",
     inputSchema: z.strictObject({
       command: z.string().min(1),
       cwd: z.string().optional(),
       timeout_ms: z.number().int().positive().max(120_000).optional(),
       description: z.string().optional(),
     }),
+    isReadOnly: () => false,
+    isDestructive: () => true,
     isConcurrencySafe: () => false,
-    async execute(input) {
+    riskLevel: "high",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
+    async execute(input, context) {
       const parsed = input as {
         command: string;
         cwd?: string;
@@ -59,6 +70,7 @@ function buildBashTool(): ToolDefinition {
           cwd,
           timeout: parsed.timeout_ms ?? 30_000,
           maxBuffer: MAX_TOOL_OUTPUT_CHARS * 4,
+          signal: context.signal,
         });
         return {
           command: parsed.command,
@@ -108,11 +120,16 @@ function buildGlobTool(): ToolDefinition {
     name: "Glob",
     description:
       'Find files by glob pattern. Input: {"pattern":"**/*.ts","path":"optional relative directory"}. Returns up to 100 files.',
+    kind: "system",
     inputSchema: z.strictObject({
       pattern: z.string().min(1),
       path: z.string().optional(),
     }),
+    isReadOnly: () => true,
+    isDestructive: () => false,
     isConcurrencySafe: () => true,
+    riskLevel: "low",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
     async execute(input) {
       const parsed = input as { pattern: string; path?: string };
       const cwd = parsed.path ? resolveWorkspacePath(parsed.path) : getWorkspaceRoot();
@@ -141,6 +158,7 @@ function buildGrepTool(): ToolDefinition {
     name: "Grep",
     description:
       'Search file contents with ripgrep. Input: {"pattern":"TODO","path":"optional file or dir","glob":"*.ts","output_mode":"content|files_with_matches|count","head_limit":100}.',
+    kind: "system",
     inputSchema: z.strictObject({
       pattern: z.string().min(1),
       path: z.string().optional(),
@@ -157,7 +175,11 @@ function buildGrepTool(): ToolDefinition {
       offset: z.number().int().min(0).optional(),
       multiline: z.boolean().optional(),
     }),
+    isReadOnly: () => true,
+    isDestructive: () => false,
     isConcurrencySafe: () => true,
+    riskLevel: "low",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
     async execute(input) {
       const parsed = input as {
         pattern: string;
@@ -204,13 +226,18 @@ function buildReadTool(): ToolDefinition {
     name: "Read",
     description:
       'Read a text file in the workspace. Input: {"file_path":"src/app.ts","offset":1,"limit":200}. Offset and limit are line-based.',
+    kind: "system",
     inputSchema: z.strictObject({
       file_path: z.string().min(1),
       offset: z.number().int().positive().optional(),
       limit: z.number().int().positive().max(2_000).optional(),
     }),
+    isReadOnly: () => true,
+    isDestructive: () => false,
     isConcurrencySafe: () => true,
-    async execute(input) {
+    riskLevel: "low",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
+    async execute(input, context) {
       const parsed = input as { file_path: string; offset?: number; limit?: number };
       const filePath = resolveWorkspacePath(parsed.file_path);
       const fileStat = await stat(filePath);
@@ -226,11 +253,26 @@ function buildReadTool(): ToolDefinition {
       const startLine = parsed.offset ?? 1;
       const limit = parsed.limit ?? lines.length;
       const selected = lines.slice(startLine - 1, startLine - 1 + limit);
+      const relativePath = toWorkspaceRelative(filePath);
+      const endLine = startLine + selected.length - 1;
+      context.toolUseContext?.readFileState.set(relativePath, {
+        filePath: relativePath,
+        startLine,
+        endLine,
+        totalLines: lines.length,
+        truncated: startLine - 1 + limit < lines.length,
+        readAt: new Date().toISOString(),
+      });
+      context.onProgress?.({
+        stage: "complete",
+        message: `Read ${relativePath}`,
+        data: { filePath: relativePath, startLine, endLine },
+      });
 
       return {
-        filePath: toWorkspaceRelative(filePath),
+        filePath: relativePath,
         startLine,
-        endLine: startLine + selected.length - 1,
+        endLine,
         totalLines: lines.length,
         truncated: startLine - 1 + limit < lines.length,
         content: selected.join("\n"),
@@ -244,11 +286,16 @@ function buildWriteTool(): ToolDefinition {
     name: "Write",
     description:
       'Create or overwrite a file in the workspace. Input: {"file_path":"path/to/file.ts","content":"..."}',
+    kind: "system",
     inputSchema: z.strictObject({
       file_path: z.string().min(1),
       content: z.string(),
     }),
+    isReadOnly: () => false,
+    isDestructive: () => true,
     isConcurrencySafe: () => false,
+    riskLevel: "high",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
     async execute(input) {
       const parsed = input as { file_path: string; content: string };
       const filePath = resolveWorkspacePath(parsed.file_path);
@@ -268,13 +315,27 @@ function buildEditTool(): ToolDefinition {
     name: "Edit",
     description:
       'Replace text in an existing workspace file. Input: {"file_path":"path","old_string":"exact text","new_string":"replacement","replace_all":false}.',
+    kind: "system",
     inputSchema: z.strictObject({
       file_path: z.string().min(1),
       old_string: z.string().min(1),
       new_string: z.string(),
       replace_all: z.boolean().optional(),
     }),
+    isReadOnly: () => false,
+    isDestructive: () => true,
     isConcurrencySafe: () => false,
+    riskLevel: "high",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
+    validateInput(input) {
+      const parsed = input as {
+        old_string: string;
+        new_string: string;
+      };
+      if (parsed.old_string === parsed.new_string) {
+        throw new Error("old_string and new_string must be different.");
+      }
+    },
     async execute(input) {
       const parsed = input as {
         file_path: string;
@@ -282,10 +343,6 @@ function buildEditTool(): ToolDefinition {
         new_string: string;
         replace_all?: boolean;
       };
-      if (parsed.old_string === parsed.new_string) {
-        throw new Error("old_string and new_string must be different.");
-      }
-
       const filePath = resolveWorkspacePath(parsed.file_path);
       assertWritableWorkspacePath(filePath);
       const content = await readFile(filePath, "utf8");
@@ -316,20 +373,34 @@ function buildWebFetchTool(): ToolDefinition {
     name: "WebFetch",
     description:
       'Fetch text from a URL. Input: {"url":"https://example.com","max_chars":20000}. Returns truncated response text.',
+    kind: "system",
     inputSchema: z.strictObject({
       url: z.string().url(),
       max_chars: z.number().int().positive().max(MAX_TOOL_OUTPUT_CHARS).optional(),
     }),
+    isReadOnly: () => true,
+    isDestructive: () => false,
     isConcurrencySafe: () => true,
-    async execute(input) {
+    riskLevel: "medium",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
+    async execute(input, context) {
       const parsed = input as { url: string; max_chars?: number };
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), WEBFETCH_TIMEOUT_MS);
+      if (context.signal) {
+        if (context.signal.aborted) abortController.abort(context.signal.reason);
+        context.signal.addEventListener("abort", () => abortController.abort(context.signal?.reason), {
+          once: true,
+        });
+      }
       const response = await fetch(parsed.url, {
+        signal: abortController.signal,
         headers: {
-          "user-agent": "DSI-AgentLoop/0.1",
+          "user-agent": WEBFETCH_USER_AGENT,
         },
-      });
+      }).finally(() => clearTimeout(timeout));
       const text = await response.text();
-      const maxChars = parsed.max_chars ?? 20_000;
+      const maxChars = parsed.max_chars ?? WEBFETCH_DEFAULT_MAX_CHARS;
 
       return {
         url: parsed.url,
@@ -524,4 +595,10 @@ function extractExitCodeCommand(command: string): string {
     .filter(Boolean);
   const lastSegment = segments.at(-1) || command;
   return (lastSegment.split(/\s+/)[0] || "").replace(/^["']|["']$/g, "");
+}
+
+function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

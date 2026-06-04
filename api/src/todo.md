@@ -83,29 +83,123 @@ export interface PromptManager {
 
 说明：
 
-- 当前 `defaultPromptManager` 只提供最小 system prompt。
-- system prompt、工具说明排布、context/memory/skill section 的组织策略都应在这里演进。
+- 当前 `defaultPromptManager` 只提供最小 system prompt，并把工具列表、context、memory、skills 渲染进 system message。
+- PromptManager 负责最终提示词模板：base system prompt、工具说明排布、section 顺序、section 渲染格式、最终 `AgentMessage[]` 输出。
+- PromptManager 不负责 context/memory/skill 的召回和生命周期；这些材料由对应 provider/manager 先提供。
+- PromptManager 不负责长上下文 compact；发送前的窗口治理交给 `ContextWindowManager`。
 - 当前 loop 通过 `RunAgentLoopOptions.promptManager` 注入，默认使用 `defaultPromptManager`。
 
-## Context
+## Context Provider
 
 接口位置：
 
-- `api/src/modules/agent-loop/contextManager.ts`
+- `api/src/modules/agent-loop/contextProvider.ts`
 
 核心接口：
 
 ```ts
-export interface ContextManager {
-  buildContextSections(query: string): Promise<PromptSection[]>;
+export interface ContextProvider {
+  getUserContext(input: ContextProviderInput): Promise<Record<string, string>>;
+  getSystemContext(input: ContextProviderInput): Promise<Record<string, string>>;
+  getContextSections(input: ContextProviderInput): Promise<PromptSection[]>;
 }
 ```
 
 说明：
 
-- 当前 `noopContextManager` 返回空数组。
-- 后续可接项目上下文、任务上下文、用户上下文、领域知识、检索结果等。
-- 当前 loop 通过 `RunAgentLoopOptions.contextManager` 注入。
+- 当前 `noopContextProvider` 返回空 user/system/context 材料。
+- 当前 loop 通过 `RunAgentLoopOptions.contextProvider` 注入。
+- ContextProvider 只负责“提供上下文材料”，不负责 memory、skills、prompt 组装或窗口治理。
+- 接口仿照 Claude Code 的 `getUserContext()` / `getSystemContext()` 语义：
+  1. `getUserContext`：用户/项目显式上下文，例如 AGENTS.md、CLAUDE.md、当前日期、用户设置。
+  2. `getSystemContext`：系统/工作区运行态上下文，例如 Git 状态、任务状态、cache breaker。
+  3. `getContextSections`：不适合 key/value 的项目、任务、业务域上下文。
+
+待实现函数：
+
+### `getUserContext(input)`
+
+参数说明：
+
+- `input.taskId`：当前任务 ID，用于加载任务级上下文和日志关联。
+- `input.query`：本次 agent run 的原始用户请求。
+- `input.tools`：当前暴露给模型的工具列表，可用于根据工具能力生成上下文。
+- `input.toolUseContext`：主 loop 运行时上下文，包含消息、observations、工具状态、缓存集合等。
+- `input.signal`：取消信号，长耗时上下文加载应支持中断。
+
+大体实现方式：
+
+- 读取 AGENTS.md / CLAUDE.md / 用户配置 / 当前日期等用户侧上下文。
+- 返回 `Record<string, string>`，key 要稳定，例如 `projectInstructions`、`currentDate`。
+- 不读取 memory，不发现 skills，不做 prompt 排布。
+
+### `getSystemContext(input)`
+
+参数说明：
+
+- `input.taskId`：当前任务 ID，用于读取任务状态和日志关联。
+- `input.query`：本次 agent run 的原始用户请求。
+- `input.tools`：当前暴露给模型的工具列表。
+- `input.toolUseContext`：主 loop 运行时上下文。
+- `input.signal`：取消信号。
+
+大体实现方式：
+
+- 读取 Git 状态、任务元数据、工作区状态、业务域配置等系统侧上下文。
+- 返回 `Record<string, string>`，key 要稳定，例如 `gitStatus`、`taskStatus`。
+- 不做最终 prompt section 排序；排序交给 PromptManager。
+
+### `getContextSections(input)`
+
+参数说明：
+
+- `input.taskId`：当前任务 ID。
+- `input.query`：本次 agent run 的原始用户请求。
+- `input.tools`：当前暴露给模型的工具列表。
+- `input.toolUseContext`：主 loop 运行时上下文。
+- `input.signal`：取消信号。
+
+大体实现方式：
+
+- 读取不适合放进 `userContext/systemContext` 的业务域上下文、任务上下文、项目上下文。
+- 返回 `PromptSection[]`，section id 使用稳定命名空间，例如 `project.domain`、`task.requirements`。
+- 不包含 memory/skills；这些由对应 manager 单独产出。
+
+## Context Window
+
+接口位置：
+
+- `api/src/modules/agent-loop/contextWindowManager.ts`
+
+核心接口：
+
+```ts
+export interface ContextWindowManager {
+  prepareMessages(input: PrepareMessagesInput): Promise<PreparedModelMessages>;
+}
+```
+
+说明：
+
+- 当前 `noopContextWindowManager` 原样返回 messages。
+- 当前 loop 通过 `RunAgentLoopOptions.contextWindowManager` 注入。
+- ContextWindowManager 只负责“发送给模型前的窗口治理”，不负责取 context 材料，也不负责 prompt 模板。
+
+待实现函数：
+
+### `prepareMessages(input)`
+
+参数说明：
+
+- `input.messages`：PromptManager 组装后的完整候选 messages。
+- `input.toolUseContext`：当前轮运行时上下文，含工具列表、readFileState、memory/skill 触发状态等。
+
+大体实现方式：
+
+- 对即将发送给模型的 messages 做最终治理。
+- 先实现简单 token/字符预算：限制超大 tool result、超长历史、重复 attachment。
+- 后续接入 compact / summarize / post-compact reinjection。
+- 保证 assistant tool call 与 tool result 的配对关系不被破坏。
 
 ## Memory
 
@@ -117,17 +211,76 @@ export interface ContextManager {
 
 ```ts
 export interface MemoryManager {
-  recall(query: string): Promise<PromptSection[]>;
-  remember?(query: string, finalAnswer: string): Promise<void>;
+  startRelevantMemoryPrefetch(
+    messages: readonly AgentMessage[],
+    toolUseContext: AgentLoopToolUseContext
+  ): AgentLoopPrefetch | undefined;
+  filterDuplicateMemorySections?(
+    sections: PromptSection[],
+    toolUseContext: AgentLoopToolUseContext
+  ): PromptSection[];
+  remember?(input: RememberInput): Promise<void>;
 }
 ```
 
 说明：
 
-- 当前 `noopMemoryManager` 不做召回和写入。
-- 后续可实现短期记忆、长期记忆、用户偏好、项目经验沉淀等。
-- 当前 loop 在每轮模型调用前执行 `recall`，在最终回答后执行可选 `remember`。
+- 当前 `noopMemoryManager` 不启动召回，也不做写入。
+- 当前 loop 在 run 开始时调用一次 `startRelevantMemoryPrefetch`，工具执行后若 prefetch 已完成则消费并注入下一轮。
+- 当前 loop 在最终回答后调用可选 `remember`。
 - 当前 loop 通过 `RunAgentLoopOptions.memoryManager` 注入。
+- 接口仿照 Claude Code 区分：
+  1. relevant memory：每个用户 turn 启动一次 prefetch。
+  2. session/durable memory：run 结束后通过 `remember` 维护。
+
+待实现函数：
+
+### `startRelevantMemoryPrefetch(messages, toolUseContext)`
+
+参数说明：
+
+- `messages`：当前对话消息。实现应从中找到最后一条真实用户输入，而不是只依赖 `query`。
+- `toolUseContext`：运行时上下文，包含工具状态、`readFileState`、已 surfaced memory、取消信号等。
+
+大体实现方式：
+
+- 从 `messages` 中提取最后一条非 meta 用户请求。
+- 根据用户请求、任务上下文、agent 类型、最近成功/失败工具选择 memory 搜索范围。
+- 异步查询 memory 存储，返回 `AgentLoopPrefetch`：
+  - `promise`：最终返回要注入的 `PromptSection[]`。
+  - `settledAt`：完成时间；主 loop 只在完成后消费，避免阻塞当前轮。
+  - `consumedOnIteration`：防止重复注入。
+  - `dispose`：中断未完成查询、释放资源。
+
+### `filterDuplicateMemorySections(sections, toolUseContext)`
+
+参数说明：
+
+- `sections`：prefetch 找到的 memory sections。
+- `toolUseContext`：用于判断哪些 memory 已被工具读取、已注入或已存在于当前上下文。
+
+大体实现方式：
+
+- 用 `toolUseContext.readFileState` 或自定义缓存过滤重复 memory。
+- 对保留的 memory 标记已 surfaced，避免后续轮次反复注入。
+- 对超大 memory 做截断，并提示可用读取工具查看完整内容。
+
+### `remember(input)`
+
+参数说明：
+
+- `input.query`：原始用户请求。
+- `input.finalAnswer`：最终回答。
+- `input.result`：终止原因、turn 数、observations。
+- `input.messages`：run 完成时的会话消息。
+- `input.observations`：工具观察结果。
+- `input.toolUseContext`：运行时上下文和缓存状态。
+
+大体实现方式：
+
+- 实现 session memory：按阈值总结本轮或本会话状态。
+- 实现 durable memory：沉淀用户偏好、项目经验、失败修正、业务知识。
+- 避免存储可从代码直接重新推导的信息，优先保存跨会话有价值的外部事实。
 
 ## Skills
 
@@ -139,24 +292,103 @@ export interface MemoryManager {
 
 ```ts
 export interface SkillManager {
-  getRelevantSkills(query: string): Promise<PromptSection[]>;
+  getSkillListingSections(toolUseContext: AgentLoopToolUseContext): Promise<PromptSection[]>;
+  startSkillDiscoveryPrefetch(
+    input: string | null,
+    messages: readonly AgentMessage[],
+    toolUseContext: AgentLoopToolUseContext
+  ): AgentLoopPrefetch | undefined;
+  collectSkillDiscoveryPrefetch(prefetch: AgentLoopPrefetch): Promise<PromptSection[]>;
+  discoverSkillDirsForPaths?(filePaths: string[], cwd: string): Promise<string[]>;
+  activateConditionalSkillsForPaths?(filePaths: string[], cwd: string): string[];
 }
 ```
 
 说明：
 
-- 当前 `noopSkillManager` 返回空数组。
-- 后续可实现 skill 检索、skill prompt 注入、skill 权限/来源管理等。
+- 当前 `noopSkillManager` 返回空 skill listing，不启动 discovery。
 - 当前 loop 通过 `RunAgentLoopOptions.skillManager` 注入。
+- 接口仿照 Claude Code：主 loop 不直接每轮塞完整 skill 内容，而是提供 skill listing / discovery sections；完整 skill 执行后续应通过 Skill tool 展开。
+
+待实现函数：
+
+### `getSkillListingSections(toolUseContext)`
+
+参数说明：
+
+- `toolUseContext`：当前工具列表、模型信息、已发现/已激活 skill 状态、工作区状态。
+
+大体实现方式：
+
+- 扫描内置、用户、项目、MCP 等 skill 来源。
+- 返回轻量索引：名称、描述、when-to-use、来源、参数提示、是否条件触发。
+- 不直接注入完整 `SKILL.md` 正文，避免 prompt 膨胀。
+
+### `startSkillDiscoveryPrefetch(input, messages, toolUseContext)`
+
+参数说明：
+
+- `input`：普通主 loop 路径传 `null`，保留给未来显式输入/局部触发。
+- `messages`：当前对话消息，用于识别写入 pivot、用户意图、最近工具行为。
+- `toolUseContext`：可读取 dynamic skill 触发状态和已发现 skill 集合。
+
+大体实现方式：
+
+- 在每轮模型请求开始时启动异步 discovery。
+- 根据消息和工具状态判断是否需要发现新 skill。
+- 返回 `AgentLoopPrefetch`，主 loop 在工具执行后消费结果并注入下一轮。
+
+### `collectSkillDiscoveryPrefetch(prefetch)`
+
+参数说明：
+
+- `prefetch`：`startSkillDiscoveryPrefetch` 返回的异步句柄。
+
+大体实现方式：
+
+- 等待 discovery 结果。
+- 将新发现或新激活的 skills 格式化为 `PromptSection[]`。
+- 更新 telemetry/状态时，注意不要重复注入同名 skill。
+
+### `discoverSkillDirsForPaths(filePaths, cwd)`
+
+参数说明：
+
+- `filePaths`：Read/Write/Edit 等文件工具触碰过的路径。
+- `cwd`：当前工作区根目录，用于限制向上查找边界。
+
+大体实现方式：
+
+- 从每个文件路径向上查找 `.claude/skills` 或本项目约定目录。
+- 跳过 gitignored、workspace 外、重复扫描过的目录。
+- 返回新发现的 skill 目录列表，后续由具体实现加载。
+
+### `activateConditionalSkillsForPaths(filePaths, cwd)`
+
+参数说明：
+
+- `filePaths`：被工具触碰的文件。
+- `cwd`：路径 glob 的匹配基准目录。
+
+大体实现方式：
+
+- 匹配 skill frontmatter 中的 `paths`/glob 条件。
+- 把命中的条件 skill 移入动态 skill 集合。
+- 返回本次新激活的 skill 名称。
 
 ## 待实现问题
 
 - [ ] 为 agent loop 增加数据库持久化 transcript。
 - [ ] 为超大 tool result 增加持久化存储，并在 transcript 中保存 preview/reference。
 - [ ] 设计正式 system prompt。
-- [ ] 设计 prompt section 组装顺序和优先级。
-- [ ] 实现 ContextManager 的业务上下文召回。
-- [ ] 实现 MemoryManager 的 recall/remember 存储策略。
-- [ ] 实现 SkillManager 的 skill 检索和注入策略。
+- [ ] 设计 `PromptManager` 的 prompt section 组装顺序和优先级。
+- [ ] 实现 `ContextProvider.getUserContext` / `getSystemContext` 的项目、任务、用户、工作区上下文加载。
+- [ ] 实现 `ContextProvider.getContextSections` 的业务域/任务上下文加载。
+- [ ] 实现 `ContextWindowManager.prepareMessages` 的 token 预算、tool result budget、compact/reinjection。
+- [ ] 实现 `MemoryManager.startRelevantMemoryPrefetch` 的异步 memory 召回。
+- [ ] 实现 `MemoryManager.filterDuplicateMemorySections` 的去重与截断策略。
+- [ ] 实现 `MemoryManager.remember` 的 session/durable memory 写入策略。
+- [ ] 实现 `SkillManager.getSkillListingSections` 的 skill 索引注入。
+- [ ] 实现 `SkillManager.startSkillDiscoveryPrefetch` / `collectSkillDiscoveryPrefetch` 的动态发现。
+- [ ] 将文件工具与 `discoverSkillDirsForPaths` / `activateConditionalSkillsForPaths` 挂接。
 - [ ] 为 prompt/context/memory/skill 输出增加 token 预算和截断策略。
-

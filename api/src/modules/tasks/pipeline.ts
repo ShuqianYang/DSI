@@ -34,7 +34,7 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
       observations: loopResult.observations,
     };
 
-    if (loopResult.stoppedBy === "model_error") {
+    if (loopResult.stoppedBy === "model_error" || loopResult.stoppedBy === "aborted") {
       await taskService.updateTaskResult(taskId, result, "failed");
       notifyTaskUpdate(taskId, {
         type: "failed",
