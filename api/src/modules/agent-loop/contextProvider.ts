@@ -4,6 +4,8 @@ import type {
   ToolDefinition,
 } from "./types.js";
 
+const DEFAULT_TIME_ZONE = process.env.AGENT_TIMEZONE || "Asia/Shanghai";
+
 export interface ContextProviderInput {
   /** Current task/run id. Use it to load task-scoped context or correlate diagnostics. */
   taskId: string;
@@ -60,3 +62,32 @@ export const noopContextProvider: ContextProvider = {
     return [];
   },
 };
+
+export const defaultContextProvider: ContextProvider = {
+  async getUserContext() {
+    return {
+      currentDate: `Today's date is ${formatLocalDate(DEFAULT_TIME_ZONE)}. Time zone: ${DEFAULT_TIME_ZONE}.`,
+    };
+  },
+  async getSystemContext() {
+    return {
+      workspaceRoot: process.env.AGENT_WORKSPACE_ROOT || process.cwd(),
+    };
+  },
+  async getContextSections() {
+    return [];
+  },
+};
+
+function formatLocalDate(timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return year && month && day ? `${year}-${month}-${day}` : new Date().toISOString().slice(0, 10);
+}

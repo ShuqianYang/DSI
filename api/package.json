@@ -12,6 +12,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "agent:smoke": "tsx scripts/agent-loop-smoke.ts",
     "lint": "eslint src/"
   },
   "dependencies": {

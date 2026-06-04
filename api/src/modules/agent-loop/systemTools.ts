@@ -1,5 +1,5 @@
 import { exec as execCallback, execFile as execFileCallback } from "node:child_process";
-import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { constants, existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -14,12 +14,15 @@ const MAX_READ_BYTES = 200_000;
 const MAX_TOOL_OUTPUT_CHARS = 60_000;
 const MAX_GLOB_RESULTS = 100;
 const DEFAULT_GREP_HEAD_LIMIT = 250;
+const GLOB_SKIP_DIR_NAMES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage"]);
 const WEBFETCH_TIMEOUT_MS = parsePositiveIntegerEnv(process.env.WEBFETCH_TIMEOUT_MS, 30_000);
 const WEBFETCH_DEFAULT_MAX_CHARS = parsePositiveIntegerEnv(
   process.env.WEBFETCH_MAX_CHARS,
   20_000,
 );
 const WEBFETCH_USER_AGENT = process.env.WEBFETCH_USER_AGENT || "DSI-AgentLoop/0.1";
+const WEBSEARCH_TIMEOUT_MS = parsePositiveIntegerEnv(process.env.WEBSEARCH_TIMEOUT_MS, 30_000);
+const TAVILY_SEARCH_URL = process.env.TAVILY_SEARCH_URL || "https://api.tavily.com/search";
 
 export function registerClaudeCodeBaseSystemTools(registry: ToolRegistry): void {
   for (const tool of buildClaudeCodeBaseSystemTools()) {
@@ -35,6 +38,7 @@ export function buildClaudeCodeBaseSystemTools(): ToolDefinition[] {
     buildReadTool(),
     buildWriteTool(),
     buildEditTool(),
+    buildWebSearchTool(),
     buildWebFetchTool(),
   ];
 }
@@ -136,18 +140,27 @@ function buildGlobTool(): ToolDefinition {
       await assertDirectory(cwd);
 
       const startedAt = Date.now();
-      const result = await runRg(["--files", "-g", parsed.pattern], cwd, [0, 1]);
-      const filenames = result.stdout
-        .split("\n")
-        .map(line => line.trim())
-        .filter(Boolean)
-        .slice(0, MAX_GLOB_RESULTS);
+      let source: "ripgrep" | "node_fallback" = "ripgrep";
+      let allFilenames: string[];
+      try {
+        const result = await runRg(["--files", "-g", parsed.pattern], cwd, [0, 1]);
+        allFilenames = result.stdout
+          .split("\n")
+          .map(line => line.trim())
+          .filter(Boolean);
+      } catch (error) {
+        if (!isMissingRipgrepError(error)) throw error;
+        source = "node_fallback";
+        allFilenames = await globFilesWithNode(cwd, parsed.pattern, MAX_GLOB_RESULTS + 1);
+      }
+      const filenames = allFilenames.slice(0, MAX_GLOB_RESULTS);
 
       return {
+        source,
         durationMs: Date.now() - startedAt,
         numFiles: filenames.length,
         filenames,
-        truncated: result.stdout.split("\n").filter(Boolean).length > MAX_GLOB_RESULTS,
+        truncated: allFilenames.length > MAX_GLOB_RESULTS,
       };
     },
   };
@@ -368,6 +381,96 @@ function buildEditTool(): ToolDefinition {
   };
 }
 
+function buildWebSearchTool(): ToolDefinition {
+  return {
+    name: "WebSearch",
+    description:
+      'Search the web for current or unknown information. Input: {"query":"北京今天的天气","max_results":5,"search_depth":"basic|advanced","include_answer":true,"topic":"general|news","time_range":"day|week|month|year"}. Use WebFetch only after WebSearch returns a URL worth reading.',
+    kind: "system",
+    inputSchema: z.strictObject({
+      query: z.string().min(1),
+      max_results: z.number().int().positive().max(10).optional(),
+      search_depth: z.enum(["basic", "advanced"]).optional(),
+      include_answer: z.boolean().optional(),
+      topic: z.enum(["general", "news"]).optional(),
+      time_range: z.enum(["day", "week", "month", "year"]).optional(),
+      include_domains: z.array(z.string().min(1)).max(10).optional(),
+      exclude_domains: z.array(z.string().min(1)).max(10).optional(),
+    }),
+    isReadOnly: () => true,
+    isDestructive: () => false,
+    isConcurrencySafe: () => true,
+    riskLevel: "medium",
+    maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
+    async execute(input, context) {
+      const parsed = input as {
+        query: string;
+        max_results?: number;
+        search_depth?: "basic" | "advanced";
+        include_answer?: boolean;
+        topic?: "general" | "news";
+        time_range?: "day" | "week" | "month" | "year";
+        include_domains?: string[];
+        exclude_domains?: string[];
+      };
+
+      const apiKey = process.env.TAVILY_API_KEY;
+      if (!apiKey) {
+        throw new Error("TAVILY_API_KEY is required for WebSearch.");
+      }
+
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), WEBSEARCH_TIMEOUT_MS);
+      if (context.signal) {
+        if (context.signal.aborted) abortController.abort(context.signal.reason);
+        context.signal.addEventListener("abort", () => abortController.abort(context.signal?.reason), {
+          once: true,
+        });
+      }
+
+      const body = {
+        api_key: apiKey,
+        query: parsed.query,
+        search_depth: parsed.search_depth ?? "basic",
+        max_results: parsed.max_results ?? 5,
+        include_answer: parsed.include_answer ?? true,
+        topic: parsed.topic ?? "general",
+        time_range: parsed.time_range,
+        include_domains: parsed.include_domains,
+        exclude_domains: parsed.exclude_domains,
+      };
+
+      const response = await fetch(TAVILY_SEARCH_URL, {
+        method: "POST",
+        signal: abortController.signal,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(dropUndefined(body)),
+      }).finally(() => clearTimeout(timeout));
+
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(`Tavily search failed: ${response.status} ${truncate(text, 2_000)}`);
+      }
+
+      const json = parseJsonObject(text, "Tavily search response");
+      const results = Array.isArray(json.results) ? json.results : [];
+
+      return {
+        provider: "tavily",
+        query: parsed.query,
+        answer: typeof json.answer === "string" ? json.answer : undefined,
+        results: results.slice(0, parsed.max_results ?? 5).map(normalizeTavilyResult),
+        responseTime:
+          typeof json.response_time === "number" || typeof json.response_time === "string"
+            ? json.response_time
+            : undefined,
+      };
+    },
+  };
+}
+
 function buildWebFetchTool(): ToolDefinition {
   return {
     name: "WebFetch",
@@ -479,6 +582,101 @@ async function runRg(
     }
     throw new Error(execError.stderr || execError.message || "ripgrep command failed");
   }
+}
+
+function isMissingRipgrepError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes("spawn rg ENOENT") || error.message.includes("ENOENT");
+}
+
+async function globFilesWithNode(
+  root: string,
+  pattern: string,
+  limit: number,
+): Promise<string[]> {
+  const normalizedPattern = normalizeGlobPath(pattern);
+  const results: string[] = [];
+
+  async function walk(directory: string): Promise<void> {
+    if (results.length >= limit) return;
+
+    let entries: Array<{
+      name: string;
+      isDirectory(): boolean;
+      isFile(): boolean;
+    }>;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      if (results.length >= limit) return;
+      const absolutePath = path.join(directory, entry.name);
+      const relativePath = normalizeGlobPath(path.relative(root, absolutePath));
+
+      if (entry.isDirectory()) {
+        if (!GLOB_SKIP_DIR_NAMES.has(entry.name)) {
+          await walk(absolutePath);
+        }
+        continue;
+      }
+
+      if (entry.isFile() && matchesGlobPattern(relativePath, normalizedPattern)) {
+        results.push(relativePath);
+      }
+    }
+  }
+
+  await walk(root);
+  return results;
+}
+
+function normalizeGlobPath(input: string): string {
+  return input.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function matchesGlobPattern(relativePath: string, pattern: string): boolean {
+  const pathParts = relativePath.split("/").filter(Boolean);
+  const patternParts = pattern.split("/").filter(Boolean);
+  return matchGlobSegments(patternParts, pathParts);
+}
+
+function matchGlobSegments(patternParts: string[], pathParts: string[]): boolean {
+  if (patternParts.length === 0) return pathParts.length === 0;
+
+  const [currentPattern, ...remainingPatterns] = patternParts;
+  if (currentPattern === "**") {
+    if (matchGlobSegments(remainingPatterns, pathParts)) return true;
+    return pathParts.length > 0 && matchGlobSegments(patternParts, pathParts.slice(1));
+  }
+
+  if (pathParts.length === 0) return false;
+  return (
+    matchesGlobSegment(pathParts[0]!, currentPattern) &&
+    matchGlobSegments(remainingPatterns, pathParts.slice(1))
+  );
+}
+
+function matchesGlobSegment(value: string, pattern: string): boolean {
+  const regex = new RegExp(
+    `^${pattern
+      .split("")
+      .map((char) => {
+        if (char === "*") return ".*";
+        if (char === "?") return ".";
+        return escapeRegExp(char);
+      })
+      .join("")}$`,
+  );
+  return regex.test(value);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function getWorkspaceRoot(): string {
@@ -595,6 +793,31 @@ function extractExitCodeCommand(command: string): string {
     .filter(Boolean);
   const lastSegment = segments.at(-1) || command;
   return (lastSegment.split(/\s+/)[0] || "").replace(/^["']|["']$/g, "");
+}
+
+function dropUndefined(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+}
+
+function parseJsonObject(text: string, label: string): Record<string, unknown> {
+  const parsed = JSON.parse(text) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function normalizeTavilyResult(value: unknown): Record<string, unknown> {
+  const result = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return dropUndefined({
+    title: typeof result.title === "string" ? result.title : undefined,
+    url: typeof result.url === "string" ? result.url : undefined,
+    content: typeof result.content === "string" ? result.content : undefined,
+    rawContent: typeof result.raw_content === "string" ? result.raw_content : undefined,
+    score: typeof result.score === "number" ? result.score : undefined,
+    publishedDate:
+      typeof result.published_date === "string" ? result.published_date : undefined,
+  });
 }
 
 function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {

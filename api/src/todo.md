@@ -1,6 +1,106 @@
 # Agent Loop Prompt / Context / Memory / Skills TODO
 
 
+## 0. Agent loop smoke test first
+
+先保留一个最小端到端测试，用来确认主 loop、模型调用、tool use、tool observation 回填和最终回答都能跑通。
+
+脚本位置：
+
+- `api/scripts/agent-loop-smoke.ts`
+
+package script：
+
+- `api/package.json` 里的 `agent:smoke`
+
+### 环境要求
+
+- 在 `api/.env` 配好模型和搜索相关环境变量：
+  - `DEEPSEEK_API_KEY`
+  - `DEEPSEEK_API_URL`
+  - `DEEPSEEK_MODEL`
+  - `TAVILY_API_KEY`
+  - `TAVILY_SEARCH_URL`
+  - `AGENT_WORKSPACE_ROOT`
+  - `AGENT_TIMEZONE`
+- 如果本机需要 conda 环境，先进入对应环境，例如 `conda activate dsi`。
+
+### 基础运行方式
+
+从 `api/` 目录运行：
+
+```bash
+pnpm agent:smoke -- --query "请用只读工具查看当前仓库的 api/src/modules/agent-loop 目录，概括有哪些核心文件。"
+```
+
+如果当前环境没有 `pnpm`，可以直接运行：
+
+```bash
+node_modules/.bin/tsx scripts/agent-loop-smoke.ts --query "请用只读工具查看当前仓库的 api/src/modules/agent-loop 目录，概括有哪些核心文件。"
+```
+
+### 本地 txt 文件 + Read + WebSearch 测试
+
+测试目标：让 agent 先读取本地 txt 文件中的问题，再调用 `WebSearch` 完成任务。
+
+准备一个文件，例如从仓库根目录创建：
+
+```bash
+mkdir -p tmp
+printf "请查询北京今天的天气，并用中文给出：\n1. 当前天气和温度范围\n2. 是否需要带伞\n3. 一句简短出行建议\n" > tmp/agent-loop-question.txt
+```
+
+从 `api/` 目录运行：
+
+```bash
+node_modules/.bin/tsx scripts/agent-loop-smoke.ts \
+  --with-websearch \
+  --query "请先读取 tmp/agent-loop-question.txt 里的问题，然后完成文件中要求的任务" \
+  --max-turns 6
+```
+
+也可以把文件放在 `api/tmp/agent-loop-question.txt`，此时 query 里使用 `api/tmp/agent-loop-question.txt`，避免路径歧义。当前 `Read` / `Glob` / `Grep` 的路径解析以 `AGENT_WORKSPACE_ROOT` 为准；未配置时会从进程工作目录向上寻找 `.git` / `pnpm-workspace.yaml`。后续应在 system prompt 里明确“相对路径默认按 workspace root 解析”。
+
+### 开放 tool 的方式
+
+当前 smoke runner 默认只开放只读文件工具：
+
+```ts
+const DEFAULT_TOOLS = ["Read", "Grep", "Glob"];
+```
+
+临时追加搜索/抓取工具：
+
+```bash
+node_modules/.bin/tsx scripts/agent-loop-smoke.ts --with-websearch --query "..."
+node_modules/.bin/tsx scripts/agent-loop-smoke.ts --with-webfetch --query "..."
+```
+
+直接指定工具集合：
+
+```bash
+node_modules/.bin/tsx scripts/agent-loop-smoke.ts --tools Read,WebSearch --query "..."
+```
+
+注意：smoke runner 会拒绝非只读工具，避免测试时误开放 `Write` / `Edit` / `Bash` 等高风险能力。
+
+### 在哪里改开放工具
+
+- 修改 smoke 测试默认工具：`api/scripts/agent-loop-smoke.ts` 的 `DEFAULT_TOOLS`。
+- 修改 smoke 测试命令行开关：`api/scripts/agent-loop-smoke.ts` 的 `parseArgs()`。
+- 修改真实可注册工具集合：`api/src/modules/agent-loop/systemTools.ts` 的 `buildClaudeCodeBaseSystemTools()`。
+- 修改工具注册/选择策略：`api/src/modules/agent-loop/toolRegistry.ts` 和调用 `runAgentLoopEvents()` 时传入的 `registry`。
+- 修改工具权限策略：各 tool definition 的 `isReadOnly` / `validateInput` / `checkPermissions`，以及 `api/src/modules/agent-loop/toolGateway.ts` 的执行入口。
+
+### 下一步要补的测试项
+
+- [ ] 把 txt 文件测试写成固定 smoke case，避免手工准备文件。
+- [ ] 明确 `Read` 相对路径基准，并让 smoke runner 与 `ContextProvider.systemContext.workspaceRoot` 保持一致。
+- [ ] 增加 `Read + WebSearch` 的断言：至少出现一次 `Read`、一次 `WebSearch`，并以 `final_answer` 停止。
+- [ ] 增加 `WebSearch` 结果源质量测试，检查来源数量、URL、摘要和日期字段是否进入 observation。
+- [ ] 增加工具开放策略测试，确保 smoke runner 默认不会注册非只读工具。
+
+
 ## 持久化 transcript
 
 为 agent loop 增加数据库持久化 transcript。

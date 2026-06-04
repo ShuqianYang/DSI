@@ -2,7 +2,7 @@ import { db } from "../../config/database.js";
 import { taskSteps } from "../../db/schema.js";
 import { notifyTaskUpdate } from "../../sse/sseManager.js";
 import { eq } from "drizzle-orm";
-import { noopContextProvider, type ContextProvider } from "./contextProvider.js";
+import { defaultContextProvider, type ContextProvider } from "./contextProvider.js";
 import {
   noopContextWindowManager,
   type ContextWindowManager,
@@ -79,7 +79,7 @@ export async function* runAgentLoopEvents(
   const registry = options.registry ?? buildDefaultToolRegistry();
   const modelClient = options.modelClient ?? createModelClient();
   const promptManager = options.promptManager ?? defaultPromptManager;
-  const contextProvider = options.contextProvider ?? noopContextProvider;
+  const contextProvider = options.contextProvider ?? defaultContextProvider;
   const contextWindowManager = options.contextWindowManager ?? noopContextWindowManager;
   const memoryManager = options.memoryManager ?? noopMemoryManager;
   const skillManager = options.skillManager ?? noopSkillManager;
@@ -733,6 +733,25 @@ function createDuplicateToolObservation(
   toolCall: GatewayToolCall,
   previousObservation: ToolObservation,
 ): ToolObservation {
+  if (!previousObservation.ok) {
+    return {
+      toolCallId: toolCall.id,
+      toolName: toolCall.toolName,
+      ok: false,
+      output: {
+        skipped: true,
+        previousToolCallId: previousObservation.toolCallId,
+        previousOk: previousObservation.ok,
+        previousError: previousObservation.error,
+      },
+      error: {
+        code: "duplicate_tool_call_skipped",
+        message:
+          "Duplicate read-only tool call skipped because the previous matching call failed. Use the previous error or change the tool input before retrying.",
+      },
+    };
+  }
+
   return {
     toolCallId: toolCall.id,
     toolName: toolCall.toolName,
