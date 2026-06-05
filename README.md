@@ -87,14 +87,29 @@ S:/Projects/projects_new/
 │       ├── planner/              # 任务规划器 (Planner) — DeepSeek
 │       ├── router/               # 路由决策器 (Router) — DeepSeek
 │       ├── executor/             # 任务执行器（含阻断校验）
+│       ├── agent-loop/           # Agent 运行时核心 (Claude Code 风格)
+│       │   ├── runAgentLoop.ts       # 主循环：turn 驱动、事件流、工具调度
+│       │   ├── contextProvider.ts    # 上下文加载：项目文件 / git / task 状态
+│       │   ├── promptManager.ts      # 提示词渲染：system prompt + 工具目录 + sections
+│       │   ├── contextWindowManager.ts # 窗口治理：字符预算 / tool 截断 / 邻接保护
+│       │   ├── modelClient.ts        # 模型客户端：DeepSeek API 调用
+│       │   ├── toolRegistry.ts       # 工具注册中心（name + alias）
+│       │   ├── toolGateway.ts        # 工具执行网关（权限 → 执行 → 结果预算）
+│       │   ├── toolPolicy.ts         # 工具权限策略（allow/deny/ask）
+│       │   ├── systemTools.ts        # 系统内置工具（Read/Grep/Glob/Bash/Edit）
+│       │   ├── memoryManager.ts      # Memory 管理（prefetch / remember）
+│       │   ├── skillManager.ts       # Skill 管理（listing / discovery）
+│       │   ├── transcriptStore.ts    # 对话转录存储（接口预留，暂未持久化）
+│       │   ├── types.ts              # 核心类型（AgentMessage / ToolDefinition / PromptSection）
+│       │   └── ...                   # 序列化、决策适配、工具目录等辅助模块
 │       ├── blockage-analyzer/    # 执行阻断分析器
-│       ├── actions/              # 能力执行层
+│       ├── actions/              # 能力执行层（业务 capability）
 │       │   ├── registry.ts       # 能力注册中心
 │       │   ├── capabilities/     # 具体能力实现
 │       │   │   ├── maritime.ts       # 海域态势分析
 │       │   │   ├── intelligence.ts   # 情报分析
 │       │   │   ├── intelligent_qa.ts # 智能问答
-│       │   │   ├── daily_report.ts   # 日报生成
+│       │   │   ├── daily_report.ts   # 日报生成（SSE 流式输出）
 │       │   │   ├── satellite.ts      # 天基数据查询
 │       │   │   ├── satelliteCallbackStore.ts # 卫星回调存储
 │       │   │   ├── news.ts           # 新闻/舆情分析
@@ -151,21 +166,75 @@ S:/Projects/projects_new/
     └── frontend-performance-trace-*.md
 ```
 
-## Agent 编排 Pipeline
+## Agent 编排架构
 
-用户输入 → **Planner** (生成执行计划) → **Router** (决策工具调用) → **Executor** (按依赖执行 Action，含阻断校验) → **Insights** (生成综合洞察) → SSE 推送前端
+### 旧 Pipeline（仍在服务部分 capability）
+
+用户输入 → **Planner** (生成执行计划) → **Router** (决策工具调用) → **Executor** (按依赖执行 Action) → **Insights** (生成综合洞察)
+
+### 新 Agent Loop（Claude Code 风格，逐 turn 执行）
+
+`api/src/modules/agent-loop/` 实现了完整的 Agent 运行时：
 
 ```
-┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
-│ Planner │ → │ Router  │ → │ Executor│ → │ Actions │ → │Insights │
-│(生成Plan)│    │(决策工具)│    │(执行步骤)│    │(具体能力)│    │(综合洞察)│
-└─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘
-    ↑                                              ↓
-   DeepSeek API                               maritime / satellite
-   (LLM Agent)                                / ais / news / weather
-                                              / earthquake / flood / fire
-                                              / oil-drift / ...
+ContextProvider ──→ PromptManager ──→ ContextWindowManager ──→ ModelClient
+       ↑                                        │                  │
+       │                                        │                  │
+   AGENTS.md                              字符预算/截断      DeepSeek API
+   CLAUDE.md                              邻接保护             (工具调用决策)
+   git status                             diagnostics          │
+   task status                                                  │
+       │                                                        │
+       └────────────────────────────────────────────────────────┘
+                           model 返回决策
+                                 │
+                    ┌────────────┼────────────┐
+                    │            │            │
+                final      tool_calls   model_error
+                answer          │            │
+                    │            │            │
+             直接回答     ToolRegistry   报错/停止
+                         ToolGateway
+                         (权限/执行)   
+                              │
+                    ┌─────────┴─────────┐
+                    │                   │
+               readOnly(去重)        destructive
+                    │                   │
+               并发批处理            串行执行
+                    │                   │
+               ToolObservation ──→ 回填 conversation
+                         │
+                    runAgentLoop 下一轮
 ```
+
+**核心设计**：
+- **逐 turn 执行**：每轮模型请求 → 模型决策（回答或工具调用）→ 执行工具 → 回填结果 → 下一轮
+- **三层分离**：`ContextProvider` 加载上下文 → `PromptManager` 渲染提示词 → `ContextWindowManager` 治理窗口
+- **工具网关**：`ToolRegistry` 注册 → `ToolGateway` 执行（权限检查 → schema 校验 → 执行 → 结果截断）
+- **并发安全**：`isConcurrencySafe` 标注的工具可并行执行，destructive 工具串行执行
+- **去重优化**：readOnly 工具相同输入自动复用已有结果
+
+**已实现的 Agent Loop 组件**：
+
+| 组件 | 状态 | 说明 |
+|------|------|------|
+| `ContextProvider` | ✅ Phase 1 完成 | 加载项目文件（AGENTS.md/CLAUDE.md/CONTEXT.md）、git 状态、task 状态 |
+| `PromptManager` | ✅ Phase 1 完成 | 结构化 system prompt（6 个 block）+ 工具元数据渲染 |
+| `ContextWindowManager` | ✅ Phase 2 完成 | 字符预算、per-tool 截断、优先级删除、orphan 清理、diagnostics |
+| `ToolRegistry` | ✅ 已完成 | 工具注册 + alias 解析 |
+| `ToolGateway` | ✅ 已完成 | 权限策略、并发调度、结果截断、readOnly 去重 |
+| `ModelClient` | ✅ 已完成 | DeepSeek API 调用 + 工具调用解析 |
+| `MemoryManager` | 🔄 接口预留 | `noopMemoryManager`，待实现 prefetch/remember |
+| `SkillManager` | 🔄 接口预留 | `noopSkillManager`，待实现 listing/discovery |
+| `TranscriptStore` | 🔄 接口预留 | `disabledTranscriptStore`，待实现数据库持久化 |
+
+**Agent Loop 计划**：
+- ✅ [Context Provider & Window Manager Phase 1](api/plan/context-provider-window-manager-plan.md)
+- ✅ [Context Window Phase 2](api/plan/context-window-phase2-plan.md)
+- ✅ [Prompt / System Prompt Phase 1](api/plan/prompt-system-prompt-phase1-plan.md)
+- 🔄 [Context Provider Phase 2](api/plan/context-provider-phase2-plan.md) — 待执行
+- ⏳ Phase 3: LLM Compact + Transcript 持久化 — 依赖 transcript 表
 
 ## 前后端数据流
 
@@ -252,6 +321,15 @@ DIFY_NEWS_API_KEY=your_key       # 新闻分析
 QWEN_API_KEY=your_key            # Qwen 模型
 TAVILY_API_KEY=your_key          # 搜索增强
 
+# Agent Loop 上下文（可选，有默认值）
+AGENT_WORKSPACE_ROOT=../..       # 工作区根目录（工具路径解析基准）
+AGENT_TIMEZONE=Asia/Shanghai     # 时区
+AGENT_CONTEXT_WINDOW_CHARS=120000      # 上下文窗口字符预算
+AGENT_CONTEXT_SUMMARY_RESERVE_CHARS=12000  # 摘要预留字符
+AGENT_TOOL_MESSAGE_MAX_CHARS=16000     # 工具消息默认截断长度
+AGENT_TOOL_READ_MAX_CHARS=18000        # Read 工具截断长度
+AGENT_TOOL_BASH_MAX_CHARS=12000        # Bash 工具截断长度
+
 # 数据源
 AISSTREAM_API_KEY=your_key       # AIS 实时流
 SHIPDT_API_KEY=your_key          # ShipDT 船舶数据
@@ -311,6 +389,29 @@ pnpm start:prod
 | OpenSky | ADS-B 航空器数据 | 可选 |
 | AWS S3 | 对象存储 | 可选 |
 
+## 路线图与计划
+
+### Agent Loop 运行时（进行中）
+
+| 阶段 | 状态 | 文档 |
+|------|------|------|
+| Phase 0.5: 基础框架 | ✅ 已完成 | — |
+| Phase 1: Context Provider + Prompt Manager + Window Manager | ✅ 已完成 | [plan](api/plan/context-provider-window-manager-plan.md) |
+| Phase 2: Window Manager 增强（token 估算、优先级、per-tool 预算） | ✅ 已完成 | [plan](api/plan/context-window-phase2-plan.md) |
+| Phase 1: System Prompt 结构化 | ✅ 已完成 | [plan](api/plan/prompt-system-prompt-phase1-plan.md) |
+| Phase 2: Context Provider 增强 | 🔄 待执行 | [plan](api/plan/context-provider-phase2-plan.md) |
+| Phase 3: Memory + Skill + Transcript 持久化 | ⏳ 规划中 | — |
+
+### 前端性能（P0）
+
+- [P0 主线程阻塞修复](api/plan/p0-main-thread-blocking.md) — Cesium 掉帧率 46.8%
+
+### 其他 Capability 计划
+
+- [火灾检测器集成](api/plan/fire-detector-integration.md)
+- [油污检测器](api/plan/oil-detector.md)
+- [风粒子图层](api/plan/wind-particle-layer.md)
+
 ## 注意事项
 
 1. **AI 服务降级**：当 Dify / DeepSeek API Key 未配置时，Planner/Router 自动降级为 Mock 模式
@@ -318,3 +419,4 @@ pnpm start:prod
 3. **用户认证**：当前仅使用 localStorage 简单登录状态，无真实认证系统
 4. **性能**：Cesium 3D 地图在大量实体（300+）时需注意性能，参考 `api/issues/frontend-performance-trace-*.md`
 5. **日志**：各服务日志统一输出到 `logs/` 目录
+6. **Agent Loop**：当前为 `agent-loop` 分支的功能，旧 Pipeline 仍在并行服务现有 capability
