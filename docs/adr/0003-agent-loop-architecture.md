@@ -114,7 +114,22 @@ ToolRegistry ──→ ToolGateway ──→ ToolObservation
 - `toolRegistry.ts` / `toolGateway.ts` / `toolPolicy.ts` — 工具注册、执行、权限
 - `systemTools.ts` — 内置系统工具（Read、Grep、Glob、Bash、Edit、WebSearch、WebFetch）
 - `modelClient.ts` — DeepSeek API 调用
+- `skillManager.ts` — Skill 管理（见下方）
 - `types.ts` — 核心类型定义
+
+### SkillManager（已实现）
+
+`LocalSkillManager` 是完整的 skill 管理实现，被 `runAgentLoop.ts` 默认使用：
+
+- **Skill 加载**：从 `<workspace>/skills/` 目录扫描 `SKILL.md` 文件，解析 frontmatter
+- **Frontmatter 支持**：`name`、`description`、`whenToUse`、`allowedTools`、`paths`、`model`、`effort`、`context`、`shell`
+- **条件 Skill 激活**：`paths` glob 匹配被触碰的文件路径时自动从 conditional 移入 active
+- **Skill 发现预取**：`startSkillDiscoveryPrefetch` + `collectSkillDiscoveryPrefetch`
+- **Skill 工具**：`Skill` tool（`registerSkillTool`）让模型按需加载 skill 内容
+  - 参数替换：`$ARGUMENTS`、`$1`、`$ARGUMENTS[0]`、具名参数
+  - 嵌入式 shell：`!command` 和 ` ```! ` 语法自动执行
+  - Allowed Tools 限制：skill 可限制模型只能使用指定工具集（`skillAllowedToolNames`）
+- **Prompt 注入**：加载的 skill 内容以 `skill.invoked.<name>` section 注入 system prompt
 
 ### Phase 1: Context Provider + Prompt Manager + Window Manager
 
@@ -200,8 +215,9 @@ ToolRegistry ──→ ToolGateway ──→ ToolObservation
 | 优先级 | 债务 | 位置 | 说明 |
 |--------|------|------|------|
 | **P1** | MemoryManager 未实现 | `memoryManager.ts` | `noopMemoryManager`，无记忆召回/持久化 |
-| **P1** | SkillManager 未实现 | `skillManager.ts` | `noopSkillManager`，无 skill 发现/激活 |
 | **P1** | Transcript 未持久化 | `transcriptStore.ts` | `disabledTranscriptStore`，无数据库表 |
+| **P2** | SkillManager 未配置 skill 目录 | `skills/` | 工作区根目录下无 `skills/` 目录，skill 功能无法实际触发 |
+| **P2** | SkillManager 条件激活未与文件工具挂钩 | `skillManager.ts` | `discoverSkillDirsForPaths` / `activateConditionalSkillsForPaths` 未在 Read/Write/Edit 工具后调用 |
 | **P2** | 旧 Pipeline 与 Agent Loop 共存 | `api/src/modules/planner/` `router/` `executor/` | 两套架构并行，维护成本增加 |
 | **P2** | Agent Loop 测试覆盖不足 | `api/tests/` | 只有 context-provider 和 context-window-manager 测试，缺少端到端 smoke test |
 | **P2** | ContextProvider Phase 2 未执行 | `contextProvider.ts` | 尚未实现 CONTEXT.md 递归加载、多路径合并等高级功能 |
@@ -244,13 +260,13 @@ ToolRegistry ──→ ToolGateway ──→ ToolObservation
 - Context Window Manager 的 Phase 2 增强（token 估算、优先级、per-tool 预算）设计细致
 
 **劣势**：
-- Memory/Skill/Transcript 三大组件仍是 noop，Agent Loop 的完整能力尚未释放
+- Memory/Transcript 两大组件仍是 noop，Agent Loop 的完整能力尚未释放；SkillManager 已实现但缺少实际 skill 目录配置
 - 新旧架构并行，存在维护负担
 - 端到端测试覆盖不足，缺乏 Agent Loop 的集成测试
 - system prompt 无版本控制，难以追踪 prompt 变更对模型行为的影响
 
 **MVP 阶段**：Agent Loop 框架已可运行基本任务（文件读取、搜索、编辑）。
-**生产阶段**：必须实现 MemoryManager（跨任务记忆）、SkillManager（动态 skill 发现）、Transcript 持久化（故障恢复），并逐步迁移旧 capability。
+**生产阶段**：必须实现 MemoryManager（跨任务记忆）、Transcript 持久化（故障恢复），配置 skill 目录使 SkillManager 生效，并逐步迁移旧 capability。
 
 ---
 
@@ -259,8 +275,9 @@ ToolRegistry ──→ ToolGateway ──→ ToolObservation
 | 优先级 | 行动 | 参考文档 |
 |--------|------|---------|
 | P1 | 实现 MemoryManager（relevant memory prefetch + durable remember）| `api/src/todo.md` |
-| P1 | 实现 SkillManager（skill listing + discovery + activation）| `api/src/todo.md` |
 | P1 | 添加 agent_transcript_entries 数据库表 | `api/src/todo.md` |
+| P2 | 配置 skill 目录并在工作区添加示例 skill | — |
+| P2 | 将 skill 目录发现/条件激活挂钩到 Read/Write/Edit 工具 | — |
 | P2 | 编写 Agent Loop 端到端 smoke test | `api/scripts/agent-loop-smoke.ts` |
 | P2 | 评估旧 capability 向 Agent Loop 迁移的可行性 | - |
 | P3 | 添加 system prompt 版本控制 | - |
