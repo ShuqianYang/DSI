@@ -132,3 +132,9 @@ Long-running skills should observe `signal` and emit progress with
 - The latest user request must remain.
 - The system message should remain unless a future prompt manager deliberately replaces it.
 
+When a tool result is too large for the active context budget, `ContextWindowManager`
+may replace it with a preview plus truncation metadata. The metadata must include
+the tool name, tool call id when available, original character count, kept character
+count, and omitted character count. Future persistent tool-result storage should use
+the same metadata shape when it adds external reference handles.
+

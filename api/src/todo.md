@@ -299,6 +299,19 @@ export interface PromptManager {
 - PromptManager 不负责长上下文 compact；发送前的窗口治理交给 `ContextWindowManager`。
 - 当前 loop 通过 `RunAgentLoopOptions.promptManager` 注入，默认使用 `defaultPromptManager`。
 
+Implemented:
+
+- Phase 1: `defaultPromptManager.buildMessages()` renders a structured system prompt with agent role, operating rules, tool-use rules, context priority, available tools, and additional context.
+- Phase 1: tool metadata is rendered deterministically without executing tool callbacks.
+- Phase 1: prompt sections are rendered in a stable order: user context, system context, project/domain context, runtime state, memory, then skills.
+
+Deferred:
+
+- provider/model-specific prompt variants.
+- prompt personalization beyond answering in the user's language.
+- rendering observations into summary sections; current loop keeps observations as conversation tool messages.
+- prompt section token budgeting beyond `ContextWindowManager`.
+
 ## Context Provider
 
 接口位置：
@@ -407,15 +420,20 @@ export interface ContextWindowManager {
 - 当前 loop 通过 `RunAgentLoopOptions.contextWindowManager` 注入。
 - ContextWindowManager 只负责“发送给模型前的窗口治理”，不负责取 context 材料，也不负责 prompt 模板。
 
-Implemented Phase 1:
+Implemented:
 
-- `defaultContextWindowManager.prepareMessages()` enforces a character budget, truncates large tool messages, and preserves assistant/tool adjacency.
+- Phase 1: `defaultContextWindowManager.prepareMessages()` enforces a character budget, truncates large tool messages, and preserves assistant/tool adjacency.
+- Phase 2: context-window diagnostics include `json-chars` and approximate token estimates.
+- Phase 2: message groups are priority-aware and preserve system/latest-user invariants.
+- Phase 2: truncated tool results include model-visible truncation metadata.
+- Phase 2: `context_window.compaction_candidates` exposes deterministic candidates for a future LLM compactor.
 
 Deferred:
 
 - LLM summary compaction.
 - post-compact reinjection of file state and skill/tool declarations.
 - durable transcript-based resume.
+- persistent storage/reference handles for oversized tool results.
 
 待实现函数：
 
