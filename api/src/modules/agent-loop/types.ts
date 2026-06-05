@@ -44,7 +44,7 @@ export interface ToolExecutionContext {
   };
 }
 
-export type ToolKind = "system" | "skill" | "mcp";
+export type ToolKind = "system" | "domain" | "skill" | "mcp";
 export type ToolRiskLevel = "low" | "medium" | "high";
 export type ToolPermissionBehavior = "allow" | "deny" | "ask" | "sandbox";
 

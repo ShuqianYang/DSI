@@ -49,9 +49,51 @@ lookup by name/alias
 System tools are registered by `registerClaudeCodeBaseSystemTools()` in
 `systemTools.ts`, which is called by `buildDefaultToolRegistry()`.
 
-Use this for built-in runtime tools such as `Read`, `Grep`, `Bash`, `Edit`, and
-future first-party GIS/domain tools. Built-ins should keep stable names because
-the model sees them directly.
+Use this for built-in runtime tools such as `Read`, `Grep`, `Bash`, and `Edit`.
+Built-ins should keep stable names because the model sees them directly.
+
+### Domain tools
+
+First-party business and data-access tools are registered by
+`registerDomainTools()` in `domainTools.ts`, which is also called by
+`buildDefaultToolRegistry()`.
+
+Use this for controlled GIS, professional database, data catalog, time-series,
+knowledge-base, and other vertical data tools. Domain tools should expose
+structured schemas, enforce query permissions, normalize results, and return
+bounded JSON suitable for downstream analysis.
+
+Recommended pattern:
+
+```ts
+export function buildDomainTools(): ToolDefinition[] {
+  return [
+    buildProfessionalDatabaseQueryTool(),
+    buildGisEntityQueryTool(),
+  ];
+}
+```
+
+Skills should describe when and how to call domain tools; database access itself
+should stay in domain tools rather than skill scripts.
+
+Current domain tools:
+
+- `SqlQuery`: executes one read-only SQL statement against a configured database
+  alias. `database` is an alias such as `default`, `gis`, or `risk`, not a raw
+  connection string. `default` maps to `DATABASE_URL` unless overridden.
+
+SQL database aliases can be configured with:
+
+- `DATABASE_URL` for the `default` alias.
+- `AGENT_SQL_DATABASE_URLS='{"gis":"postgres://...","risk":"postgres://..."}'`
+  for multiple aliases.
+- `AGENT_SQL_DATABASE_URL_<ALIAS>` for one alias, for example
+  `AGENT_SQL_DATABASE_URL_GIS`.
+
+`SqlQuery` only accepts single-statement `SELECT`/`WITH` queries, rejects common
+DML/DDL/admin keywords, applies a statement timeout, and wraps the query in an
+outer `LIMIT`.
 
 ### Skill tools
 
@@ -137,4 +179,3 @@ may replace it with a preview plus truncation metadata. The metadata must includ
 the tool name, tool call id when available, original character count, kept character
 count, and omitted character count. Future persistent tool-result storage should use
 the same metadata shape when it adds external reference handles.
-
