@@ -16,11 +16,9 @@ const DEFAULT_TIME_ZONE = process.env.AGENT_TIMEZONE || "Asia/Shanghai";
 const MAX_CONTEXT_FILE_CHARS = parsePositiveIntegerEnv(process.env.AGENT_CONTEXT_FILE_MAX_CHARS, 12_000);
 const MAX_CONTEXT_SECTION_CHARS = parsePositiveIntegerEnv(process.env.AGENT_CONTEXT_SECTION_MAX_CHARS, 24_000);
 const MAX_GIT_STATUS_CHARS = parsePositiveIntegerEnv(process.env.AGENT_GIT_STATUS_MAX_CHARS, 12_000);
-const CONTEXT_FILE_CANDIDATES = [
-  "AGENTS.md",
-  "CLAUDE.md",
-  path.join(".claude", "CLAUDE.md"),
-] as const;
+// Temporarily exclude project instruction files from context.
+// Uncomment to restore: AGENTS.md, CLAUDE.md, .claude/CLAUDE.md.
+const CONTEXT_FILE_CANDIDATES: string[] = [];
 
 export interface ContextProviderInput {
   /** Current task/run id. Use it to load task-scoped context or correlate diagnostics. */

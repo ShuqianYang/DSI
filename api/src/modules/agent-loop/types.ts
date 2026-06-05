@@ -159,6 +159,13 @@ export interface AgentLoopToolUseContext {
   nestedMemoryAttachmentTriggers: Set<string>;
   dynamicSkillDirTriggers: Set<string>;
   discoveredSkillNames: Set<string>;
+  invokedSkillSections: PromptSection[];
+  skillAllowedToolNames?: Set<string>;
+  skillAllowedToolsExpiresOnTurn?: number;
+  skillManager?: {
+    discoverSkillDirsForPaths?(filePaths: string[], cwd: string): Promise<string[]>;
+    activateConditionalSkillsForPaths?(filePaths: string[], cwd: string): string[];
+  };
 }
 
 export interface AgentTodoItem {

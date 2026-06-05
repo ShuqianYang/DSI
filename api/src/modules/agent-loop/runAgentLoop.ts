@@ -11,7 +11,11 @@ import { noopMemoryManager, type MemoryManager } from "./memoryManager.js";
 import { createModelClient, type ModelClient } from "./modelClient.js";
 import { defaultPromptManager, type PromptManager } from "./promptManager.js";
 import { safeJsonStringify, sanitizeForJson } from "./serialization.js";
-import { noopSkillManager, type SkillManager } from "./skillManager.js";
+import {
+  defaultSkillManager,
+  registerSkillTool,
+  type SkillManager,
+} from "./skillManager.js";
 import { callTool } from "./toolGateway.js";
 import { buildDefaultToolRegistry, type ToolRegistry } from "./toolRegistry.js";
 import {
@@ -87,7 +91,8 @@ export async function* runAgentLoopEvents(
   const contextProvider = options.contextProvider ?? defaultContextProvider;
   const contextWindowManager = options.contextWindowManager ?? defaultContextWindowManager;
   const memoryManager = options.memoryManager ?? noopMemoryManager;
-  const skillManager = options.skillManager ?? noopSkillManager;
+  const skillManager = options.skillManager ?? defaultSkillManager;
+  registerSkillTool(registry, skillManager);
   const transcriptStore = options.transcriptStore ?? disabledTranscriptStore;
   const maxConcurrentToolCalls =
     options.maxConcurrentToolCalls ?? DEFAULT_MAX_CONCURRENT_TOOL_CALLS;
@@ -102,6 +107,7 @@ export async function* runAgentLoopEvents(
     messages: initialMessages,
     observations,
     tools: registry.list(),
+    skillManager,
     signal: options.signal,
   });
   const memoryPrefetch = memoryManager.startRelevantMemoryPrefetch(
@@ -123,6 +129,7 @@ export async function* runAgentLoopEvents(
   const skillListingSections = await skillManager.getSkillListingSections(toolUseContext);
   let memorySections: PromptSection[] = [];
   let skillDiscoverySections: PromptSection[] = [];
+  let pendingSkillPrefetch: AgentLoopPrefetch | undefined;
   let nextStepOrder = 1;
   let transcriptSequence = 1;
 
@@ -138,124 +145,212 @@ export async function* runAgentLoopEvents(
   };
 
   try {
-  for (let turn = 1; turn <= maxTurns; turn += 1) {
-    const loopMessages = [...initialMessages, ...conversationMessages];
-    toolUseContext = updateAgentLoopToolUseContext(toolUseContext, {
-      messages: loopMessages,
-      observations,
-      tools: registry.list(),
-      signal: options.signal,
-    });
-    const activeTools = toolUseContext.options.tools;
+    for (let turn = 1; turn <= maxTurns; turn += 1) {
+      clearExpiredSkillToolRestriction(toolUseContext, turn);
 
-    if (options.signal?.aborted) {
-      const finalAnswer = formatAbortReason(options.signal.reason);
-      const result: AgentLoopResult = {
-        finalAnswer,
-        turns: turn,
+      const loopMessages = [...initialMessages, ...conversationMessages];
+      toolUseContext = updateAgentLoopToolUseContext(toolUseContext, {
+        messages: loopMessages,
         observations,
-        stoppedBy: "aborted",
-      };
-      await appendTranscript({
-        turn,
-        kind: "loop_stop",
-        stoppedBy: "aborted",
-        finalAnswer,
-        error: finalAnswer,
+        tools: registry.list(),
+        signal: options.signal,
       });
+      const activeTools = toolUseContext.options.tools;
+
+      if (options.signal?.aborted) {
+        const finalAnswer = formatAbortReason(options.signal.reason);
+        const result: AgentLoopResult = {
+          finalAnswer,
+          turns: turn,
+          observations,
+          stoppedBy: "aborted",
+        };
+        await appendTranscript({
+          turn,
+          kind: "loop_stop",
+          stoppedBy: "aborted",
+          finalAnswer,
+          error: finalAnswer,
+        });
+        yield {
+          type: "loop_stop",
+          taskId: options.taskId,
+          turn,
+          result,
+        };
+        return result;
+      }
+
+      if (pendingSkillPrefetch) {
+        const skillPrefetch = pendingSkillPrefetch;
+        pendingSkillPrefetch = undefined;
+        try {
+          const nextSkillSections = await skillManager.collectSkillDiscoveryPrefetch(skillPrefetch);
+          if (nextSkillSections.length > 0) {
+            skillDiscoverySections = [...skillDiscoverySections, ...nextSkillSections];
+          }
+        } finally {
+          skillPrefetch.dispose?.();
+        }
+      }
+
       yield {
-        type: "loop_stop",
+        type: "agent_turn",
         taskId: options.taskId,
         turn,
-        result,
+        maxTurns,
+        message: `Agent loop turn ${turn}/${maxTurns}`,
       };
-      return result;
-    }
 
-    const skillPrefetch = skillManager.startSkillDiscoveryPrefetch(
-      null,
-      toolUseContext.messages,
-      toolUseContext
-    );
-    try {
-
-    yield {
-      type: "agent_turn",
-      taskId: options.taskId,
-      turn,
-      maxTurns,
-      message: `Agent loop turn ${turn}/${maxTurns}`,
-    };
-
-    const callId = `call-${turn}`;
-    const skillSections = [...skillListingSections, ...skillDiscoverySections];
-    const runtimeSections = buildRuntimeToolStateSections(toolUseContext);
-    const rawMessages = promptManager.buildMessages({
-      query: options.query,
-      tools: activeTools,
-      userContext,
-      systemContext,
-      contextSections,
-      runtimeSections,
-      memorySections,
-      skillSections,
-      observations,
-    }).concat(conversationMessages);
-    const prepared = await contextWindowManager.prepareMessages({
-      messages: rawMessages,
-      toolUseContext,
-    });
-    const messages = prepared.messages;
-
-    await appendTranscript({
-      turn,
-      kind: "model_request",
-      messages,
-    });
-    yield {
-      type: "model_request",
-      taskId: options.taskId,
-      turn,
-      messages,
-    };
-
-    let decision;
-    try {
-      decision = await modelClient.decide({
-        messages,
-        tools: activeTools,
+      const callId = `call-${turn}`;
+      const skillSections = [...skillListingSections, ...skillDiscoverySections];
+      const runtimeSections = buildRuntimeToolStateSections(toolUseContext);
+      const rawMessages = promptManager.buildMessages({
         query: options.query,
+        tools: activeTools,
+        userContext,
+        systemContext,
+        contextSections,
+        runtimeSections,
+        memorySections,
+        skillSections,
         observations,
-        callId,
+      }).concat(conversationMessages);
+      const prepared = await contextWindowManager.prepareMessages({
+        messages: rawMessages,
+        toolUseContext,
       });
-    } catch (error) {
-      const finalAnswer = error instanceof Error ? error.message : String(error);
-      const result: AgentLoopResult = {
-        finalAnswer,
-        turns: turn,
-        observations,
-        stoppedBy: "model_error",
-      };
+      const messages = prepared.messages;
+
       await appendTranscript({
         turn,
-        kind: "loop_stop",
-        stoppedBy: "model_error",
-        finalAnswer,
-        error: finalAnswer,
+        kind: "model_request",
+        messages,
       });
       yield {
-        type: "loop_stop",
+        type: "model_request",
         taskId: options.taskId,
         turn,
-        result,
+        messages,
       };
-      return result;
-    }
 
-    if (decision.type === "final_answer") {
+      let decision;
+      try {
+        decision = await modelClient.decide({
+          messages,
+          tools: activeTools,
+          query: options.query,
+          observations,
+          callId,
+        });
+      } catch (error) {
+        const finalAnswer = error instanceof Error ? error.message : String(error);
+        const result: AgentLoopResult = {
+          finalAnswer,
+          turns: turn,
+          observations,
+          stoppedBy: "model_error",
+        };
+        await appendTranscript({
+          turn,
+          kind: "loop_stop",
+          stoppedBy: "model_error",
+          finalAnswer,
+          error: finalAnswer,
+        });
+        yield {
+          type: "loop_stop",
+          taskId: options.taskId,
+          turn,
+          result,
+        };
+        return result;
+      }
+
+      if (decision.type === "final_answer") {
+        const assistantMessage: AgentMessage = {
+          role: "assistant",
+          content: decision.content,
+        };
+        conversationMessages.push(assistantMessage);
+        await appendTranscript({
+          turn,
+          kind: "assistant_message",
+          message: assistantMessage,
+        });
+        yield {
+          type: "assistant_message",
+          taskId: options.taskId,
+          turn,
+          message: assistantMessage,
+        };
+        const result: AgentLoopResult = {
+          finalAnswer: decision.content,
+          turns: turn,
+          observations,
+          stoppedBy: "final_answer",
+        };
+        await appendTranscript({
+          turn,
+          kind: "loop_stop",
+          stoppedBy: "final_answer",
+          finalAnswer: decision.content,
+        });
+        if (memoryManager.remember) {
+          await memoryManager.remember({
+            query: options.query,
+            finalAnswer: decision.content,
+            result,
+            messages: [...initialMessages, ...conversationMessages],
+            observations,
+            toolUseContext,
+          });
+        }
+        yield {
+          type: "loop_stop",
+          taskId: options.taskId,
+          turn,
+          result,
+        };
+        return result;
+      }
+
+      if (decision.toolCalls.length === 0) {
+        const finalAnswer = "Model requested tool calls, but no calls were provided.";
+        const result: AgentLoopResult = {
+          finalAnswer,
+          turns: turn,
+          observations,
+          stoppedBy: "model_error",
+        };
+        await appendTranscript({
+          turn,
+          kind: "loop_stop",
+          stoppedBy: "model_error",
+          finalAnswer,
+          error: finalAnswer,
+        });
+        yield {
+          type: "loop_stop",
+          taskId: options.taskId,
+          turn,
+          result,
+        };
+        return result;
+      }
+
+      yield {
+        type: "tool_calls",
+        taskId: options.taskId,
+        turn,
+        count: decision.toolCalls.length,
+        tools: decision.toolCalls.map((toolCall) => toolCall.toolName),
+      };
+
       const assistantMessage: AgentMessage = {
         role: "assistant",
-        content: decision.content,
+        content: decision.content ?? "",
+        toolCalls: decision.toolCalls,
       };
       conversationMessages.push(assistantMessage);
       await appendTranscript({
@@ -269,144 +364,62 @@ export async function* runAgentLoopEvents(
         turn,
         message: assistantMessage,
       };
-      const result: AgentLoopResult = {
-        finalAnswer: decision.content,
-        turns: turn,
-        observations,
-        stoppedBy: "final_answer",
-      };
-      await appendTranscript({
-        turn,
-        kind: "loop_stop",
-        stoppedBy: "final_answer",
-        finalAnswer: decision.content,
-      });
-      if (memoryManager.remember) {
-        await memoryManager.remember({
-          query: options.query,
-          finalAnswer: decision.content,
-          result,
-          messages: [...initialMessages, ...conversationMessages],
-          observations,
-          toolUseContext,
-        });
-      }
-      yield {
-        type: "loop_stop",
-        taskId: options.taskId,
-        turn,
-        result,
-      };
-      return result;
-    }
 
-    if (decision.toolCalls.length === 0) {
-      const finalAnswer = "Model requested tool calls, but no calls were provided.";
-      const result: AgentLoopResult = {
-        finalAnswer,
-        turns: turn,
-        observations,
-        stoppedBy: "model_error",
-      };
-      await appendTranscript({
-        turn,
-        kind: "loop_stop",
-        stoppedBy: "model_error",
-        finalAnswer,
-        error: finalAnswer,
-      });
-      yield {
-        type: "loop_stop",
-        taskId: options.taskId,
-        turn,
-        result,
-      };
-      return result;
-    }
-
-    yield {
-      type: "tool_calls",
-      taskId: options.taskId,
-      turn,
-      count: decision.toolCalls.length,
-      tools: decision.toolCalls.map((toolCall) => toolCall.toolName),
-    };
-
-    const assistantMessage: AgentMessage = {
-      role: "assistant",
-      content: decision.content ?? "",
-      toolCalls: decision.toolCalls,
-    };
-    conversationMessages.push(assistantMessage);
-    await appendTranscript({
-      turn,
-      kind: "assistant_message",
-      message: assistantMessage,
-    });
-    yield {
-      type: "assistant_message",
-      taskId: options.taskId,
-      turn,
-      message: assistantMessage,
-    };
-
-    const batches = partitionToolCalls(registry, decision.toolCalls, maxConcurrentToolCalls);
-    for (const batch of batches) {
-      const batchObservations = yield* executeToolBatch({
-        taskId: options.taskId,
-        query: options.query,
-        turn,
-        registry,
-        toolCalls: batch.toolCalls,
-        concurrent: batch.type === "concurrent",
-        observationsSnapshot: [...observations],
-        allocateOrder: () => nextStepOrder++,
-        signal: options.signal,
-        permissionHandler: options.permissionHandler,
-        onToolProgress: options.onToolProgress,
-        toolUseContext,
-        usedToolSignatures,
-      });
-      observations.push(...batchObservations);
-      for (const observation of batchObservations) {
-        const toolMessage = toolObservationToMessage(observation);
-        conversationMessages.push(toolMessage);
-        await appendTranscript({
-          turn,
-          kind: "tool_message",
-          message: toolMessage,
-        });
-        yield {
-          type: "tool_message",
+      const batches = partitionToolCalls(registry, decision.toolCalls, maxConcurrentToolCalls);
+      for (const batch of batches) {
+        const batchObservations = yield* executeToolBatch({
           taskId: options.taskId,
+          query: options.query,
           turn,
-          message: toolMessage,
-        };
+          registry,
+          toolCalls: batch.toolCalls,
+          concurrent: batch.type === "concurrent",
+          observationsSnapshot: [...observations],
+          allocateOrder: () => nextStepOrder++,
+          signal: options.signal,
+          permissionHandler: options.permissionHandler,
+          onToolProgress: options.onToolProgress,
+          toolUseContext,
+          usedToolSignatures,
+        });
+        observations.push(...batchObservations);
+        for (const observation of batchObservations) {
+          const toolMessage = toolObservationToMessage(observation);
+          conversationMessages.push(toolMessage);
+          await appendTranscript({
+            turn,
+            kind: "tool_message",
+            message: toolMessage,
+          });
+          yield {
+            type: "tool_message",
+            taskId: options.taskId,
+            turn,
+            message: toolMessage,
+          };
+        }
       }
-    }
 
-    const nextMemorySections = await consumeMemoryPrefetchIfReady({
-      prefetch: memoryPrefetch,
-      turn,
-      memoryManager,
-      toolUseContext,
-    });
-    if (nextMemorySections.length > 0) {
-      memorySections = [...memorySections, ...nextMemorySections];
-    }
-
-    if (skillPrefetch) {
-      const nextSkillSections = await skillManager.collectSkillDiscoveryPrefetch(skillPrefetch);
-      if (nextSkillSections.length > 0) {
-        skillDiscoverySections = [...skillDiscoverySections, ...nextSkillSections];
+      const nextMemorySections = await consumeMemoryPrefetchIfReady({
+        prefetch: memoryPrefetch,
+        turn,
+        memoryManager,
+        toolUseContext,
+      });
+      if (nextMemorySections.length > 0) {
+        memorySections = [...memorySections, ...nextMemorySections];
       }
+
+      const postToolMessages = [...initialMessages, ...conversationMessages];
+      pendingSkillPrefetch = skillManager.startSkillDiscoveryPrefetch(
+        null,
+        postToolMessages,
+        { ...toolUseContext, messages: postToolMessages }
+      );
     }
-    } finally {
-      skillPrefetch?.dispose?.();
-    }
-  }
   } finally {
     memoryPrefetch?.dispose?.();
+    pendingSkillPrefetch?.dispose?.();
   }
 
   const finalAnswer = await buildMaxTurnsAnswer({
@@ -471,6 +484,7 @@ function createAgentLoopToolUseContext(input: {
   messages: AgentMessage[];
   observations: ToolObservation[];
   tools: ReturnType<ToolRegistry["list"]>;
+  skillManager: SkillManager;
   signal?: AbortSignal;
 }): AgentLoopToolUseContext {
   return {
@@ -487,6 +501,8 @@ function createAgentLoopToolUseContext(input: {
     nestedMemoryAttachmentTriggers: new Set(),
     dynamicSkillDirTriggers: new Set(),
     discoveredSkillNames: new Set(),
+    invokedSkillSections: [],
+    skillManager: input.skillManager,
   };
 }
 
@@ -499,7 +515,10 @@ function updateAgentLoopToolUseContext(
     signal?: AbortSignal;
   }
 ): AgentLoopToolUseContext {
-  const refreshedTools = context.options.refreshTools?.() ?? input.tools;
+  const refreshedTools = filterToolsForActiveSkill(
+    context.options.refreshTools?.() ?? input.tools,
+    context.skillAllowedToolNames,
+  );
   return {
     ...context,
     messages: input.messages,
@@ -537,7 +556,30 @@ function buildRuntimeToolStateSections(toolUseContext: AgentLoopToolUseContext):
     });
   }
 
+  sections.push(...toolUseContext.invokedSkillSections);
+
   return sections;
+}
+
+function filterToolsForActiveSkill(
+  tools: ReturnType<ToolRegistry["list"]>,
+  allowedToolNames: Set<string> | undefined,
+): ReturnType<ToolRegistry["list"]> {
+  if (!allowedToolNames || allowedToolNames.size === 0) return tools;
+  return tools.filter((tool) => allowedToolNames.has(tool.name) || tool.aliases?.some((alias) => allowedToolNames.has(alias)));
+}
+
+function clearExpiredSkillToolRestriction(
+  toolUseContext: AgentLoopToolUseContext,
+  turn: number,
+): void {
+  if (
+    toolUseContext.skillAllowedToolsExpiresOnTurn !== undefined &&
+    toolUseContext.skillAllowedToolsExpiresOnTurn <= turn
+  ) {
+    toolUseContext.skillAllowedToolNames = undefined;
+    toolUseContext.skillAllowedToolsExpiresOnTurn = undefined;
+  }
 }
 
 async function consumeMemoryPrefetchIfReady(input: {

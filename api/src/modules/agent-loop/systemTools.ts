@@ -4,6 +4,7 @@ import { constants, existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { escapeRegExp, matchesGlobPattern, normalizeGlobPath } from "./globUtils.js";
 import type { AgentTodoItem, ToolDefinition } from "./types.js";
 import type { ToolRegistry } from "./toolRegistry.js";
 
@@ -360,6 +361,7 @@ function buildReadTool(): ToolDefinition {
         truncated: startLine - 1 + limit < lines.length,
         readAt: new Date().toISOString(),
       });
+      await triggerSkillHooksForPaths(context, [filePath]);
       context.onProgress?.({
         stage: "complete",
         message: `Read ${relativePath}`,
@@ -393,12 +395,13 @@ function buildWriteTool(): ToolDefinition {
     isConcurrencySafe: () => false,
     riskLevel: "high",
     maxResultSizeChars: MAX_TOOL_OUTPUT_CHARS,
-    async execute(input) {
+    async execute(input, context) {
       const parsed = input as { file_path: string; content: string };
       const filePath = resolveWorkspacePath(parsed.file_path);
       await assertWritableWorkspacePath(filePath);
       await mkdir(path.dirname(filePath), { recursive: true });
       await writeFile(filePath, parsed.content, "utf8");
+      await triggerSkillHooksForPaths(context, [filePath]);
       return {
         filePath: toWorkspaceRelative(filePath),
         bytesWritten: Buffer.byteLength(parsed.content, "utf8"),
@@ -433,7 +436,7 @@ function buildEditTool(): ToolDefinition {
         throw new Error("old_string and new_string must be different.");
       }
     },
-    async execute(input) {
+    async execute(input, context) {
       const parsed = input as {
         file_path: string;
         old_string: string;
@@ -456,6 +459,7 @@ function buildEditTool(): ToolDefinition {
         ? content.split(parsed.old_string).join(parsed.new_string)
         : content.replace(parsed.old_string, parsed.new_string);
       await writeFile(filePath, nextContent, "utf8");
+      await triggerSkillHooksForPaths(context, [filePath]);
 
       return {
         filePath: toWorkspaceRelative(filePath),
@@ -469,16 +473,16 @@ function buildTodoWriteTool(): ToolDefinition {
   return {
     name: "TodoWrite",
     description:
-      'Update the session todo list. Input: {"todos":[{"content":"...","status":"pending|in_progress|completed","activeForm":"Working on ..."}]}.',
+      'Update the session todo list. Each todo must have: content (short description of the task), status (pending|in_progress|completed), and activeForm (a present-continuous phrase like "Reading file" or "Analyzing data" that describes what is currently being done). Input: {"todos":[{"content":"Read package.json","status":"in_progress","activeForm":"Reading package.json"}]}.',
     kind: "system",
     inputSchema: z.strictObject({
       todos: z.array(
         z.strictObject({
-          content: z.string().min(1, "Content cannot be empty"),
-          status: z.enum(["pending", "in_progress", "completed"]),
-          activeForm: z.string().min(1, "Active form cannot be empty"),
+          content: z.string().min(1, "Content cannot be empty").describe("Short description of the task, e.g. 'Read package.json'"),
+          status: z.enum(["pending", "in_progress", "completed"]).describe("Current status of the task"),
+          activeForm: z.string().min(1, "Active form cannot be empty").describe("Present-continuous phrase describing current work, e.g. 'Reading package.json' or 'Counting dependencies'. Must not be empty."),
         }),
-      ),
+      ).describe("Replace the entire todo list with this array. All existing todos are overwritten."),
     }),
     isReadOnly: () => false,
     isDestructive: () => false,
@@ -491,21 +495,47 @@ function buildTodoWriteTool(): ToolDefinition {
     async execute(input, context) {
       const parsed = input as { todos: AgentTodoItem[] };
       const oldTodos = [...(context.toolUseContext?.todoState ?? [])];
-      const allDone = parsed.todos.every((todo) => todo.status === "completed");
-      const newTodos = allDone ? [] : parsed.todos;
+
+      // Fallback: if activeForm is empty, derive it from content
+      const normalizedTodos = parsed.todos.map((todo) => ({
+        ...todo,
+        activeForm: todo.activeForm?.trim() || todo.content,
+      }));
+
+      const allDone = normalizedTodos.every((todo) => todo.status === "completed");
+      const newTodos = allDone ? [] : normalizedTodos;
       if (context.toolUseContext) {
         context.toolUseContext.todoState = newTodos;
       }
 
       return {
         oldTodos,
-        newTodos: parsed.todos,
+        newTodos: normalizedTodos,
         storedTodos: newTodos,
         message:
           "Todos have been modified successfully. Continue to use the todo list to track current progress.",
       };
     },
   };
+}
+
+async function triggerSkillHooksForPaths(
+  context: { toolUseContext?: { skillManager?: {
+    discoverSkillDirsForPaths?(filePaths: string[], cwd: string): Promise<string[]>;
+    activateConditionalSkillsForPaths?(filePaths: string[], cwd: string): string[];
+  }; dynamicSkillDirTriggers: Set<string> } },
+  filePaths: string[],
+): Promise<void> {
+  const toolUseContext = context.toolUseContext;
+  const skillManager = toolUseContext?.skillManager;
+  if (!toolUseContext || !skillManager) return;
+
+  const cwd = getWorkspaceRoot();
+  const newSkillDirs = await skillManager.discoverSkillDirsForPaths?.(filePaths, cwd) ?? [];
+  for (const dir of newSkillDirs) {
+    toolUseContext.dynamicSkillDirTriggers.add(dir);
+  }
+  skillManager.activateConditionalSkillsForPaths?.(filePaths, cwd);
 }
 
 function buildSleepTool(): ToolDefinition {
@@ -882,50 +912,6 @@ function assertSafeNodeFallbackRegex(pattern: string): void {
       "Grep pattern is too complex for the Node fallback regex engine. Install ripgrep or use a simpler literal pattern.",
     );
   }
-}
-
-function normalizeGlobPath(input: string): string {
-  return input.replace(/\\/g, "/").replace(/^\.\//, "");
-}
-
-function matchesGlobPattern(relativePath: string, pattern: string): boolean {
-  const pathParts = relativePath.split("/").filter(Boolean);
-  const patternParts = pattern.split("/").filter(Boolean);
-  return matchGlobSegments(patternParts, pathParts);
-}
-
-function matchGlobSegments(patternParts: string[], pathParts: string[]): boolean {
-  if (patternParts.length === 0) return pathParts.length === 0;
-
-  const [currentPattern, ...remainingPatterns] = patternParts;
-  if (currentPattern === "**") {
-    if (matchGlobSegments(remainingPatterns, pathParts)) return true;
-    return pathParts.length > 0 && matchGlobSegments(patternParts, pathParts.slice(1));
-  }
-
-  if (pathParts.length === 0) return false;
-  return (
-    matchesGlobSegment(pathParts[0]!, currentPattern) &&
-    matchGlobSegments(remainingPatterns, pathParts.slice(1))
-  );
-}
-
-function matchesGlobSegment(value: string, pattern: string): boolean {
-  const regex = new RegExp(
-    `^${pattern
-      .split("")
-      .map((char) => {
-        if (char === "*") return ".*";
-        if (char === "?") return ".";
-        return escapeRegExp(char);
-      })
-      .join("")}$`,
-  );
-  return regex.test(value);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function classifyBashCommand(command: string): {

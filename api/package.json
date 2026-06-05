@@ -15,6 +15,8 @@
     "agent:smoke": "tsx scripts/agent-loop-smoke.ts",
     "agent:edge": "tsx scripts/agent-loop-edge-cases.ts",
     "agent:extra": "tsx scripts/agent-loop-extra-tests.ts",
+    "agent:skills": "tsx scripts/agent-loop-skill-tests.ts",
+    "agent:skills:real": "tsx scripts/agent-loop-real-skill-tests.ts",
     "lint": "eslint src/"
   },
   "dependencies": {
