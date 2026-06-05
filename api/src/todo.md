@@ -338,19 +338,24 @@ export interface ContextProvider {
   2. `getSystemContext`：系统/工作区运行态上下文，例如 Git 状态、任务状态、cache breaker。
   3. `getContextSections`：不适合 key/value 的项目、任务、业务域上下文。
 
-Implemented Phase 1:
+Implemented:
 
-- `defaultContextProvider.getUserContext()` injects current date and bounded project instruction files.
-- `defaultContextProvider.getSystemContext()` injects workspace root, bounded git status, and task status when available.
-- `defaultContextProvider.getContextSections()` injects bounded `CONTEXT.md` as `project.domain`.
+- Phase 1: `defaultContextProvider.getUserContext()` injects current date and bounded project instruction files when explicitly enabled.
+- Phase 1: `defaultContextProvider.getSystemContext()` injects workspace root, bounded git status, and task status when available.
+- Phase 1: `defaultContextProvider.getContextSections()` injects bounded `CONTEXT.md` as `project.domain`.
+- Phase 2: project instruction files are disabled by default and can be enabled with `AGENT_CONTEXT_PROJECT_INSTRUCTIONS=1`.
+- Phase 2: `docs/adr` is exposed as bounded `project.adr_index`.
+- Phase 2: task records and task steps can be rendered as `task.requirements` and `task.progress`.
+- Phase 2: `context_provider.diagnostics` reports loaded sections and skipped sources.
 
 Deferred:
 
 - user preference/config loading beyond project instruction files.
 - bounded include expansion for project instruction files.
-- richer task requirement sections beyond task status metadata.
+- full database-backed context-provider integration tests.
+- durable transcript-based resume context.
 
-待实现函数：
+已实现函数说明（供参考，非待实现项）：
 
 ### `getUserContext(input)`
 
@@ -435,7 +440,7 @@ Deferred:
 - durable transcript-based resume.
 - persistent storage/reference handles for oversized tool results.
 
-待实现函数：
+已实现函数说明（供参考，非待实现项）：
 
 ### `prepareMessages(input)`
 
@@ -556,89 +561,79 @@ export interface SkillManager {
 
 说明：
 
-- 当前 `noopSkillManager` 返回空 skill listing，不启动 discovery。
-- 当前 loop 通过 `RunAgentLoopOptions.skillManager` 注入。
-- 接口仿照 Claude Code：主 loop 不直接每轮塞完整 skill 内容，而是提供 skill listing / discovery sections；完整 skill 执行后续应通过 Skill tool 展开。
+- 当前 `defaultSkillManager` 为 `LocalSkillManager` 实例，已实现完整的 skill listing、discovery、条件激活和 Skill tool 执行。
+- 当前 loop 通过 `RunAgentLoopOptions.skillManager` 注入，默认使用 `defaultSkillManager`。
+- 接口仿照 Claude Code：主 loop 不直接每轮塞完整 skill 内容，而是提供 skill listing / discovery sections；完整 skill 通过 Skill tool 展开执行。
 
-待实现函数：
+已实现：
+
+- `getSkillListingSections`: 扫描 `skills/` 目录，返回轻量索引（名称/描述/when-to-use/args hint）。
+- `startSkillDiscoveryPrefetch` / `collectSkillDiscoveryPrefetch`: 基于文件操作触发的动态 skill 发现。
+- `discoverSkillDirsForPaths` / `activateConditionalSkillsForPaths`: 文件工具操作后触发 skill 目录发现和条件 skill 激活。
+- `getSkill`: Skill tool 调用解析，支持 frontmatter、参数替换、embedded shell 命令。
+- `registerSkillTool`: 将 Skill tool 注册到 `ToolRegistry`。
+- 文件工具（Read/Write/Edit）通过 `triggerSkillHooksForPaths` 与 skill 发现挂接。
+
+已实现函数说明：
 
 ### `getSkillListingSections(toolUseContext)`
 
-参数说明：
-
-- `toolUseContext`：当前工具列表、模型信息、已发现/已激活 skill 状态、工作区状态。
-
-大体实现方式：
-
-- 扫描内置、用户、项目、MCP 等 skill 来源。
-- 返回轻量索引：名称、描述、when-to-use、来源、参数提示、是否条件触发。
+- 扫描 workspace 根目录 `skills/` 下的 SKILL.md，解析 frontmatter。
+- 返回轻量索引：名称、描述、when-to-use、args hint、paths 条件、allowed-tools。
 - 不直接注入完整 `SKILL.md` 正文，避免 prompt 膨胀。
 
 ### `startSkillDiscoveryPrefetch(input, messages, toolUseContext)`
 
-参数说明：
-
-- `input`：普通主 loop 路径传 `null`，保留给未来显式输入/局部触发。
-- `messages`：当前对话消息，用于识别写入 pivot、用户意图、最近工具行为。
-- `toolUseContext`：可读取 dynamic skill 触发状态和已发现 skill 集合。
-
-大体实现方式：
-
 - 在每轮模型请求开始时启动异步 discovery。
-- 根据消息和工具状态判断是否需要发现新 skill。
+- 根据 `dynamicSkillDirTriggers` 和 `pendingActivatedSkillNames` 判断是否有新 skill 需要注入。
 - 返回 `AgentLoopPrefetch`，主 loop 在工具执行后消费结果并注入下一轮。
 
 ### `collectSkillDiscoveryPrefetch(prefetch)`
 
-参数说明：
-
-- `prefetch`：`startSkillDiscoveryPrefetch` 返回的异步句柄。
-
-大体实现方式：
-
-- 等待 discovery 结果。
-- 将新发现或新激活的 skills 格式化为 `PromptSection[]`。
-- 更新 telemetry/状态时，注意不要重复注入同名 skill。
+- 等待 discovery 结果，将新发现或新激活的 skills 格式化为 `PromptSection[]`。
+- 通过 `sentDynamicSkillNames` 去重，避免重复注入同名 skill。
 
 ### `discoverSkillDirsForPaths(filePaths, cwd)`
 
-参数说明：
-
-- `filePaths`：Read/Write/Edit 等文件工具触碰过的路径。
-- `cwd`：当前工作区根目录，用于限制向上查找边界。
-
-大体实现方式：
-
-- 从每个文件路径向上查找 `.claude/skills` 或本项目约定目录。
-- 跳过 gitignored、workspace 外、重复扫描过的目录。
-- 返回新发现的 skill 目录列表，后续由具体实现加载。
+- 文件工具（Read/Write/Edit）执行后调用，判断文件是否在工作区内。
+- 返回 workspace 根目录 `skills/` 路径供后续加载。
 
 ### `activateConditionalSkillsForPaths(filePaths, cwd)`
 
-参数说明：
-
-- `filePaths`：被工具触碰的文件。
-- `cwd`：路径 glob 的匹配基准目录。
-
-大体实现方式：
-
 - 匹配 skill frontmatter 中的 `paths`/glob 条件。
-- 把命中的条件 skill 移入动态 skill 集合。
+- 把命中的条件 skill 移入动态 skill 集合，加入 `pendingActivatedSkillNames`。
 - 返回本次新激活的 skill 名称。
+
+### `getSkill(name, toolUseContext)`
+
+- Skill tool 调用时解析指定 skill，加载完整 `SKILL.md` 内容。
+- 支持参数替换（`$ARGUMENTS`、`$1`、`$name`）。
+- 支持 embedded shell 命令（`` !`cmd` `` 和 ````!` 代码块），结果替换进 skill 内容。
+- 通过 `injectSkillContent` 注入 `toolUseContext.invokedSkillSections`。
+- 通过 `applySkillAllowedTools` 限制 skill 可用工具白名单。
 
 ## 待实现问题
 
-- [ ] 为 agent loop 增加数据库持久化 transcript。
-- [ ] 为超大 tool result 增加持久化存储，并在 transcript 中保存 preview/reference。
-- [ ] 设计正式 system prompt。
-- [ ] 设计 `PromptManager` 的 prompt section 组装顺序和优先级。
-- [ ] 实现 `ContextProvider.getUserContext` / `getSystemContext` 的项目、任务、用户、工作区上下文加载。
-- [ ] 实现 `ContextProvider.getContextSections` 的业务域/任务上下文加载。
-- [ ] 实现 `ContextWindowManager.prepareMessages` 的 token 预算、tool result budget、compact/reinjection。
-- [ ] 实现 `MemoryManager.startRelevantMemoryPrefetch` 的异步 memory 召回。
-- [ ] 实现 `MemoryManager.filterDuplicateMemorySections` 的去重与截断策略。
-- [ ] 实现 `MemoryManager.remember` 的 session/durable memory 写入策略。
-- [ ] 实现 `SkillManager.getSkillListingSections` 的 skill 索引注入。
-- [ ] 实现 `SkillManager.startSkillDiscoveryPrefetch` / `collectSkillDiscoveryPrefetch` 的动态发现。
-- [ ] 将文件工具与 `discoverSkillDirsForPaths` / `activateConditionalSkillsForPaths` 挂接。
-- [ ] 为 prompt/context/memory/skill 输出增加 token 预算和截断策略。
+### 高优先级（核心能力缺口）
+
+- [ ] **Memory 系统**：`startRelevantMemoryPrefetch` / `filterDuplicateMemorySections` / `remember` 当前为 `noopMemoryManager`，需实现异步 memory 召回和 durable 写入。
+- [ ] **Transcript 数据库持久化**：接口和写入点已接入 `runAgentLoop.ts`，但 `disabledTranscriptStore` 为空操作，需实现真实 DB 存储。
+- [ ] **Plan Mode**：`planModeState` 类型已定义、`tool_state.plan_mode` 已渲染，但缺少 `EnterPlanMode` / `ExitPlanMode` 工具和 approval 流程。
+
+### 中优先级（体验增强）
+
+- [ ] **Context Window compaction**：当前只有候选列表（`compaction_candidates`），需接入 LLM summary compaction 和 post-compact reinjection。
+- [ ] **Tool Safety 增强**：
+  - shell AST 完整解析（当前为轻量 token/regex）。
+  - WebFetch SSRF/内网地址限制（`localhost`、private IP、metadata IP）。
+  - WebFetch 本地 mock HTTP server 替代外部 404 测试。
+  - DB 访问独立业务 tool（`QueryDatabase` / `RunSqlReadOnly`），避免通过 Bash 暴露连接串。
+- [ ] **System Prompt 升级**：当前为基础版 `BASE_SYSTEM_PROMPT`，需设计 provider/model-specific 变体、observations summary section。
+- [ ] **TodoWrite 固定 edge case**：补自动化测试，当前只靠手工 fake model 验证。
+
+### 低优先级（后续扩展）
+
+- [ ] **ContextProvider 扩展**：user preference/config 加载、bounded include expansion、full integration tests、durable transcript resume。
+- [ ] **ContextWindowManager 扩展**：durable transcript-based resume、persistent storage/reference handles for oversized tool results。
+- [ ] **Tool Safety 长期**：服务端/前端审批流（当前只有 CLI y/n handler）、系统级 sandbox（Docker/bwrap）。
+- [ ] **统一 token 预算**：当前为字符预算（`json-chars`），需接入真实 token 计数和 section 级 budget。
