@@ -19,6 +19,7 @@ const MAX_GIT_STATUS_CHARS = parsePositiveIntegerEnv(process.env.AGENT_GIT_STATU
 // Project instruction files are disabled for this domain (open-source data analysis).
 // Re-populate this list if domain-specific agent rules are needed later.
 const PROJECT_INSTRUCTION_CANDIDATES: string[] = [];
+const DATABASE_DESCRIPTION_PATH = "api/src/instructions/database-description.md";
 
 export interface ContextProviderInput {
   /** Current task/run id. Use it to load task-scoped context or correlate diagnostics. */
@@ -129,13 +130,15 @@ export const defaultContextProvider: ContextProvider = {
   async getContextSections(input) {
     throwIfAborted(input.signal);
     const workspaceRoot = getWorkspaceRoot();
-    const [domain, adrIndex, taskSections] = await Promise.all([
+    const [domain, databaseDescription, adrIndex, taskSections] = await Promise.all([
       readOptionalContextFile(path.join(workspaceRoot, "CONTEXT.md")),
+      readOptionalContextFile(path.join(workspaceRoot, DATABASE_DESCRIPTION_PATH)),
       readAdrIndex(workspaceRoot),
       getTaskContextSections(input.taskId),
     ]);
     const sections = [
       ...(domain ? [{ id: "project.domain", content: domain }] : []),
+      ...(databaseDescription ? [{ id: "project.database_description", content: databaseDescription }] : []),
       ...(adrIndex ? [{ id: "project.adr_index", content: adrIndex }] : []),
       ...taskSections,
     ];
@@ -146,6 +149,7 @@ export const defaultContextProvider: ContextProvider = {
         content: JSON.stringify(buildContextProviderDiagnostics({
           sections,
           domainLoaded: Boolean(domain),
+          databaseDescriptionLoaded: Boolean(databaseDescription),
           adrIndexLoaded: Boolean(adrIndex),
           taskSectionCount: taskSections.length,
         })),
@@ -214,12 +218,14 @@ async function readAdrIndex(workspaceRoot: string): Promise<string | undefined> 
 function buildContextProviderDiagnostics(input: {
   sections: PromptSection[];
   domainLoaded: boolean;
+  databaseDescriptionLoaded: boolean;
   adrIndexLoaded: boolean;
   taskSectionCount: number;
 }): ContextProviderDiagnostics {
   const skippedSources: string[] = [];
   if (!shouldLoadProjectInstructions()) skippedSources.push("projectInstructions");
   if (!input.domainLoaded) skippedSources.push("CONTEXT.md");
+  if (!input.databaseDescriptionLoaded) skippedSources.push(DATABASE_DESCRIPTION_PATH);
   if (!input.adrIndexLoaded) skippedSources.push("docs/adr");
   if (input.taskSectionCount === 0) skippedSources.push("taskSections");
   return {

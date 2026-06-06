@@ -79,6 +79,12 @@ should stay in domain tools rather than skill scripts.
 
 Current domain tools:
 
+- `SqlQuerySchema`: lists base tables, columns, and same-schema foreign-key
+  relationships for an allowlisted PostgreSQL schema. It is the model-facing way
+  to discover SQL structure before calling `SqlQuery`; it returns only table
+  names, column names, data types, nullable flags, and join relationships. It
+  does not expose defaults, constraint names, indexes, permissions, statistics,
+  row counts, or view definitions.
 - `SqlQuery`: executes one read-only SQL statement against a configured database
   alias. `database` is an alias such as `default`, `gis`, or `risk`, not a raw
   connection string. `default` maps to `DATABASE_URL` unless overridden.
@@ -91,9 +97,25 @@ SQL database aliases can be configured with:
 - `AGENT_SQL_DATABASE_URL_<ALIAS>` for one alias, for example
   `AGENT_SQL_DATABASE_URL_GIS`.
 
+`SqlQuerySchema` schema discovery is allowlist-only. Configure allowed schemas
+with one of:
+
+- `AGENT_SQL_ALLOWED_SCHEMAS='["agent_smoke","public_data"]'` for the `default`
+  alias.
+- `AGENT_SQL_ALLOWED_SCHEMAS='{"default":["agent_smoke"],"analytics":["mart"]}'`
+  for per-alias allowlists.
+- `AGENT_SQL_ALLOWED_SCHEMAS_<ALIAS>='mart,reporting'` for one alias, for
+  example `AGENT_SQL_ALLOWED_SCHEMAS_ANALYTICS`.
+
+System schemas are always rejected even if misconfigured in the allowlist:
+`information_schema`, `pg_catalog`, and schemas whose names start with `pg_`.
+
 `SqlQuery` only accepts single-statement `SELECT`/`WITH` queries, rejects common
 DML/DDL/admin keywords, applies a statement timeout, and wraps the query in an
-outer `LIMIT`.
+outer `LIMIT` / `OFFSET` for bounded pagination. Large result sets are handled
+inside `SqlQuery`: the model-visible output keeps a bounded row preview, while
+the full row set is written as JSONL under `api/tmp/agent-loop/sqlquery/...` and
+returned through `artifact.path` for optional later `Read` or data processing.
 
 ### Skill tools
 

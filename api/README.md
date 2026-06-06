@@ -95,6 +95,43 @@ const registry = buildDefaultToolRegistry();
 | Sleep | automation | MVP 已实现 | `allow` |
 | WebSearch | web | Tavily provider | `allow` |
 | WebFetch | web | native fetch | `allow` |
+| SqlQuery | domain | 只读 SQL 查询 | `allow` |
+| SqlQuerySchema | domain | 白名单 schema 结构查询 | `allow` |
+
+### SQL Domain Tools
+
+`SqlQuery` 用于执行受限的只读 `SELECT` / `WITH` 查询，支持 `limit` +
+`offset` 分页。大结果会内置转为“上下文 preview + JSONL artifact”：工具结果
+只内联前若干行，并在 `artifact.path` 返回完整行集文件路径
+`api/tmp/agent-loop/sqlquery/...`，模型可按需用 `Read` 读取或留给后续数据处理。
+`SqlQuerySchema` 用于在查询前发现白名单 schema 下的基础表、列和同 schema
+外键关系，只返回表名、列名、数据类型、nullable 标记和 JOIN 关系，不返回
+默认值、约束名、索引、权限、统计行数或视图定义。
+
+数据库 alias 配置：
+
+```bash
+DATABASE_URL=postgres://...
+AGENT_SQL_DATABASE_URLS='{"default":"postgres://...","analytics":"postgres://..."}'
+AGENT_SQL_DATABASE_URL_ANALYTICS=postgres://...
+```
+
+`SqlQuerySchema` 的 schema 白名单配置支持三种格式：
+
+```bash
+# default alias 可访问这些 schema
+AGENT_SQL_ALLOWED_SCHEMAS='["agent_smoke","public_data"]'
+
+# 按数据库 alias 分组
+AGENT_SQL_ALLOWED_SCHEMAS='{"default":["agent_smoke"],"analytics":["mart"]}'
+
+# 单个 alias 覆盖，逗号分隔
+AGENT_SQL_ALLOWED_SCHEMAS_ANALYTICS='mart, reporting'
+```
+
+即使配置了白名单，`information_schema`、`pg_catalog` 和 `pg_*` 系统 schema
+仍会被拒绝。模型应先调用 `SqlQuerySchema` 发现允许的业务结构，再调用
+`SqlQuery` 查询具体数据。
 
 ### Claude Code 对照清单
 

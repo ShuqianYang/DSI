@@ -85,6 +85,7 @@ Desktop.ini
 *.temp
 .tmp/
 .temp/
+api/tmp/
 
 # Optional files
 *.tgz

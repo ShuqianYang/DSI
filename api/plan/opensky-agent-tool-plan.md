@@ -1,10 +1,10 @@
-# Aircraft Situation Read Model And Agent Tool Implementation Plan
+# Aircraft Situation Read Model And SqlQuery Skill Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a production-oriented OpenSky integration where aircraft data is collected, normalized, stored in a current-state read model, and exposed to the agent through a bounded read-only domain tool.
+**Goal:** Build a production-oriented OpenSky integration where aircraft data is collected, normalized, stored in a current-state read model, and made usable by the agent through the existing bounded read-only `SqlQuery` domain tool plus an aviation analysis skill.
 
-**Architecture:** OpenSky ingestion is a backend data pipeline, not an agent skill and not a model-facing script. A collector fetches configured regions, normalizes state vectors, applies basic anomaly rules, and upserts `aircraft_current_states`; the agent calls `QueryAircraftSituation`, a read-only domain tool that queries this read model and returns summary by default. A future aviation skill can teach report style and interpretation, but data access remains a typed tool rather than generic SQL.
+**Architecture:** OpenSky ingestion is a backend data pipeline, not an agent skill and not a model-facing script. A collector fetches configured regions, normalizes state vectors, applies basic anomaly rules, and upserts `aircraft_current_states`; the agent loads `aviation-situation-analysis`, then generates bounded read-only SQL against the read model and executes it through the existing `SqlQuery` domain tool. The skill teaches query patterns, supported regions, report style, and interpretation boundaries.
 
 **Tech Stack:** TypeScript ESM, Drizzle ORM, PostgreSQL, Zod, Node `fetch`, existing `ToolDefinition` / `ToolRegistry` / `callTool`, existing `tsx` script-style tests.
 
@@ -12,23 +12,23 @@
 
 ## Decisions Locked In
 
-- Do not expose a generic database/SQL tool to the agent.
+- Use the existing `SqlQuery` domain tool as the atomic model-facing database execution boundary.
 - Do not put OpenSky fetching and analysis into a skill script as the primary path.
-- Use a domain tool backed by a database read model.
+- Do not add a high-level `QueryAircraftSituation` tool in this slice; keep aircraft-specific query workflow in the aviation skill.
 - First version stores only current aircraft state; historical tracks are deferred.
-- First version queries fixed region enum only; no user-drawn bbox.
+- First version documents fixed region enum values only; no user-drawn bbox.
 - Supported regions: `东海`, `南海`, `渤海`, `黄海`, `中国东部`, `台湾海峡`.
-- Unsupported regions must not be guessed; the agent should ask the user to choose a supported region.
+- Unsupported regions must not be guessed; the skill should instruct the agent to ask the user to choose a supported region.
 - Ingestion maps `region -> bbox`, calls configured OpenSky API, normalizes state vectors, applies basic anomaly rules, and upserts current state.
-- Query tool default mode is `summary`; details require explicit user intent.
-- Details mode default limit is `100`; hard maximum is `300`.
-- Summary mode returns top anomalies only; default `topAnomaliesLimit` is `20`; hard maximum is `50`.
-- Tool output keeps SI units plus display units; summaries prefer display units.
-- Tool performs basic anomaly labeling only; final business judgment remains the agent's job.
-- Query tool is read-only and does not write database records, events, alerts, or snapshots.
+- Skill default workflow is summary queries first; details require explicit user intent.
+- Detail SQL examples should default to `LIMIT 100`; `SqlQuery` still enforces its own maximum.
+- Summary SQL examples should return top anomalies only; default examples use `LIMIT 20`.
+- Read model keeps SI units plus display units; summaries prefer display units.
+- Ingestion performs basic anomaly labeling only; final business judgment remains the agent's job.
+- `SqlQuery` is read-only; aircraft analysis must not write database records, events, alerts, or snapshots.
 - OpenSky upstream base URL and optional credentials are configured through `.env`.
-- Collector polling interval defaults to 8 seconds, matching the earlier short-TTL freshness requirement.
-- Tool is exposed by default for the first version; future work can move it behind tool search or a capability router.
+- Collector polling interval defaults to 60 seconds; development can lower it with `OPENSKY_COLLECTOR_INTERVAL_SECONDS`, and production should add backoff/rate-limit handling.
+- `SqlQuery` is already exposed by default as a domain tool; future work can move data tools behind tool search or a capability router.
 
 ---
 
@@ -37,7 +37,7 @@
 Create:
 
 - `api/src/modules/aircraft/types.ts`
-  - Domain types for supported regions, bbox, normalized aircraft, status, query input, and query output.
+  - Domain types for supported regions, bbox, normalized aircraft, and anomaly status.
 - `api/src/modules/aircraft/regions.ts`
   - Fixed region enum and bbox mapping.
 - `api/src/modules/aircraft/openskyMapper.ts`
@@ -52,10 +52,6 @@ Create:
   - Fetches by region, normalizes, classifies, and upserts current states.
 - `api/src/modules/aircraft/aircraftCollector.ts`
   - Runs one-shot or interval-based collection for supported regions.
-- `api/src/modules/aircraft/aircraftSituationService.ts`
-  - Queries read model and returns bounded summary/details for agent use.
-- `api/src/modules/agent-loop/tools/queryAircraftSituationTool.ts`
-  - Builds and exports the read-only `QueryAircraftSituation` tool.
 - `skills/aviation-situation-analysis/SKILL.md`
   - Lightweight skill that teaches interpretation and report boundaries.
 - `api/tests/test-aircraft-regions.mjs`
@@ -63,17 +59,11 @@ Create:
 - `api/tests/test-aircraft-anomaly-rules.mjs`
 - `api/tests/test-aircraft-ingestion-service.mjs`
 - `api/tests/test-aircraft-collector.mjs`
-- `api/tests/test-aircraft-situation-service.mjs`
-- `api/tests/test-query-aircraft-situation-tool.mjs`
 
 Modify:
 
 - `api/src/db/schema.ts`
   - Add `aircraftCurrentStates` table and exported types.
-- `api/src/modules/agent-loop/toolRegistry.ts`
-  - Register aircraft agent tools after base system tools.
-- `api/src/modules/agent-loop/systemToolCatalog.ts`
-  - Add catalog metadata for `QueryAircraftSituation`.
 - `api/src/index.ts`
   - Optionally start the aircraft collector when `OPENSKY_COLLECTOR_ENABLED=1`.
 - `api/src/todo.md`
@@ -208,18 +198,6 @@ export interface ClassifiedAircraft extends NormalizedAircraft {
   status: AircraftStatus;
   reasonCodes: AircraftAnomalyReasonCode[];
   sourceTime: Date;
-}
-
-export type AircraftSituationMode = "summary" | "details";
-
-export interface QueryAircraftSituationInput {
-  region: AircraftRegion;
-  mode?: AircraftSituationMode;
-  icao24?: string[];
-  callsign?: string;
-  anomalyOnly?: boolean;
-  limit?: number;
-  topAnomaliesLimit?: number;
 }
 ```
 
@@ -621,6 +599,7 @@ import {
   boolean,
   doublePrecision,
   index,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 ```
 
@@ -630,8 +609,8 @@ Add this table before the display data tables:
 export const aircraftCurrentStates = pgTable(
   "aircraft_current_states",
   {
-    icao24: text("icao24").primaryKey(),
     region: text("region").notNull(),
+    icao24: text("icao24").notNull(),
     callsign: text("callsign"),
     originCountry: text("origin_country"),
     timePosition: timestamp("time_position", { withTimezone: true }),
@@ -663,6 +642,7 @@ export const aircraftCurrentStates = pgTable(
       .defaultNow(),
   },
   (table) => [
+    primaryKey({ columns: [table.region, table.icao24] }),
     index("aircraft_current_states_region_idx").on(table.region),
     index("aircraft_current_states_status_idx").on(table.status),
     index("aircraft_current_states_callsign_idx").on(table.callsign),
@@ -841,7 +821,7 @@ export const drizzleAircraftCurrentStateRepository: AircraftCurrentStateReposito
     await db.insert(aircraftCurrentStates)
       .values(items.map(toDbRow))
       .onConflictDoUpdate({
-        target: aircraftCurrentStates.icao24,
+        target: [aircraftCurrentStates.region, aircraftCurrentStates.icao24],
         set: {
           region: dbRowExcluded("region"),
           callsign: dbRowExcluded("callsign"),
@@ -1097,7 +1077,7 @@ import { ingestAircraftRegion } from "./aircraftIngestionService.js";
 import { AIRCRAFT_REGION_VALUES } from "./regions.js";
 import type { AircraftRegion } from "./types.js";
 
-const DEFAULT_COLLECTOR_INTERVAL_SECONDS = 8;
+const DEFAULT_COLLECTOR_INTERVAL_SECONDS = 60;
 
 export interface CollectAllAircraftRegionsDeps {
   ingestRegion?: typeof ingestAircraftRegion;
@@ -1212,168 +1192,71 @@ Expected: no TypeScript errors.
 
 ---
 
-## Task 6: Aircraft Situation Query Service
+## Task 6: Aviation SQL Query Patterns
 
 **Files:**
-- Create: `api/src/modules/aircraft/aircraftSituationService.ts`
-- Create: `api/tests/test-aircraft-situation-service.mjs`
+- Create: `api/tests/test-aircraft-sql-patterns.mjs`
 
-- [ ] **Step 1: Write the failing situation service test**
+- [ ] **Step 1: Write SQL pattern validation test**
 
-Create `api/tests/test-aircraft-situation-service.mjs`:
+Create `api/tests/test-aircraft-sql-patterns.mjs`:
 
 ```js
 import assert from "node:assert/strict";
-import { queryAircraftSituation } from "../src/modules/aircraft/aircraftSituationService.ts";
 
-const rows = [
-  { icao24: "abc001", region: "东海", callsign: "CES1001", lastContact: new Date(), onGround: false, spi: false, positionSource: "ADS-B", status: "normal", reasonCodes: [], sourceTime: new Date("2024-03-09T16:00:00Z"), baroAltitudeMeters: 9600 },
-  { icao24: "abc002", region: "东海", callsign: "CES1002", lastContact: new Date(), onGround: false, spi: false, positionSource: "ADS-B", status: "warning", reasonCodes: ["low_altitude_high_speed"], sourceTime: new Date("2024-03-09T16:00:00Z"), baroAltitudeMeters: 900 },
-  { icao24: "abc003", region: "东海", callsign: "CES1003", lastContact: new Date(), onGround: false, spi: false, positionSource: "ADS-B", status: "danger", reasonCodes: ["rapid_descent"], sourceTime: new Date("2024-03-09T16:00:00Z"), baroAltitudeMeters: 2500 },
-];
+const supportedRegions = ["东海", "南海", "渤海", "黄海", "中国东部", "台湾海峡"];
 
-const repository = {
-  listCurrentStates: async (region) => rows.filter((row) => row.region === region),
-};
+const summarySql = `
+select
+  region,
+  status,
+  count(*)::int as aircraft_count,
+  max(source_time) as latest_source_time
+from aircraft_current_states
+where region = '东海'
+group by region, status
+order by status;
+`;
 
-const summary = await queryAircraftSituation({ region: "东海" }, { repository });
-assert.equal(summary.region, "东海");
-assert.equal(summary.mode, "summary");
-assert.equal(summary.matchedCount, 3);
-assert.equal(summary.returnedAircraftCount, 0);
-assert.equal(summary.summary.byStatus.normal, 1);
-assert.equal(summary.summary.byStatus.warning, 1);
-assert.equal(summary.summary.byStatus.danger, 1);
-assert.equal(summary.anomalies.length, 2);
-assert.equal(summary.aircraft.length, 0);
+const anomalySql = `
+select
+  icao24,
+  callsign,
+  status,
+  reason_codes,
+  latitude,
+  longitude,
+  baro_altitude_feet,
+  speed_kmh,
+  source_time
+from aircraft_current_states
+where region = '东海' and status <> 'normal'
+order by
+  case status when 'danger' then 0 when 'warning' then 1 else 2 end,
+  last_contact desc
+limit 20;
+`;
 
-const details = await queryAircraftSituation({ region: "东海", mode: "details", limit: 2 }, { repository });
-assert.equal(details.mode, "details");
-assert.equal(details.returnedAircraftCount, 2);
-assert.equal(details.aircraft.length, 2);
-assert.equal(details.truncated, true);
+assert.ok(supportedRegions.includes("东海"));
+assert.match(summarySql, /from aircraft_current_states/i);
+assert.match(summarySql, /group by region, status/i);
+assert.match(anomalySql, /status <> 'normal'/i);
+assert.match(anomalySql, /limit 20/i);
 
-const anomalyOnly = await queryAircraftSituation({ region: "东海", mode: "details", anomalyOnly: true }, { repository });
-assert.equal(anomalyOnly.matchedCount, 2);
-assert.equal(anomalyOnly.aircraft.every((item) => item.status !== "normal"), true);
-
-console.log("aircraft situation service test passed");
+console.log("aircraft SQL pattern test passed");
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run SQL pattern test**
 
 Run from `api/`:
 
 ```powershell
-.\node_modules\.bin\tsx.CMD tests\test-aircraft-situation-service.mjs
+.\node_modules\.bin\tsx.CMD tests\test-aircraft-sql-patterns.mjs
 ```
 
-Expected: FAIL because `aircraftSituationService.ts` does not exist.
+Expected: PASS and prints `aircraft SQL pattern test passed`.
 
-- [ ] **Step 3: Implement situation query service**
-
-Create `api/src/modules/aircraft/aircraftSituationService.ts`:
-
-```ts
-import { drizzleAircraftCurrentStateRepository, type AircraftCurrentStateRepository } from "./aircraftRepository.js";
-import type { AircraftStatus, ClassifiedAircraft, QueryAircraftSituationInput } from "./types.js";
-
-const DEFAULT_DETAILS_LIMIT = 100;
-const MAX_DETAILS_LIMIT = 300;
-const DEFAULT_TOP_ANOMALIES_LIMIT = 20;
-const MAX_TOP_ANOMALIES_LIMIT = 50;
-
-interface QueryAircraftSituationDeps {
-  repository?: Pick<AircraftCurrentStateRepository, "listCurrentStates">;
-}
-
-export async function queryAircraftSituation(input: QueryAircraftSituationInput, deps: QueryAircraftSituationDeps = {}) {
-  const mode = input.mode ?? "summary";
-  const repository = deps.repository ?? drizzleAircraftCurrentStateRepository;
-  const rows = (await repository.listCurrentStates(input.region))
-    .filter((item) => matchesFilters(item, input));
-  const sorted = sortForModel(rows);
-  const detailsLimit = clampLimit(input.limit, DEFAULT_DETAILS_LIMIT, MAX_DETAILS_LIMIT);
-  const anomalyLimit = clampLimit(input.topAnomaliesLimit, DEFAULT_TOP_ANOMALIES_LIMIT, MAX_TOP_ANOMALIES_LIMIT);
-  const aircraft = mode === "details" ? sorted.slice(0, detailsLimit) : [];
-  const anomalies = sorted.filter((item) => item.status !== "normal").slice(0, anomalyLimit);
-  return {
-    provider: "aircraft_current_states" as const,
-    region: input.region,
-    mode,
-    matchedCount: sorted.length,
-    returnedAircraftCount: aircraft.length,
-    sourceTime: latestSourceTime(sorted)?.toISOString(),
-    summary: buildSummary(sorted),
-    anomalies,
-    aircraft,
-    truncated: mode === "details"
-      ? sorted.length > aircraft.length
-      : sorted.filter((item) => item.status !== "normal").length > anomalies.length,
-  };
-}
-
-function matchesFilters(item: ClassifiedAircraft, input: QueryAircraftSituationInput): boolean {
-  if (input.icao24 && input.icao24.length > 0 && !input.icao24.map((value) => value.toLowerCase()).includes(item.icao24)) return false;
-  if (input.callsign && !item.callsign?.toLowerCase().includes(input.callsign.trim().toLowerCase())) return false;
-  if (input.anomalyOnly && item.status === "normal") return false;
-  return true;
-}
-
-function buildSummary(items: ClassifiedAircraft[]) {
-  return {
-    total: items.length,
-    byStatus: {
-      normal: countStatus(items, "normal"),
-      warning: countStatus(items, "warning"),
-      danger: countStatus(items, "danger"),
-    },
-    byAltitudeBand: {
-      groundOrLow: items.filter((item) => (item.baroAltitudeMeters ?? 0) < 1_000).length,
-      low: items.filter((item) => (item.baroAltitudeMeters ?? 0) >= 1_000 && (item.baroAltitudeMeters ?? 0) < 3_000).length,
-      medium: items.filter((item) => (item.baroAltitudeMeters ?? 0) >= 3_000 && (item.baroAltitudeMeters ?? 0) < 9_000).length,
-      high: items.filter((item) => (item.baroAltitudeMeters ?? 0) >= 9_000).length,
-    },
-  };
-}
-
-function sortForModel(items: ClassifiedAircraft[]): ClassifiedAircraft[] {
-  const rank: Record<AircraftStatus, number> = { danger: 0, warning: 1, normal: 2 };
-  return [...items].sort((left, right) => {
-    const statusDelta = rank[left.status] - rank[right.status];
-    if (statusDelta !== 0) return statusDelta;
-    return right.lastContact.getTime() - left.lastContact.getTime();
-  });
-}
-
-function countStatus(items: ClassifiedAircraft[], status: AircraftStatus): number {
-  return items.filter((item) => item.status === status).length;
-}
-
-function latestSourceTime(items: ClassifiedAircraft[]): Date | undefined {
-  return items.reduce<Date | undefined>((latest, item) => {
-    if (!latest || item.sourceTime.getTime() > latest.getTime()) return item.sourceTime;
-    return latest;
-  }, undefined);
-}
-
-function clampLimit(value: number | undefined, fallback: number, max: number): number {
-  if (value === undefined) return fallback;
-  return Math.min(Math.max(Math.floor(value), 1), max);
-}
-```
-
-- [ ] **Step 4: Run situation service test**
-
-Run from `api/`:
-
-```powershell
-.\node_modules\.bin\tsx.CMD tests\test-aircraft-situation-service.mjs
-```
-
-Expected: PASS and prints `aircraft situation service test passed`.
-
-- [ ] **Step 5: Run typecheck**
+- [ ] **Step 3: Run typecheck**
 
 Run from `api/`:
 
@@ -1385,165 +1268,35 @@ Expected: no TypeScript errors.
 
 ---
 
-## Task 7: QueryAircraftSituation Agent Tool
+## Task 7: SqlQuery Availability Verification
 
 **Files:**
-- Create: `api/src/modules/agent-loop/tools/queryAircraftSituationTool.ts`
-- Modify: `api/src/modules/agent-loop/toolRegistry.ts`
-- Modify: `api/src/modules/agent-loop/systemToolCatalog.ts`
-- Create: `api/tests/test-query-aircraft-situation-tool.mjs`
+- Verify existing: `api/src/modules/agent-loop/domainTools.ts`
+- Verify existing: `api/scripts/agent-loop-domain-tool-tests.ts`
 
-- [ ] **Step 1: Write the failing tool test**
+- [ ] **Step 1: Verify `SqlQuery` is the aircraft-facing query executor**
 
-Create `api/tests/test-query-aircraft-situation-tool.mjs`:
-
-```js
-import assert from "node:assert/strict";
-import { callTool } from "../src/modules/agent-loop/toolGateway.ts";
-import { buildDefaultToolRegistry } from "../src/modules/agent-loop/toolRegistry.ts";
-
-const registry = buildDefaultToolRegistry();
-const tool = registry.get("QueryAircraftSituation");
-
-assert.ok(tool);
-assert.equal(tool.isReadOnly?.({ region: "东海" }), true);
-assert.equal(tool.isDestructive?.({ region: "东海" }), false);
-assert.equal(tool.isConcurrencySafe?.({ region: "东海" }), true);
-
-const invalidRegion = await callTool(registry, {
-  id: "tool-invalid",
-  toolName: "QueryAircraftSituation",
-  input: { region: "日本海" },
-}, {
-  taskId: "task-aircraft",
-  query: "查看日本海飞机态势",
-  observations: [],
-});
-
-assert.equal(invalidRegion.ok, false);
-assert.equal(invalidRegion.error.code, "invalid_tool_input");
-
-console.log("query aircraft situation tool test passed");
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run from `api/`:
+Run from repo root:
 
 ```powershell
-.\node_modules\.bin\tsx.CMD tests\test-query-aircraft-situation-tool.mjs
+api\node_modules\.bin\tsx.CMD api\scripts\agent-loop-domain-tool-tests.ts
 ```
 
-Expected: FAIL because `QueryAircraftSituation` is not registered.
+Expected: PASS and confirms `SqlQuery` is registered with `kind: "domain"`.
 
-- [ ] **Step 3: Create the tool builder**
+- [ ] **Step 2: Verify no high-level aircraft query tool is introduced**
 
-Create `api/src/modules/agent-loop/tools/queryAircraftSituationTool.ts`:
-
-```ts
-import { z } from "zod";
-import { queryAircraftSituation } from "../../aircraft/aircraftSituationService.js";
-import { AIRCRAFT_REGION_VALUES } from "../../aircraft/regions.js";
-import type { ToolDefinition } from "../types.js";
-import type { ToolRegistry } from "../toolRegistry.js";
-
-const QueryAircraftSituationInputSchema = z.strictObject({
-  region: z.enum(AIRCRAFT_REGION_VALUES),
-  mode: z.enum(["summary", "details"]).optional(),
-  icao24: z.array(z.string().min(1)).max(20).optional(),
-  callsign: z.string().min(1).max(16).optional(),
-  anomalyOnly: z.boolean().optional(),
-  limit: z.number().int().positive().max(300).optional(),
-  topAnomaliesLimit: z.number().int().positive().max(50).optional(),
-});
-
-type QueryAircraftSituationToolInput = z.infer<typeof QueryAircraftSituationInputSchema>;
-
-export function registerAircraftAgentTools(registry: ToolRegistry): void {
-  registry.register(buildQueryAircraftSituationTool());
-}
-
-export function buildQueryAircraftSituationTool(): ToolDefinition<QueryAircraftSituationToolInput> {
-  return {
-    name: "QueryAircraftSituation",
-    description:
-      "Query the aircraft current-state read model for supported regions. " +
-      "Default mode is summary. Use details only when the user explicitly asks for aircraft details. " +
-      `Supported regions: ${AIRCRAFT_REGION_VALUES.join(", ")}. ` +
-      "If the requested region is unsupported, do not call this tool; ask the user to choose a supported region. " +
-      'Input: {"region":"东海","mode":"summary|details","callsign":"CES","icao24":["abc123"],"anomalyOnly":true,"limit":100}.',
-    kind: "system",
-    inputSchema: QueryAircraftSituationInputSchema,
-    isReadOnly: () => true,
-    isDestructive: () => false,
-    isConcurrencySafe: () => true,
-    riskLevel: "low",
-    maxResultSizeChars: 60_000,
-    async execute(input) {
-      return queryAircraftSituation(input);
-    },
-  };
-}
-```
-
-- [ ] **Step 4: Register the tool by default**
-
-Modify `api/src/modules/agent-loop/toolRegistry.ts`:
-
-```ts
-import type { ToolDefinition } from "./types.js";
-import { registerAircraftAgentTools } from "./tools/queryAircraftSituationTool.js";
-import { registerClaudeCodeBaseSystemTools } from "./systemTools.js";
-```
-
-Then update `buildDefaultToolRegistry()`:
-
-```ts
-export function buildDefaultToolRegistry(): ToolRegistry {
-  const registry = new ToolRegistry();
-  registerClaudeCodeBaseSystemTools(registry);
-  registerAircraftAgentTools(registry);
-  return registry;
-}
-```
-
-- [ ] **Step 5: Add catalog metadata**
-
-In `api/src/modules/agent-loop/systemToolCatalog.ts`, add:
-
-```ts
-  entry({
-    name: "QueryAircraftSituation",
-    category: "context",
-    availability: "environment",
-    description: "Query the aircraft current-state read model by supported region and return bounded summary/details for agent reasoning.",
-    concurrency: "safe",
-    readOnly: true,
-    destructive: false,
-    claudeCodeSource: "datasourceintelligence/api/src/modules/agent-loop/tools/queryAircraftSituationTool.ts",
-    implementation: "registered",
-  }),
-```
-
-- [ ] **Step 6: Run tool test**
-
-Run from `api/`:
+Run from repo root:
 
 ```powershell
-.\node_modules\.bin\tsx.CMD tests\test-query-aircraft-situation-tool.mjs
+git diff -- api/src/modules/agent-loop/domainTools.ts api/src/modules/agent-loop/toolRegistry.ts api/src/modules/agent-loop/systemToolCatalog.ts api/src/modules/agent-loop/tools
 ```
 
-Expected: PASS and prints `query aircraft situation tool test passed`.
+Expected:
 
-- [ ] **Step 7: Run typecheck**
-
-Run from `api/`:
-
-```powershell
-.\node_modules\.bin\tsc.CMD
-```
-
-Expected: no TypeScript errors.
+- `SqlQuery` remains the only SQL execution boundary.
+- No `QueryAircraftSituation` tool is added.
+- No tool-specific aircraft summary/details logic is added to the agent-loop tool layer.
 
 ---
 
@@ -1560,19 +1313,64 @@ Create `skills/aviation-situation-analysis/SKILL.md`:
 ```md
 ---
 name: aviation-situation-analysis
-description: Use when the user asks for aircraft, flight, ADS-B, OpenSky, airspace, or aviation situation analysis. Guides when to call QueryAircraftSituation and how to interpret bounded aircraft read-model results without inventing unsupported conclusions.
-allowed-tools: QueryAircraftSituation
+description: Use when the user asks for aircraft, flight, ADS-B, OpenSky, airspace, or aviation situation analysis. Guides how to query the aircraft_current_states read model through SqlQuery and how to interpret bounded aircraft results without inventing unsupported conclusions.
+allowed-tools: SqlQuery
 ---
 
 # Aviation Situation Analysis
 
-Use `QueryAircraftSituation` for current aircraft situation data in supported regions. Default to summary mode unless the user explicitly asks for aircraft details, a specific callsign, or an ICAO24 address.
+Use `SqlQuery` against database alias `default` and table `aircraft_current_states` for current aircraft situation data in supported regions. Default to summary SQL unless the user explicitly asks for aircraft details, a specific callsign, or an ICAO24 address.
 
 Supported regions are: 东海, 南海, 渤海, 黄海, 中国东部, 台湾海峡.
 
 If the user asks for an unsupported region, do not guess a nearby region. Ask them to choose one supported region.
 
-Treat tool anomaly labels as basic indicators, not final incident conclusions. Mention the reason codes and data freshness. Do not claim hijacking, emergency, mechanical failure, military activity, or regulatory violations unless the returned data directly supports that claim and the wording remains cautious.
+Summary query pattern:
+
+```sql
+select
+  region,
+  status,
+  count(*)::int as aircraft_count,
+  max(source_time) as latest_source_time
+from aircraft_current_states
+where region = '<supported region>'
+group by region, status
+order by status;
+```
+
+Anomaly query pattern:
+
+```sql
+select
+  icao24,
+  callsign,
+  status,
+  reason_codes,
+  latitude,
+  longitude,
+  baro_altitude_feet,
+  speed_kmh,
+  source_time
+from aircraft_current_states
+where region = '<supported region>' and status <> 'normal'
+order by
+  case status when 'danger' then 0 when 'warning' then 1 else 2 end,
+  last_contact desc
+limit 20;
+```
+
+Detail query pattern:
+
+```sql
+select *
+from aircraft_current_states
+where region = '<supported region>'
+order by last_contact desc
+limit 100;
+```
+
+Treat anomaly labels as basic indicators, not final incident conclusions. Mention the reason codes and data freshness. Do not claim hijacking, emergency, mechanical failure, military activity, or regulatory violations unless the returned data directly supports that claim and the wording remains cautious.
 
 For summary answers, report total aircraft, danger/warning counts, notable anomalies, and the latest source time. For details answers, keep the list concise and preserve identifiers such as callsign and ICAO24.
 ```
@@ -1582,13 +1380,13 @@ For summary answers, report total aircraft, danger/warning counts, notable anoma
 Add this block near the agent-loop tool/context sections:
 
 ```md
-## Aircraft Situation Read Model And Agent Tool
+## Aircraft Situation Read Model And Skill
 
 Implemented:
 
 - OpenSky data is planned as a backend ingestion/read-model pipeline rather than a model-facing script.
-- `QueryAircraftSituation` is a read-only domain tool over `aircraft_current_states`.
-- The aviation skill only guides interpretation and tool usage; it does not fetch data directly.
+- `SqlQuery` is the existing read-only domain tool for querying `aircraft_current_states`.
+- The aviation skill guides SQL query patterns and interpretation; it does not fetch data directly and does not contain database scripts.
 
 Deferred:
 
@@ -1596,6 +1394,7 @@ Deferred:
 - user-drawn bbox queries from the GIS UI.
 - dynamic region resolver and aliases.
 - database-backed aircraft alerts or persisted situation snapshots.
+- high-level aircraft query tools such as `QueryAircraftSituation`.
 - tool_search/capability-router gating for aviation-specific tools.
 ```
 
@@ -1626,8 +1425,7 @@ Run from `api/`:
 .\node_modules\.bin\tsx.CMD tests\test-aircraft-anomaly-rules.mjs
 .\node_modules\.bin\tsx.CMD tests\test-aircraft-ingestion-service.mjs
 .\node_modules\.bin\tsx.CMD tests\test-aircraft-collector.mjs
-.\node_modules\.bin\tsx.CMD tests\test-aircraft-situation-service.mjs
-.\node_modules\.bin\tsx.CMD tests\test-query-aircraft-situation-tool.mjs
+.\node_modules\.bin\tsx.CMD tests\test-aircraft-sql-patterns.mjs
 ```
 
 Expected:
@@ -1637,8 +1435,7 @@ Expected:
 - `aircraft anomaly rules test passed`
 - `aircraft ingestion service test passed`
 - `aircraft collector test passed`
-- `aircraft situation service test passed`
-- `query aircraft situation tool test passed`
+- `aircraft SQL pattern test passed`
 
 - [ ] **Step 2: Run existing agent-loop regression scripts**
 
@@ -1671,7 +1468,7 @@ Expected: no TypeScript errors.
 Run from repo root:
 
 ```powershell
-git diff -- api/src/modules/aircraft api/src/modules/agent-loop/tools/queryAircraftSituationTool.ts api/src/modules/agent-loop/toolRegistry.ts api/src/modules/agent-loop/systemToolCatalog.ts api/src/db/schema.ts api/src/db/migrations api/tests skills/aviation-situation-analysis api/src/todo.md api/plan/opensky-agent-tool-plan.md
+git diff -- api/src/modules/aircraft api/src/db/schema.ts api/src/db/migrations api/tests skills/aviation-situation-analysis api/src/todo.md api/plan/opensky-agent-tool-plan.md
 ```
 
 Expected:
@@ -1679,10 +1476,9 @@ Expected:
 - Ingestion writes only `aircraft_current_states`.
 - Ingestion prunes stale current-state rows older than 5 minutes.
 - Collector runner uses `OPENSKY_COLLECTOR_INTERVAL_SECONDS`.
-- `QueryAircraftSituation` reads the aircraft read model and does not call OpenSky.
-- No generic SQL/database tool is introduced.
+- Aircraft agent queries use `SqlQuery` against `aircraft_current_states`; no `QueryAircraftSituation` tool is introduced.
 - Skill contains interpretation guidance only and does not contain data-fetching scripts.
-- Details output is capped at 300 and summary anomalies are capped at 50.
+- Detail SQL examples use bounded limits and summary anomaly examples cap output.
 - Tests avoid real network calls by injecting `fetchStates` or fake repositories.
 
 ---
@@ -1694,7 +1490,7 @@ Recommended `.env` variables:
 ```env
 OPENSKY_API_BASE_URL=https://opensky-network.org/api
 OPENSKY_COLLECTOR_ENABLED=1
-OPENSKY_COLLECTOR_INTERVAL_SECONDS=8
+OPENSKY_COLLECTOR_INTERVAL_SECONDS=60
 ```
 
 Optional OAuth variables when the configured upstream requires OpenSky client credentials:
@@ -1718,19 +1514,17 @@ The first implementation may defer OAuth token exchange if your configured upstr
 - [ ] Collector runner implements one-shot collection for all supported regions.
 - [ ] API startup only enables interval collection when `OPENSKY_COLLECTOR_ENABLED=1`.
 - [ ] Collector runner uses `OPENSKY_COLLECTOR_INTERVAL_SECONDS` for interval mode.
-- [ ] `QueryAircraftSituation` is registered in `buildDefaultToolRegistry()`.
-- [ ] `QueryAircraftSituation` reads from the current-state repository and does not call OpenSky directly.
-- [ ] No generic SQL/database tool is added.
-- [ ] Tool default mode is summary.
-- [ ] Details mode default limit is 100 and hard max is 300.
-- [ ] Summary mode top anomalies default is 20 and hard max is 50.
+- [ ] Aviation skill instructs the agent to use `SqlQuery` against `aircraft_current_states`.
+- [ ] No `QueryAircraftSituation` high-level tool is added.
+- [ ] Default skill workflow runs summary SQL before detail SQL.
+- [ ] Detail SQL examples use bounded `LIMIT` clauses.
+- [ ] Summary SQL examples cap top anomaly rows.
 - [ ] Supported regions are fixed enum values.
-- [ ] Unsupported regions fail schema validation instead of being guessed.
+- [ ] Unsupported regions are handled by skill guidance: ask the user to choose a supported region instead of guessing.
 - [ ] Output includes SI units plus display units where applicable.
 - [ ] Basic anomaly detection returns `normal | warning | danger` and reason codes.
-- [ ] Tool does not make final business conclusions.
-- [ ] Tool is read-only and non-destructive.
-- [ ] Tool does not write database rows, events, alerts, or snapshots.
+- [ ] `SqlQuery` remains read-only and non-destructive.
+- [ ] Aircraft analysis does not write database rows, events, alerts, or snapshots.
 - [ ] Aviation skill guides interpretation only.
 - [ ] Aircraft tests pass.
 - [ ] Existing context-provider, prompt-manager, and context-window tests pass.
@@ -1740,7 +1534,7 @@ The first implementation may defer OAuth token exchange if your configured upstr
 
 ## Out Of Scope For This Slice
 
-1. Generic SQL query tools.
+1. New high-level aircraft query tools such as `QueryAircraftSituation`.
 2. User-drawn bbox queries from the GIS UI.
 3. Dynamic region name resolution or alias expansion.
 4. Historical aircraft observations and track reconstruction.

@@ -1,12 +1,7 @@
 import "dotenv/config";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { eq } from "drizzle-orm";
-import { db } from "../src/config/database.js";
-import { tasks } from "../src/db/schema.js";
-import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
-import { buildClaudeCodeBaseSystemTools } from "../src/modules/agent-loop/systemTools.js";
-import { ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
+import { buildDefaultToolRegistry, ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
 import type {
   AgentLoopEvent,
   AgentMessage,
@@ -15,25 +10,15 @@ import type {
 
 const DEFAULT_QUERY =
   "请用只读工具查看当前仓库的 api/src/modules/agent-loop 目录，概括有哪些核心文件。";
-const DEFAULT_TOOLS = [
-  "Bash",
-  "Glob",
-  "Grep",
-  "Read",
-  "Write",
-  "Edit",
-  "TodoWrite",
-  "Sleep",
-  "WebSearch",
-  "WebFetch",
-];
 const PREVIEW_CHARS = Number.parseInt(process.env.AGENT_LOOP_SMOKE_PREVIEW_CHARS ?? "8000", 10);
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const query = options.query || DEFAULT_QUERY;
   const registry = buildSelectedRegistry(options.tools);
-  const taskId = await createSmokeTask(query);
+  const smokeDb = await loadSmokeDb();
+  const { runAgentLoopEvents } = await import("../src/modules/agent-loop/runAgentLoop.js");
+  const taskId = await createSmokeTask(smokeDb, query);
   const permissionHandler = createCliPermissionHandler();
 
   console.log(`[smoke] taskId=${taskId}`);
@@ -53,8 +38,8 @@ async function main() {
       printEvent(event, options);
       if (event.type === "loop_stop") {
         finalSeen = true;
-        await db
-          .update(tasks)
+        await smokeDb.db
+          .update(smokeDb.tasks)
           .set({
             status:
               event.result.stoppedBy === "final_answer" || event.result.stoppedBy === "max_turns"
@@ -68,27 +53,32 @@ async function main() {
             completedAt: new Date(),
             updatedAt: new Date(),
           })
-          .where(eq(tasks.id, taskId));
+          .where(smokeDb.eq(smokeDb.tasks.id, taskId));
       }
     }
   } finally {
     if (!finalSeen) {
-      await db
-        .update(tasks)
+      await smokeDb.db
+        .update(smokeDb.tasks)
         .set({
           status: "failed",
           error: "Smoke runner exited before loop_stop.",
           updatedAt: new Date(),
         })
-        .where(eq(tasks.id, taskId));
+        .where(smokeDb.eq(smokeDb.tasks.id, taskId));
     }
   }
 }
 
-function buildSelectedRegistry(names: string[]): ToolRegistry {
+function buildSelectedRegistry(names: string[] | undefined): ToolRegistry {
+  const defaultRegistry = buildDefaultToolRegistry();
+  if (!names || names.length === 0) {
+    return defaultRegistry;
+  }
+
   const selected = new Set(names);
   const registry = new ToolRegistry();
-  for (const tool of buildClaudeCodeBaseSystemTools()) {
+  for (const tool of defaultRegistry.list()) {
     if (selected.has(tool.name)) {
       registry.register(tool);
     }
@@ -103,15 +93,24 @@ function buildSelectedRegistry(names: string[]): ToolRegistry {
   return registry;
 }
 
-async function createSmokeTask(query: string): Promise<string> {
-  const [task] = await db
-    .insert(tasks)
+async function createSmokeTask(smokeDb: Awaited<ReturnType<typeof loadSmokeDb>>, query: string): Promise<string> {
+  const [task] = await smokeDb.db
+    .insert(smokeDb.tasks)
     .values({
       query,
       status: "running",
     })
-    .returning({ id: tasks.id });
+    .returning({ id: smokeDb.tasks.id });
   return task.id;
+}
+
+async function loadSmokeDb() {
+  const [{ eq }, { db }, { tasks }] = await Promise.all([
+    import("drizzle-orm"),
+    import("../src/config/database.js"),
+    import("../src/db/schema.js"),
+  ]);
+  return { eq, db, tasks };
 }
 
 function createCliPermissionHandler(): ToolPermissionHandler {
@@ -206,7 +205,7 @@ function preview(text: string, maxChars: number): string {
 interface SmokeOptions {
   query: string;
   maxTurns: number;
-  tools: string[];
+  tools?: string[];
   previewChars: number;
   verboseToolMessages: boolean;
 }
@@ -214,7 +213,7 @@ interface SmokeOptions {
 function parseArgs(args: string[]): SmokeOptions {
   let query = "";
   let maxTurns = 6;
-  let tools = [...DEFAULT_TOOLS];
+  let tools: string[] | undefined;
   let verboseToolMessages = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -233,9 +232,9 @@ function parseArgs(args: string[]): SmokeOptions {
         .filter(Boolean);
       index += 1;
     } else if (arg === "--with-webfetch") {
-      tools = Array.from(new Set([...tools, "WebFetch"]));
+      tools = Array.from(new Set([...(tools ?? []), "WebFetch"]));
     } else if (arg === "--with-websearch") {
-      tools = Array.from(new Set([...tools, "WebSearch"]));
+      tools = Array.from(new Set([...(tools ?? []), "WebSearch"]));
     } else if (arg === "--verbose-tool-messages") {
       verboseToolMessages = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -270,7 +269,7 @@ function printHelpAndExit(): never {
 Options:
   -q, --query <text>       User query to run.
   --max-turns <n>          Max loop turns. Default: 6.
-  --tools <a,b,c>          Comma-separated tools. Default: all system tools.
+  --tools <a,b,c>          Comma-separated tools from the default registry. Default: all default tools, including domain tools.
   --with-webfetch          Add WebFetch to the selected tools.
   --with-websearch         Add WebSearch to the selected tools.
   --verbose-tool-messages  Also print serialized tool messages.

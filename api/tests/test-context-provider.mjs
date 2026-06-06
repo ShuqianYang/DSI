@@ -46,6 +46,12 @@ await rm(root, { recursive: true, force: true });
 await mkdir(path.join(root, ".claude"), { recursive: true });
 await writeFile(path.join(root, "AGENTS.md"), "# Agent Rules\nUse project vocabulary.\n", "utf8");
 await writeFile(path.join(root, "CONTEXT.md"), "# Glossary\nTask = agent run.\n", "utf8");
+await mkdir(path.join(root, "api", "src", "instructions"), { recursive: true });
+await writeFile(
+  path.join(root, "api", "src", "instructions", "database-description.md"),
+  "# Database Description\nUse `SqlQuerySchema` before `SqlQuery`.\n",
+  "utf8",
+);
 await mkdir(path.join(root, "docs", "adr"), { recursive: true });
 await writeFile(path.join(root, "docs", "adr", "0001-context-boundaries.md"), "# ADR 0001 Context Boundaries\nKeep provider boundaries explicit.\n", "utf8");
 await writeFile(path.join(root, ".claude", "CLAUDE.md"), "# Local Claude\nPrefer concise replies.\n", "utf8");
@@ -67,6 +73,11 @@ assert.equal(userContext.projectInstructions, undefined);
 const sections = await defaultContextProvider.getContextSections(input);
 assert.equal(sections.some((section) => section.id === "project.domain"), true);
 assert.match(sections.find((section) => section.id === "project.domain").content, /Task = agent run/);
+assert.equal(sections.some((section) => section.id === "project.database_description"), true);
+assert.match(
+  sections.find((section) => section.id === "project.database_description").content,
+  /SqlQuerySchema/,
+);
 assert.equal(sections.some((section) => section.id === "project.adr_index"), true);
 const adrIndex = sections.find((section) => section.id === "project.adr_index").content;
 assert.match(adrIndex, /0001-context-boundaries\.md/);
@@ -82,6 +93,7 @@ assert.ok(diagnosticsSection);
 const diagnostics = JSON.parse(diagnosticsSection.content);
 assert.equal(diagnostics.projectInstructionsEnabled, false);
 assert.ok(diagnostics.loadedSections.includes("project.domain"));
+assert.ok(diagnostics.loadedSections.includes("project.database_description"));
 assert.ok(diagnostics.loadedSections.includes("project.adr_index"));
 assert.ok(Array.isArray(diagnostics.skippedSources));
 assert.equal(diagnostics.estimateMethod, "chars");
