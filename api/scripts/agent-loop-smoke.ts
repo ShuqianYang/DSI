@@ -15,6 +15,15 @@ const PREVIEW_CHARS = Number.parseInt(process.env.AGENT_LOOP_SMOKE_PREVIEW_CHARS
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const query = options.query || DEFAULT_QUERY;
+  if (options.refreshOpenSky) {
+    process.env.AGENT_SQL_ALLOWED_SCHEMAS ||= JSON.stringify({ default: ["public"] });
+    const { ingestOpenSkySnapshotOnce } = await import("../src/modules/opensky/ingestion.js");
+    console.log("[smoke] refreshing OpenSky aircraft_current_states...");
+    const result = await ingestOpenSkySnapshotOnce();
+    console.log(
+      `[smoke] OpenSky refreshed: fetched=${result.fetchedCount} inserted=${result.insertedCount}`,
+    );
+  }
   const registry = buildSelectedRegistry(options.tools);
   const smokeDb = await loadSmokeDb();
   const { runAgentLoopEvents } = await import("../src/modules/agent-loop/runAgentLoop.js");
@@ -206,6 +215,7 @@ interface SmokeOptions {
   query: string;
   maxTurns: number;
   tools?: string[];
+  refreshOpenSky: boolean;
   previewChars: number;
   verboseToolMessages: boolean;
 }
@@ -214,6 +224,7 @@ function parseArgs(args: string[]): SmokeOptions {
   let query = "";
   let maxTurns = 6;
   let tools: string[] | undefined;
+  let refreshOpenSky = false;
   let verboseToolMessages = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -235,6 +246,8 @@ function parseArgs(args: string[]): SmokeOptions {
       tools = Array.from(new Set([...(tools ?? []), "WebFetch"]));
     } else if (arg === "--with-websearch") {
       tools = Array.from(new Set([...(tools ?? []), "WebSearch"]));
+    } else if (arg === "--refresh-opensky") {
+      refreshOpenSky = true;
     } else if (arg === "--verbose-tool-messages") {
       verboseToolMessages = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -252,6 +265,7 @@ function parseArgs(args: string[]): SmokeOptions {
     query,
     maxTurns,
     tools,
+    refreshOpenSky,
     previewChars: Number.isFinite(PREVIEW_CHARS) && PREVIEW_CHARS > 0 ? PREVIEW_CHARS : 8000,
     verboseToolMessages,
   };
@@ -272,7 +286,11 @@ Options:
   --tools <a,b,c>          Comma-separated tools from the default registry. Default: all default tools, including domain tools.
   --with-webfetch          Add WebFetch to the selected tools.
   --with-websearch         Add WebSearch to the selected tools.
+  --refresh-opensky        Fetch OpenSky now and replace aircraft_current_states before running the agent.
   --verbose-tool-messages  Also print serialized tool messages.
+
+Aircraft example:
+  tsx scripts/agent-loop-smoke.ts --refresh-opensky --query "请查询东海当前 OpenSky 飞机数据，给我 10 条真实记录。"
 `);
   process.exit(0);
 }

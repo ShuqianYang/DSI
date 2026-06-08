@@ -25,6 +25,30 @@ the path only when the full row set is needed.
 
 ---
 
+## `default` / `public`
+
+Application read models and operational data.
+
+Use `SqlQuerySchema` to confirm the aircraft table before writing SQL:
+
+```json
+{"database":"default","schema":"public","table":"aircraft_current_states"}
+```
+
+`SqlQuerySchema` requires schema allowlisting. For aircraft queries, include
+`public` in `AGENT_SQL_ALLOWED_SCHEMAS` for the `default` alias.
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `aircraft_current_states` | Hourly OpenSky current aircraft snapshot, refreshed by the backend queue/worker | `icao24`, `callsign`, `origin_country`, `longitude`, `latitude`, `baro_altitude`, `velocity`, `true_track`, `vertical_rate`, `on_ground`, `squawk`, `spi`, `position_source`, `category`, `source_time`, `updated_at`, `region`, `status` |
+
+Aircraft regional queries should filter by `latitude` and `longitude` bbox.
+The current ingestion may leave `region` and `status` as empty strings, so do
+not rely on them for regional filtering or risk classification unless
+`SqlQuery` returns populated values.
+
+---
+
 ## `default` / `agent_smoke`
 
 Security incidents, monitored systems, and audit events.

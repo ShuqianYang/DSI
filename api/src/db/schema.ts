@@ -6,6 +6,7 @@ import {
   jsonb,
   integer,
   boolean,
+  doublePrecision,
   index,
 } from "drizzle-orm/pg-core";
 
@@ -60,6 +61,41 @@ export const taskSteps = pgTable(
   (table) => [
     index("task_steps_task_id_idx").on(table.taskId),
     index("task_steps_status_idx").on(table.status),
+  ]
+);
+
+// ============================================
+// OpenSky 飞机当前状态（外部数据源读模型）
+// ============================================
+
+export const aircraftCurrentStates = pgTable(
+  "aircraft_current_states",
+  {
+    icao24: text("icao24").primaryKey(),
+    callsign: text("callsign"),
+    originCountry: text("origin_country"),
+    longitude: doublePrecision("longitude"),
+    latitude: doublePrecision("latitude"),
+    baroAltitude: doublePrecision("baro_altitude"),
+    velocity: doublePrecision("velocity"),
+    trueTrack: doublePrecision("true_track"),
+    verticalRate: doublePrecision("vertical_rate"),
+    onGround: boolean("on_ground").notNull().default(false),
+    squawk: text("squawk"),
+    spi: boolean("spi").notNull().default(false),
+    positionSource: integer("position_source"),
+    category: integer("category"),
+    sourceTime: timestamp("source_time", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    region: text("region").default(""),
+    status: text("status").default(""),
+  },
+  (table) => [
+    index("acs_lat_idx").on(table.latitude),
+    index("acs_lon_idx").on(table.longitude),
+    index("acs_updated_at_idx").on(table.updatedAt),
   ]
 );
 
@@ -227,3 +263,5 @@ export type Requirement = typeof requirements.$inferSelect;
 export type NewRequirement = typeof requirements.$inferInsert;
 export type Insight = typeof insights.$inferSelect;
 export type NewInsight = typeof insights.$inferInsert;
+export type AircraftCurrentState = typeof aircraftCurrentStates.$inferSelect;
+export type NewAircraftCurrentState = typeof aircraftCurrentStates.$inferInsert;

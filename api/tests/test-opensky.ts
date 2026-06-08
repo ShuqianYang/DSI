@@ -1,9 +1,12 @@
 import "dotenv/config";
 
-const CLIENT_ID = "biasbaltimore-api-client";
-const CLIENT_SECRET = "1A4SX7DGqTqPw9ltqLWd6KVS8zKrOTxk";
+const CLIENT_ID = process.env.OPENSKY_CLIENT_ID;
+const CLIENT_SECRET = process.env.OPENSKY_CLIENT_SECRET;
 
 async function getToken(): Promise<string> {
+  if (!CLIENT_ID || !CLIENT_SECRET) {
+    throw new Error("OPENSKY_CLIENT_ID and OPENSKY_CLIENT_SECRET must be set in .env");
+  }
   const params = new URLSearchParams();
   params.append("grant_type", "client_credentials");
   params.append("client_id", CLIENT_ID);

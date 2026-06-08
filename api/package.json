@@ -20,6 +20,7 @@
     "agent:sqlquery:prepare-smoke": "tsx scripts/prepare-sqlquery-smoke-db.ts",
     "agent:skills": "tsx scripts/agent-loop-skill-tests.ts",
     "agent:skills:real": "tsx scripts/agent-loop-real-skill-tests.ts",
+    "agent:aircraft:real": "tsx tests/test-aircraft-agent-real.mjs",
     "lint": "eslint src/"
   },
   "dependencies": {

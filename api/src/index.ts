@@ -9,6 +9,10 @@ import {
   removeGlobalSseClient,
 } from "./sse/sseManager.js";
 import taskRoutes from "./modules/tasks/routes.js";
+import {
+  registerOpenSkyJob,
+  shouldRegisterOpenSkyJob,
+} from "./modules/opensky/queue.js";
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || "3001", 10);
@@ -55,6 +59,13 @@ app.use((_req, res) => {
 
 // 错误处理
 app.use(errorHandler);
+
+// 注册 OpenSky 定时任务（不阻塞启动）
+if (shouldRegisterOpenSkyJob()) {
+  void registerOpenSkyJob();
+} else {
+  console.log("[OpenSkyQueue] Disabled. Set OPENSKY_COLLECTOR_ENABLED=1 to enable hourly ingestion.");
+}
 
 app.listen(PORT, HOST, () => {
   console.log(`[API] Server listening on http://${HOST}:${PORT}`);
