@@ -107,6 +107,38 @@ async function main() {
       assert(!serialized.includes("view_definition"), "SqlQuerySchema must not expose view definitions");
     }));
 
+    // ============ TEST 0a: SqlQuerySchema can filter to one table ============
+    results.push(await runTest("SqlQuerySchema single table filter", async () => {
+      const obs = await callSqlQuerySchema(registry, alias, schemaName, "secret_access");
+      assertOk(obs, "SqlQuerySchema should inspect one allowlisted table");
+      const out = obs.output as any;
+      assert(out.database === alias, `Expected database ${alias}, got ${out.database}`);
+      assert(out.schema === schemaName, `Expected schema ${schemaName}, got ${out.schema}`);
+      assert(out.table === "secret_access", `Expected table secret_access, got ${out.table}`);
+      assert(out.tableCount === 1, `Expected 1 base table, got ${out.tableCount}`);
+      assert(out.tables?.length === 1, `Expected one inline table, got ${out.tables?.length}`);
+      assert(out.tables?.[0]?.name === "secret_access", `Expected secret_access table, got ${out.tables?.[0]?.name}`);
+      assert(!out.tables?.some((table: any) => table.name === "secrets"), "Single-table filter must not include other tables");
+      assert(out.foreignKeyCount === 1, `Expected 1 related foreign key, got ${out.foreignKeyCount}`);
+      assert(
+        out.foreignKeys?.some((foreignKey: any) =>
+          foreignKey.table === "secret_access"
+          && foreignKey.column === "secret_id"
+          && foreignKey.foreignTable === "secrets"
+          && foreignKey.foreignColumn === "id"
+        ),
+        `Expected secret_access.secret_id -> secrets.id foreign key, got ${JSON.stringify(out.foreignKeys)}`,
+      );
+    }));
+
+    // ============ TEST 0aa: SqlQuerySchema rejects qualified table filter ============
+    results.push(await runTest("REJECT SqlQuerySchema qualified table filter", async () => {
+      const obs = await callSqlQuerySchema(registry, alias, schemaName, `${schemaName}.secret_access`);
+      assertNotOk(obs, "SqlQuerySchema table filter should reject qualified table names");
+      assert(obs.error?.message?.includes("unqualified table name"),
+        `Expected unqualified table error, got: ${obs.error?.message}`);
+    }));
+
     // ============ TEST 0b: SqlQuerySchema rejects non-allowlisted schema ============
     results.push(await runTest("REJECT SqlQuerySchema non-allowlisted schema", async () => {
       const obs = await callSqlQuerySchema(registry, alias, "public");
@@ -517,7 +549,8 @@ async function callSqlQuery(
 async function callSqlQuerySchema(
   registry: ReturnType<typeof buildDefaultToolRegistry>,
   database: string,
-  schema: string
+  schema: string,
+  table?: string
 ) {
   return callTool(
     registry,
@@ -527,6 +560,7 @@ async function callSqlQuerySchema(
       input: {
         database,
         schema,
+        ...(table ? { table } : {}),
       },
     },
     {

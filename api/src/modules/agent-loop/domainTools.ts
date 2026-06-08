@@ -146,7 +146,7 @@ function buildSqlQuerySchemaTool(): ToolDefinition {
   return {
     name: "SqlQuerySchema",
     description:
-      'List base tables, columns, and same-schema foreign-key relationships for an allowlisted database schema. Input: {"database":"default","schema":"agent_smoke"}. Configure allowlisted schemas with AGENT_SQL_ALLOWED_SCHEMAS or AGENT_SQL_ALLOWED_SCHEMAS_<ALIAS>. Returns only table names, column names, data types, nullable flags, and join relationships.',
+      'List base tables, columns, and same-schema foreign-key relationships for an allowlisted database schema. Input: {"database":"default","schema":"agent_smoke","table":"incidents"}. The optional table filters to one unqualified table name. Configure allowlisted schemas with AGENT_SQL_ALLOWED_SCHEMAS or AGENT_SQL_ALLOWED_SCHEMAS_<ALIAS>. Returns only table names, column names, data types, nullable flags, and join relationships.',
     kind: "domain",
     inputSchema: z.strictObject({
       database: z
@@ -156,8 +156,15 @@ function buildSqlQuerySchemaTool(): ToolDefinition {
         .describe("Configured database alias, not a connection string. Use default unless a skill or user names another alias."),
       schema: z
         .string()
+        .trim()
         .min(1)
         .describe("Allowlisted PostgreSQL schema name to inspect, for example agent_smoke."),
+      table: z
+        .string()
+        .trim()
+        .min(1)
+        .optional()
+        .describe("Optional unqualified base table name to inspect within schema, for example incidents."),
     }),
     isReadOnly: () => true,
     isDestructive: () => false,
@@ -168,11 +175,13 @@ function buildSqlQuerySchemaTool(): ToolDefinition {
       const parsed = input as SqlQuerySchemaInput;
       assertKnownSqlDatabase(parsed.database);
       assertAllowedSqlSchema(parsed.database, parsed.schema);
+      if (parsed.table) assertUnqualifiedSqlTableName(parsed.table);
     },
     async execute(input, context) {
       const parsed = input as SqlQuerySchemaInput;
       const database = parsed.database || DEFAULT_SQL_DATABASE;
       const schema = parsed.schema;
+      const table = parsed.table;
       const connectionString = getSqlDatabaseConnectionString(database);
       if (!connectionString) {
         throw new Error(`Unknown SQL database alias: ${database}`);
@@ -186,7 +195,9 @@ function buildSqlQuerySchemaTool(): ToolDefinition {
 
       context.onProgress?.({
         stage: "start",
-        message: `Inspecting allowlisted SQL schema ${schema} on ${database}`,
+        message: table
+          ? `Inspecting allowlisted SQL table ${schema}.${table} on ${database}`
+          : `Inspecting allowlisted SQL schema ${schema} on ${database}`,
       });
 
       try {
@@ -209,9 +220,10 @@ function buildSqlQuerySchemaTool(): ToolDefinition {
                AND t.table_name = c.table_name
               WHERE c.table_schema = $1
                 AND t.table_type = 'BASE TABLE'
+                AND ($2::text IS NULL OR c.table_name = $2)
               ORDER BY c.table_name, c.ordinal_position
             `,
-            [schema]
+            [schema, table ?? null]
           ),
           client.query(
             `
@@ -232,22 +244,26 @@ function buildSqlQuerySchemaTool(): ToolDefinition {
               WHERE tc.constraint_type = 'FOREIGN KEY'
                 AND tc.table_schema = $1
                 AND ccu.table_schema = $1
+                AND ($2::text IS NULL OR kcu.table_name = $2 OR ccu.table_name = $2)
               ORDER BY kcu.table_name, kcu.column_name
             `,
-            [schema]
+            [schema, table ?? null]
           ),
         ]);
 
         const output = buildSqlSchemaOutput(
           database,
           schema,
+          table,
           columnsResult.rows as SqlSchemaColumnRow[],
           foreignKeysResult.rows as SqlSchemaForeignKeyRow[]
         );
 
         context.onProgress?.({
           stage: "complete",
-          message: `Schema ${schema} returned ${output.tableCount} table(s), ${output.columnCount} column(s), and ${output.foreignKeyCount} foreign key(s)`,
+          message: table
+            ? `Table ${schema}.${table} returned ${output.columnCount} column(s) and ${output.foreignKeyCount} related foreign key(s)`
+            : `Schema ${schema} returned ${output.tableCount} table(s), ${output.columnCount} column(s), and ${output.foreignKeyCount} foreign key(s)`,
         });
 
         return fitSqlSchemaResultToBudget(output);
@@ -374,6 +390,7 @@ interface SqlQueryInput {
 interface SqlQuerySchemaInput {
   database: string;
   schema: string;
+  table?: string;
 }
 
 interface SqlQueryOutput {
@@ -443,6 +460,7 @@ interface SqlSchemaForeignKeyRow {
 interface SqlSchemaOutput {
   database: string;
   schema: string;
+  table?: string;
   tableCount: number;
   columnCount: number;
   foreignKeyCount: number;
@@ -501,6 +519,12 @@ function assertAllowedSqlSchema(database: string, schema: string): void {
   throw new Error(
     `SQL schema is not allowlisted for database alias ${databaseAlias}: ${schema}. Configure AGENT_SQL_ALLOWED_SCHEMAS or AGENT_SQL_ALLOWED_SCHEMAS_${formatEnvAlias(databaseAlias)}.`
   );
+}
+
+function assertUnqualifiedSqlTableName(table: string): void {
+  if (table.includes(".")) {
+    throw new Error(`SqlQuerySchema table must be an unqualified table name, for example "incidents", not "${table}".`);
+  }
 }
 
 function parseConfiguredSqlDatabases(): Record<string, string> {
@@ -1032,6 +1056,7 @@ function containsForeignPlanNode(value: unknown): boolean {
 function buildSqlSchemaOutput(
   database: string,
   schema: string,
+  table: string | undefined,
   columnRows: SqlSchemaColumnRow[],
   foreignKeyRows: SqlSchemaForeignKeyRow[]
 ): SqlSchemaOutput {
@@ -1058,6 +1083,7 @@ function buildSqlSchemaOutput(
   return {
     database,
     schema,
+    ...(table ? { table } : {}),
     tableCount: tables.size,
     columnCount: columnRows.length,
     tables: Array.from(tables.values()),
@@ -1102,6 +1128,7 @@ function fitSqlSchemaResultToBudget(output: SqlSchemaOutput): SqlSchemaOutput {
   return sanitizeForJson({
     database: output.database,
     schema: output.schema,
+    ...(output.table ? { table: output.table } : {}),
     tableCount: output.tableCount,
     columnCount: output.columnCount,
     foreignKeyCount: output.foreignKeyCount,

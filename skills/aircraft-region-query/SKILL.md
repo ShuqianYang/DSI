@@ -2,7 +2,7 @@
 name: aircraft-region-query
 description: Guides aircraft information queries for a named region by resolving the region's approximate coordinates with WebSearch, then querying aircraft state data through read-only database tools. Use when the user asks about aircraft, flights, planes, ADS-B, OpenSky, air traffic, or aviation situation in a specific region or place.
 argument-hint: "[user aircraft query with region]"
-allowed-tools: WebSearch, QueryDatabase, RunSqlReadOnly
+allowed-tools: Read, WebSearch, SqlQuerySchema, SqlQuery
 ---
 
 # Aircraft Region Query

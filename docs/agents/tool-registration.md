@@ -81,7 +81,10 @@ Current domain tools:
 
 - `SqlQuerySchema`: lists base tables, columns, and same-schema foreign-key
   relationships for an allowlisted PostgreSQL schema. It is the model-facing way
-  to discover SQL structure before calling `SqlQuery`; it returns only table
+  to discover SQL structure before calling `SqlQuery`. When the target table is
+  known, pass optional `table`, for example
+  `{"database":"default","schema":"agent_smoke","table":"incidents"}`, to return
+  only that table plus related same-schema foreign keys. It returns only table
   names, column names, data types, nullable flags, and join relationships. It
   does not expose defaults, constraint names, indexes, permissions, statistics,
   row counts, or view definitions.

@@ -105,8 +105,10 @@ const registry = buildDefaultToolRegistry();
 只内联前若干行，并在 `artifact.path` 返回完整行集文件路径
 `api/tmp/agent-loop/sqlquery/...`，模型可按需用 `Read` 读取或留给后续数据处理。
 `SqlQuerySchema` 用于在查询前发现白名单 schema 下的基础表、列和同 schema
-外键关系，只返回表名、列名、数据类型、nullable 标记和 JOIN 关系，不返回
-默认值、约束名、索引、权限、统计行数或视图定义。
+外键关系；当目标表已知时可传 `table` 只返回单表结构，例如
+`{"database":"default","schema":"agent_smoke","table":"incidents"}`。它只返回
+表名、列名、数据类型、nullable 标记和 JOIN 关系，不返回默认值、约束名、
+索引、权限、统计行数或视图定义。
 
 数据库 alias 配置：
 
