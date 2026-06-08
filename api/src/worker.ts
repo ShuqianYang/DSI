@@ -3,10 +3,25 @@ import { openskyWorker } from "./modules/opensky/worker.js";
 
 console.log("[Worker] OpenSky worker starting...");
 
+const SHUTDOWN_TIMEOUT_MS = 5_000;
+let shuttingDown = false;
+
 async function shutdown(signal: "SIGINT" | "SIGTERM") {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`[Worker] ${signal} received, shutting down...`);
-  await openskyWorker.close();
-  process.exit(0);
+  try {
+    await Promise.race([
+      openskyWorker.close(),
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error("OpenSky worker shutdown timed out.")), SHUTDOWN_TIMEOUT_MS);
+      }),
+    ]);
+    process.exit(0);
+  } catch (error) {
+    console.error("[Worker] Shutdown failed:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
 }
 
 process.once("SIGINT", () => {

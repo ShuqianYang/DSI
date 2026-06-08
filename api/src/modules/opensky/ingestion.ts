@@ -10,6 +10,8 @@ export interface OpenSkyIngestionResult extends ReplaceResult {
   fetchedCount: number;
   insertedCount: number;
   normalizedCount: number;
+  skipped?: boolean;
+  skippedReason?: string;
 }
 
 export interface OpenSkyIngestionDeps {
@@ -28,9 +30,20 @@ export async function ingestOpenSkySnapshotOnce(
   const token = await getTokenFn();
   const data = await fetchStatesFn(token);
   if (data.states.length === 0) {
-    throw new Error("Refusing to replace aircraft_current_states with an empty OpenSky states response.");
+    console.warn("[OpenSkyIngestion] Empty OpenSky states response; keeping existing aircraft_current_states.");
+    return {
+      deleted: 0,
+      inserted: 0,
+      fetchedCount: 0,
+      insertedCount: 0,
+      normalizedCount: 0,
+      skipped: true,
+      skippedReason: "empty_states",
+    };
   }
-  const states = normalizeOpenSkyStates(data);
+  const normalized = normalizeOpenSkyStatesWithStats(data);
+  logOpenSkyNormalizationSkips(normalized.stats);
+  const states = normalized.states;
   if (states.length === 0) {
     throw new Error("Refusing to replace aircraft_current_states because no valid OpenSky states were normalized.");
   }
@@ -50,16 +63,76 @@ async function getDefaultReplaceAll(): Promise<(states: NewAircraftCurrentState[
 }
 
 export function normalizeOpenSkyStates(data: OpenSkyStatesResponse): NewAircraftCurrentState[] {
+  return normalizeOpenSkyStatesWithStats(data).states;
+}
+
+export interface OpenSkyNormalizeStats {
+  total: number;
+  normalized: number;
+  skippedMalformed: number;
+  skippedInvalidIcao24: number;
+  skippedInvalidLastContact: number;
+  skippedOther: number;
+}
+
+export function normalizeOpenSkyStatesWithStats(data: OpenSkyStatesResponse): {
+  states: NewAircraftCurrentState[];
+  stats: OpenSkyNormalizeStats;
+} {
   const states: NewAircraftCurrentState[] = [];
+  const stats: OpenSkyNormalizeStats = {
+    total: data.states.length,
+    normalized: 0,
+    skippedMalformed: 0,
+    skippedInvalidIcao24: 0,
+    skippedInvalidLastContact: 0,
+    skippedOther: 0,
+  };
+
   for (const row of data.states) {
-    if (!Array.isArray(row) || row.length < 17) continue;
-    try {
-      states.push(mapStateVector(row));
-    } catch {
+    if (!Array.isArray(row) || row.length < 17) {
+      stats.skippedMalformed += 1;
       continue;
     }
+    const icao24 = typeof row[0] === "string" ? row[0].trim() : "";
+    if (!icao24) {
+      stats.skippedInvalidIcao24 += 1;
+      continue;
+    }
+    const hasValidLastContact = typeof row[4] === "number" && Number.isFinite(row[4]);
+    if (!hasValidLastContact) {
+      stats.skippedInvalidLastContact += 1;
+      continue;
+    }
+    try {
+      states.push(mapStateVector(row));
+      stats.normalized += 1;
+    } catch {
+      stats.skippedOther += 1;
+    }
   }
-  return states;
+  return { states, stats };
+}
+
+function logOpenSkyNormalizationSkips(stats: OpenSkyNormalizeStats): void {
+  const skipped =
+    stats.skippedMalformed +
+    stats.skippedInvalidIcao24 +
+    stats.skippedInvalidLastContact +
+    stats.skippedOther;
+  if (skipped === 0) return;
+
+  console.warn(
+    "[OpenSkyIngestion] Skipped invalid state vectors:",
+    JSON.stringify({
+      total: stats.total,
+      normalized: stats.normalized,
+      skippedMalformed: stats.skippedMalformed,
+      skippedInvalidIcao24: stats.skippedInvalidIcao24,
+      skippedInvalidLastContact: stats.skippedInvalidLastContact,
+      skippedOther: stats.skippedOther,
+    })
+  );
 }
 
 export function mapStateVector(row: unknown[]): NewAircraftCurrentState {

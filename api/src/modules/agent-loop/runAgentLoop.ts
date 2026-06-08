@@ -54,6 +54,7 @@ export interface RunAgentLoopOptions {
   maxConcurrentToolCalls?: number;
   permissionHandler?: ToolPermissionHandler;
   signal?: AbortSignal;
+  onEvent?: (event: AgentLoopEvent) => void;
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
 }
 
@@ -63,12 +64,14 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentL
     ...options,
     onToolProgress: (event) => {
       publishAgentLoopEvent(event);
+      options.onEvent?.(event);
       options.onToolProgress?.(event);
     },
   };
 
   for await (const event of runAgentLoopEvents(eventOptions)) {
     publishAgentLoopEvent(event);
+    options.onEvent?.(event);
     if (event.type === "loop_stop") {
       finalResult = event.result;
     }

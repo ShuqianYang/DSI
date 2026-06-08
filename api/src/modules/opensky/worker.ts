@@ -10,6 +10,10 @@ async function processOpenSkyJob(): Promise<void> {
 
   const result = await ingestOpenSkySnapshotOnce();
   console.log("[OpenSkyWorker] Fetched", result.fetchedCount, "aircraft states");
+  if (result.skipped) {
+    console.warn("[OpenSkyWorker] Skipped OpenSky replacement:", result.skippedReason);
+    return;
+  }
   console.log(
     "[OpenSkyWorker] Replaced:",
     result.deleted,

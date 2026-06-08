@@ -7,6 +7,7 @@ import { createTask, getTask, listTasks } from "./controller.js";
 import { addSseClient, removeSseClient, notifyTaskUpdate } from "../../sse/sseManager.js";
 import { db } from "../../config/database.js";
 import { tasks, taskSteps } from "../../db/schema.js";
+import { createLegacyStepUpdateFromTaskStep } from "./agentLoopEventAdapter.js";
 
 const router: ExpressRouter = Router();
 
@@ -91,19 +92,7 @@ router.get("/:taskId/stream", async (req: Request, res: Response) => {
         return orderA - orderB;
       });
     for (const step of completedSteps) {
-      const actionConfig = step.actionConfig as Record<string, unknown>;
-      const actionId = (actionConfig.id as string) || step.id;
-      const actionName = (actionConfig.name as string) || step.actionType;
-      res.write(`data: ${JSON.stringify({
-        type: "step_update",
-        stepIndex: (actionConfig._order as number ?? 1) - 1,
-        stepId: step.id,
-        actionId,
-        status: step.status,
-        name: actionName,
-        detail: step.error || undefined,
-        gisData: (step.result as Record<string, unknown> | null)?.gisData,
-      })}\n\n`);
+      res.write(`data: ${JSON.stringify(createLegacyStepUpdateFromTaskStep(step))}\n\n`);
       await flush();
     }
 

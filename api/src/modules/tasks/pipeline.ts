@@ -2,6 +2,8 @@ import * as taskService from "./service.js";
 import { notifyTaskUpdate } from "../../sse/sseManager.js";
 import type { CreateTaskRequest } from "@datasourceintelligence/shared";
 import { runAgentLoop } from "../agent-loop/runAgentLoop.js";
+import { createLegacySseAdapter } from "./agentLoopEventAdapter.js";
+import { buildAgentLoopTaskResult } from "./agentLoopResultProjection.js";
 
 /**
  * Agent Pipeline 主入口。
@@ -21,18 +23,19 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
 
     console.log(`[Pipeline] Task ${taskId} received query: "${body.query}"`);
 
+    const legacySseAdapter = createLegacySseAdapter({
+      taskId,
+      query: body.query,
+      emit: (event) => notifyTaskUpdate(taskId, event),
+    });
+
     const loopResult = await runAgentLoop({
       taskId,
       query: body.query,
+      onEvent: (event) => legacySseAdapter.handle(event),
     });
 
-    const result = {
-      message: loopResult.finalAnswer,
-      mode: "agent_loop",
-      turns: loopResult.turns,
-      stoppedBy: loopResult.stoppedBy,
-      observations: loopResult.observations,
-    };
+    const result = buildAgentLoopTaskResult(loopResult);
 
     if (loopResult.stoppedBy === "model_error" || loopResult.stoppedBy === "aborted") {
       await taskService.updateTaskResult(taskId, result, "failed");

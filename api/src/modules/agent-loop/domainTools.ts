@@ -5,6 +5,9 @@ import { z } from "zod";
 import { safeJsonStringify, sanitizeForJson } from "./serialization.js";
 import type { ToolDefinition } from "./types.js";
 import type { ToolRegistry } from "./toolRegistry.js";
+import { buildRegionMarkTool } from "./regionTools.js";
+import { buildRegionResolveTool } from "./regionResolveTool.js";
+import { buildWeatherFetchTool } from "./weatherTools.js";
 
 const DEFAULT_SQL_DATABASE = "default";
 const DEFAULT_SQL_LIMIT = 100;
@@ -139,6 +142,9 @@ export function buildDomainTools(): ToolDefinition[] {
   return [
     buildSqlQuerySchemaTool(),
     buildSqlQueryTool(),
+    buildWeatherFetchTool(),
+    buildRegionResolveTool(),
+    buildRegionMarkTool(),
   ];
 }
 

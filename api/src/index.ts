@@ -9,6 +9,7 @@ import {
   removeGlobalSseClient,
 } from "./sse/sseManager.js";
 import taskRoutes from "./modules/tasks/routes.js";
+import dashboardRoutes from "./modules/dashboard/routes.js";
 import {
   registerOpenSkyJob,
   shouldRegisterOpenSkyJob,
@@ -36,6 +37,7 @@ app.get("/health", (_req, res) => {
 
 // Agent 任务路由（唯一入口）
 app.use("/tasks", taskRoutes);
+app.use("/", dashboardRoutes);
 
 // 全局 SSE 通道
 app.get("/sse/global", (_req, res) => {
