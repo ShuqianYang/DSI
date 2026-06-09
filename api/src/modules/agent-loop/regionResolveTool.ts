@@ -82,7 +82,7 @@ export function buildRegionResolveTool(): ToolDefinition {
     name: "RegionResolve",
     aliases: ["region-resolve"],
     description:
-      'Resolve a named region from local GeoJSON assets into an authoritative bbox. Input: {"regionName":"东海"} or {"query":"请圈选福建省"}. Supports only configured local assets such as public/geo/china.geojson and public/geo/eastern_china_sea.geojson; it never searches the web or invents boundaries.',
+      'Resolve a named region from local GeoJSON assets into an authoritative bbox. Input: {"regionName":"东海"} or {"query":"请圈选福建省"}. This tool only resolves geometry; it does not create a visible map layer. When the user asks to 圈选/标出/高亮 a named region, call RegionResolve first, then call RegionMark with selected.bbox. Supports only configured local assets such as public/geo/china.geojson and public/geo/eastern_china_sea.geojson; it never searches the web or invents boundaries.',
     kind: "domain",
     inputSchema: RegionResolveInputSchema,
     isReadOnly: () => true,
@@ -142,15 +142,15 @@ async function executeRegionResolve(
     });
     return {
       resolved: true,
-      selected,
-      candidates,
+      selected: cloneCandidate(selected),
+      candidates: candidates.map(cloneCandidate),
     };
   }
 
   const requirementType = candidates.length > 0 ? "region_match_ambiguous" : "region_geometry_missing";
   return {
     resolved: false,
-    candidates,
+    candidates: candidates.map(cloneCandidate),
     requirement: {
       type: requirementType,
       message:
@@ -158,6 +158,14 @@ async function executeRegionResolve(
           ? "RegionResolve found local candidates but none met the confidence threshold. Ask the user to choose a candidate or provide bbox/polygon."
           : "Missing local region geometry. Ask the user to provide bbox/polygon or add a GeoJSON asset for this region.",
     },
+  };
+}
+
+function cloneCandidate(candidate: RegionCandidate): RegionCandidate {
+  return {
+    ...candidate,
+    aliases: [...candidate.aliases],
+    bbox: { ...candidate.bbox },
   };
 }
 

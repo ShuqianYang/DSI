@@ -1,20 +1,31 @@
 import "dotenv/config";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import {
+  createGisToolchainSmokeModelClient,
+  GIS_TOOLCHAIN_QUERY,
+  GIS_TOOLCHAIN_SCENARIO,
+  GIS_TOOLCHAIN_TOOLS,
+  installMockOpenMeteoFetch,
+  validateGisToolchainSmoke,
+} from "./agent-loop-smoke-gis.js";
 import { buildDefaultToolRegistry, ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
 import type {
   AgentLoopEvent,
+  AgentLoopResult,
   AgentMessage,
   ToolPermissionHandler,
 } from "../src/modules/agent-loop/types.js";
+import type { LegacySseEvent } from "../src/modules/tasks/agentLoopEventAdapter.js";
 
 const DEFAULT_QUERY =
-  "请用只读工具查看当前仓库的 api/src/modules/agent-loop 目录，概括有哪些核心文件。";
+  "Use read-only tools to inspect the api/src/modules/agent-loop directory and summarize its core files.";
 const PREVIEW_CHARS = Number.parseInt(process.env.AGENT_LOOP_SMOKE_PREVIEW_CHARS ?? "8000", 10);
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const query = options.query || DEFAULT_QUERY;
+  const query = options.query || (options.scenario === GIS_TOOLCHAIN_SCENARIO ? GIS_TOOLCHAIN_QUERY : DEFAULT_QUERY);
+
   if (options.refreshOpenSky) {
     process.env.AGENT_SQL_ALLOWED_SCHEMAS ||= JSON.stringify({ default: ["public"] });
     const { ingestOpenSkySnapshotOnce } = await import("../src/modules/opensky/ingestion.js");
@@ -24,29 +35,71 @@ async function main() {
       `[smoke] OpenSky refreshed: fetched=${result.fetchedCount} inserted=${result.insertedCount}`,
     );
   }
+
   const registry = buildSelectedRegistry(options.tools);
   const smokeDb = await loadSmokeDb();
   const { runAgentLoopEvents } = await import("../src/modules/agent-loop/runAgentLoop.js");
+  const { createLegacySseAdapter } = await import("../src/modules/tasks/agentLoopEventAdapter.js");
+  const { buildAgentLoopTaskResult } = await import("../src/modules/tasks/agentLoopResultProjection.js");
   const taskId = await createSmokeTask(smokeDb, query);
   const permissionHandler = createCliPermissionHandler();
+  const rawEvents: AgentLoopEvent[] = [];
+  const legacyEvents: LegacySseEvent[] = [];
+  const legacySseAdapter =
+    options.scenario === GIS_TOOLCHAIN_SCENARIO
+      ? createLegacySseAdapter({
+          taskId,
+          query,
+          emit: (event) => legacyEvents.push(event),
+        })
+      : undefined;
+  const modelClient =
+    options.scenario === GIS_TOOLCHAIN_SCENARIO && !options.realModel
+      ? createGisToolchainSmokeModelClient()
+      : undefined;
+  const restoreWeatherMock =
+    options.mockWeather && options.scenario === GIS_TOOLCHAIN_SCENARIO
+      ? installMockOpenMeteoFetch()
+      : undefined;
 
   console.log(`[smoke] taskId=${taskId}`);
   console.log(`[smoke] query=${query}`);
   console.log(`[smoke] tools=${registry.list().map((tool) => tool.name).join(", ")}`);
+  if (options.scenario) console.log(`[smoke] scenario=${options.scenario}`);
+  if (modelClient) console.log("[smoke] model=fake-gis-toolchain");
+  if (options.realModel) console.log("[smoke] model=real");
+  if (restoreWeatherMock) console.log("[smoke] weather=mock-open-meteo");
   console.log("");
 
   let finalSeen = false;
+  let loopResult: AgentLoopResult | undefined;
+  const handleEvent = (event: AgentLoopEvent) => {
+    rawEvents.push(event);
+    legacySseAdapter?.handle(event);
+  };
+
   try {
     for await (const event of runAgentLoopEvents({
       taskId,
       query,
       registry,
       maxTurns: options.maxTurns,
+      ...(modelClient ? { modelClient } : {}),
       permissionHandler,
+      onToolProgress: (event) => {
+        handleEvent(event);
+        printEvent(event, options);
+      },
     })) {
+      handleEvent(event);
       printEvent(event, options);
       if (event.type === "loop_stop") {
         finalSeen = true;
+        loopResult = event.result;
+        const result =
+          options.scenario === GIS_TOOLCHAIN_SCENARIO
+            ? buildAgentLoopTaskResult(event.result)
+            : event.result;
         await smokeDb.db
           .update(smokeDb.tasks)
           .set({
@@ -54,7 +107,7 @@ async function main() {
               event.result.stoppedBy === "final_answer" || event.result.stoppedBy === "max_turns"
                 ? "completed"
                 : "failed",
-            result: event.result,
+            result,
             error:
               event.result.stoppedBy === "model_error" || event.result.stoppedBy === "aborted"
                 ? event.result.finalAnswer
@@ -66,6 +119,7 @@ async function main() {
       }
     }
   } finally {
+    restoreWeatherMock?.();
     if (!finalSeen) {
       await smokeDb.db
         .update(smokeDb.tasks)
@@ -76,6 +130,23 @@ async function main() {
         })
         .where(smokeDb.eq(smokeDb.tasks.id, taskId));
     }
+  }
+
+  if (options.scenario === GIS_TOOLCHAIN_SCENARIO && loopResult) {
+    const report = validateGisToolchainSmoke({
+      rawEvents,
+      legacyEvents,
+      projectedResult: buildAgentLoopTaskResult(loopResult),
+    });
+    console.log("");
+    console.log("[gis-smoke] validation passed");
+    console.log(`[gis-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
+    console.log(
+      `[gis-smoke] legacy gisData: region=${report.legacyRegionGisData} wind-field=${report.legacyWindFieldGisData}`,
+    );
+    console.log(
+      `[gis-smoke] task.result projection: region=${report.projectedRegionGisData} wind-field=${report.projectedWindFieldGisData}`,
+    );
   }
 }
 
@@ -218,6 +289,9 @@ interface SmokeOptions {
   refreshOpenSky: boolean;
   previewChars: number;
   verboseToolMessages: boolean;
+  scenario?: string;
+  realModel: boolean;
+  mockWeather: boolean;
 }
 
 function parseArgs(args: string[]): SmokeOptions {
@@ -226,12 +300,18 @@ function parseArgs(args: string[]): SmokeOptions {
   let tools: string[] | undefined;
   let refreshOpenSky = false;
   let verboseToolMessages = false;
+  let scenario: string | undefined;
+  let realModel = false;
+  let mockWeather: boolean | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const next = args[index + 1];
     if (arg === "--query" || arg === "-q") {
       query = requireValue(arg, next);
+      index += 1;
+    } else if (arg === "--scenario") {
+      scenario = requireValue(arg, next);
       index += 1;
     } else if (arg === "--max-turns") {
       maxTurns = Number.parseInt(requireValue(arg, next), 10);
@@ -248,6 +328,12 @@ function parseArgs(args: string[]): SmokeOptions {
       tools = Array.from(new Set([...(tools ?? []), "WebSearch"]));
     } else if (arg === "--refresh-opensky") {
       refreshOpenSky = true;
+    } else if (arg === "--real-model") {
+      realModel = true;
+    } else if (arg === "--mock-weather") {
+      mockWeather = true;
+    } else if (arg === "--no-mock-weather") {
+      mockWeather = false;
     } else if (arg === "--verbose-tool-messages") {
       verboseToolMessages = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -261,6 +347,14 @@ function parseArgs(args: string[]): SmokeOptions {
     throw new Error("--max-turns must be a positive integer");
   }
 
+  if (scenario && scenario !== GIS_TOOLCHAIN_SCENARIO) {
+    throw new Error(`Unknown smoke scenario: ${scenario}`);
+  }
+
+  if (scenario === GIS_TOOLCHAIN_SCENARIO && (!tools || tools.length === 0)) {
+    tools = [...GIS_TOOLCHAIN_TOOLS];
+  }
+
   return {
     query,
     maxTurns,
@@ -268,6 +362,9 @@ function parseArgs(args: string[]): SmokeOptions {
     refreshOpenSky,
     previewChars: Number.isFinite(PREVIEW_CHARS) && PREVIEW_CHARS > 0 ? PREVIEW_CHARS : 8000,
     verboseToolMessages,
+    scenario,
+    realModel,
+    mockWeather: mockWeather ?? scenario === GIS_TOOLCHAIN_SCENARIO,
   };
 }
 
@@ -282,15 +379,25 @@ function printHelpAndExit(): never {
 
 Options:
   -q, --query <text>       User query to run.
+  --scenario <name>        Scenario assertions. Supported: gis-toolchain.
   --max-turns <n>          Max loop turns. Default: 6.
-  --tools <a,b,c>          Comma-separated tools from the default registry. Default: all default tools, including domain tools.
+  --tools <a,b,c>          Comma-separated tools from the default registry.
   --with-webfetch          Add WebFetch to the selected tools.
   --with-websearch         Add WebSearch to the selected tools.
-  --refresh-opensky        Fetch OpenSky now and replace aircraft_current_states before running the agent.
+  --refresh-opensky        Fetch OpenSky now before running the agent.
+  --real-model             Use the configured model instead of the scenario fake model.
+  --mock-weather           Mock Open-Meteo weather responses.
+  --no-mock-weather        Use real Open-Meteo weather responses.
   --verbose-tool-messages  Also print serialized tool messages.
 
+GIS toolchain fake example:
+  tsx scripts/agent-loop-smoke.ts --scenario gis-toolchain --max-turns 6
+
+GIS toolchain real-model example:
+  tsx scripts/agent-loop-smoke.ts --scenario gis-toolchain --real-model --query "圈选东海并查询这个区域的风场。" --max-turns 8
+
 Aircraft example:
-  tsx scripts/agent-loop-smoke.ts --refresh-opensky --query "请查询东海当前 OpenSky 飞机数据，给我 10 条真实记录。"
+  tsx scripts/agent-loop-smoke.ts --refresh-opensky --query "查询台湾海峡附近当前有哪些飞机，列出 callsign、国家、经纬度和高度。" --max-turns 10
 `);
   process.exit(0);
 }

@@ -5,6 +5,14 @@ import { ChatMessage, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
 import { createAgentTask, getTask } from '@/lib/api';
 import { formatTaskResult } from '@/lib/taskResultFormatter';
 import { getMockResponse } from '@/lib/taskMock';
+import {
+  extractGisDataFromAgentLoopEvent,
+  extractOperationsFromAgentLoopEvent,
+  logAgentLoopEvent,
+  parseTaskStreamEvent,
+  type AgentLoopEvent,
+} from '@/lib/agentLoopEvents';
+import { formatAgentLoopThinkingUpdate } from '@/lib/agentLoopStepFormatter';
 
 export interface UseTaskChatOptions {
   onGisDataRequest?: (gisData: GisData) => void;
@@ -225,6 +233,12 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
       try {
         const data = JSON.parse(event.data);
         console.log('[useTaskChat] SSE msg:', data);
+        const parsed = parseTaskStreamEvent(data);
+        if (parsed.kind === 'agent-loop') {
+          logAgentLoopEvent(taskId, parsed.event);
+          handleAgentLoopUpdate(taskId, parsed.event);
+          return;
+        }
         handleSseUpdate(taskId, data);
       } catch (err) {
         console.warn('[useTaskChat] SSE parse error:', err);
@@ -238,10 +252,97 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
   };
 
   // 处理 SSE 消息，更新对应消息的 thinkingSteps
+  const upsertThinkingStep = (
+    taskId: string,
+    step: ThinkingStep,
+    options: { append?: boolean } = {}
+  ) => {
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
+      if (idx === -1) return prev;
+
+      const msg = prev[idx];
+      const existing = msg.thinkingSteps || [];
+      const stepIdx = existing.findIndex((s) => s.id === step.id);
+      const thinkingSteps =
+        stepIdx >= 0
+          ? existing.map((s) => (s.id === step.id ? { ...s, ...step } : s))
+          : options.append === false
+            ? existing
+            : [...existing, step];
+
+      const next = [...prev];
+      next[idx] = { ...msg, thinkingSteps };
+      return next;
+    });
+  };
+
+  const handleAgentLoopUpdate = (taskId: string, event: AgentLoopEvent) => {
+    const update = formatAgentLoopThinkingUpdate(event);
+    update.steps.forEach((step) => upsertThinkingStep(taskId, step));
+
+    if (update.content || update.completeOpenStepsAs) {
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
+        if (idx === -1) return prev;
+
+        const msg = prev[idx];
+        const updatedSteps = update.completeOpenStepsAs
+          ? (msg.thinkingSteps || []).map((s) =>
+              s.status === 'pending' || s.status === 'running'
+                ? { ...s, status: update.completeOpenStepsAs as ThinkingStep['status'] }
+                : s
+            )
+          : msg.thinkingSteps;
+
+        const next = [...prev];
+        next[idx] = {
+          ...msg,
+          content: update.content || msg.content,
+          agentLoopLogFilePath: update.logFilePath || msg.agentLoopLogFilePath,
+          thinkingSteps: updatedSteps,
+        };
+        return next;
+      });
+    }
+
+    if (event.type === 'tool_observation') {
+      const observation = event.observation || {};
+      const operations = extractOperationsFromAgentLoopEvent(event);
+      if (operations?.length) {
+        console.log('[useTaskChat] Received GIS operations (agent-loop):', operations);
+        onGisOperation?.(operations);
+      }
+
+      const gisData = extractGisDataFromAgentLoopEvent(event);
+      if (gisData) {
+        const gisKey = `${taskId}:${event.toolCallId || observation.toolCallId || event.toolName || 'gis'}`;
+        if (!gisDataPushedRef.current.has(gisKey)) {
+          gisDataPushedRef.current.add(gisKey);
+          console.log('[useTaskChat] Received GIS data (agent-loop):', {
+            type: gisData.type,
+            hasCameraView: !!gisData.cameraView,
+            cameraView: gisData.cameraView,
+            regionsCount: gisData.regions?.length,
+            entitiesCount: gisData.entities?.length,
+            imageOverlaysCount: gisData.imageOverlays?.length,
+          });
+          onGisDataRequest?.(gisData);
+        }
+      }
+      return;
+    }
+
+    if (event.type === 'loop_stop') {
+      clearPlanAnimation(taskId);
+    }
+  };
+
   const handleSseUpdate = (taskId: string, data: {
     type: string;
     stepIndex?: number;
     actionId?: string;
+    actionType?: string;
     status?: string;
     name?: string;
     detail?: string;
@@ -259,6 +360,8 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
       params?: Record<string, unknown>;
       dependsOn?: string[];
     }>;
+    result?: Record<string, unknown>;
+    logFilePath?: string;
   }) => {
     // --- planning 阶段开始 ---
     if (data.type === 'planning') {
@@ -451,6 +554,11 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
       }
 
       const finalStatus = data.type === 'completed' ? 'completed' : 'failed';
+      const eventLogFilePath =
+        data.logFilePath ||
+        (data.result && typeof data.result.logFilePath === 'string'
+          ? data.result.logFilePath
+          : undefined);
 
       // 通知上层任务结束，让 page.tsx 联动 chat / 进度弹窗的开合
       onTaskFinished?.(taskId, finalStatus);
@@ -472,6 +580,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
         next[idx] = {
           ...msg,
           thinkingSteps: updatedSteps,
+          agentLoopLogFilePath: eventLogFilePath || msg.agentLoopLogFilePath,
         };
         return next;
       });
@@ -509,13 +618,21 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
               }
 
               const resultMarkdown = formatTaskResult(task.result);
+              const resultLogFilePath =
+                typeof (task.result as Record<string, unknown>).logFilePath === 'string'
+                  ? ((task.result as Record<string, unknown>).logFilePath as string)
+                  : undefined;
               setMessages((prev) => {
                 const idx = prev.findIndex(
                   (m) => m.taskId === taskId && m.role === 'assistant'
                 );
                 if (idx === -1) return prev;
                 const next = [...prev];
-                next[idx] = { ...prev[idx], content: resultMarkdown };
+                next[idx] = {
+                  ...prev[idx],
+                  content: resultMarkdown,
+                  agentLoopLogFilePath: resultLogFilePath || prev[idx].agentLoopLogFilePath,
+                };
                 return next;
               });
             }

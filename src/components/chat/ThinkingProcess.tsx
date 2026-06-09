@@ -21,8 +21,38 @@ function StepIcon({ status }: { status: ThinkingStep['status'] }) {
   }
 }
 
+function StepBadge({ step }: { step: ThinkingStep }) {
+  const label =
+    step.category === 'gis'
+      ? 'GIS'
+      : step.category === 'result'
+        ? 'Result'
+        : step.category === 'agent'
+          ? 'Agent'
+          : step.category === 'tool'
+            ? 'Tool'
+            : step.eventType;
+
+  if (!label) return null;
+
+  const colorClass =
+    step.category === 'gis'
+      ? 'border-[#00E0FF]/40 text-[#00E0FF]'
+      : step.category === 'result'
+        ? 'border-[#44FF44]/40 text-[#44FF44]'
+        : step.category === 'agent'
+          ? 'border-[#FFAA00]/40 text-[#FFAA00]'
+          : 'border-[#8888AA]/40 text-[#C8C8DA]';
+
+  return (
+    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-none ${colorClass}`}>
+      {label}
+    </span>
+  );
+}
+
 export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps) {
-  if (!msg.thinking && !msg.thinkingSteps) return null;
+  if (!msg.thinking && !msg.thinkingSteps && !msg.agentLoopLogFilePath) return null;
 
   return (
     <div className="mb-3 border border-[#3A3A4E] rounded-md overflow-hidden">
@@ -49,6 +79,17 @@ export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps)
 
       {msg.isThinkingExpanded && (
         <div className="px-3 py-2.5 space-y-2 bg-[#1A1A28]">
+          {msg.agentLoopLogFilePath && (
+            <div className="rounded border border-[#3A3A4E] bg-[#121220] px-2 py-1.5">
+              <div className="text-[10px] uppercase tracking-normal text-[#8888AA]">
+                Agent Loop Log
+              </div>
+              <div className="mt-0.5 break-all font-mono text-[11px] leading-relaxed text-[#C8C8DA]">
+                {msg.agentLoopLogFilePath}
+              </div>
+            </div>
+          )}
+
           {msg.thinking && (
             <div className="flex gap-2 text-xs text-[#8888AA] leading-relaxed">
               <Lightbulb className="w-3.5 h-3.5 text-[#FFAA00] shrink-0 mt-0.5" />
@@ -66,10 +107,18 @@ export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps)
                 >
                   <StepIcon status={step.status} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-[#EAEAEA] font-medium">
-                        {step.name}
-                      </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <StepBadge step={step} />
+                        <span className="text-xs text-[#EAEAEA] font-medium truncate">
+                          {step.name}
+                        </span>
+                        {step.toolName && step.toolName !== step.name && (
+                          <span className="text-[10px] text-[#8888AA] truncate">
+                            {step.toolName}
+                          </span>
+                        )}
+                      </div>
                       {step.duration && (
                         <span className="text-[10px] text-[#8888AA] tabular-nums">
                           {step.duration}ms

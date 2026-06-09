@@ -102,7 +102,7 @@ export function buildWeatherFetchTool(): ToolDefinition {
     name: "WeatherFetch",
     aliases: ["weather-fetch"],
     description:
-      'Fetch real Open-Meteo wind and ocean-current data for an explicit center or bbox and return a GIS wind-field layer. Input: {"center":{"lat":25,"lng":120},"grid":{"rows":5,"cols":5},"lookbackDays":3}. The tool never guesses a default region and never fabricates mock weather data.',
+      'Fetch real Open-Meteo wind and ocean-current data for an explicit center or bbox and return a GIS wind-field layer. Input: {"center":{"lat":25,"lng":120},"grid":{"rows":5,"cols":5},"lookbackDays":3}. This tool does not create a visible region outline. For named-region map linkage, use RegionResolve -> RegionMark -> WeatherFetch. The tool never guesses a default region and never fabricates mock weather data.',
     kind: "domain",
     inputSchema: WeatherFetchInputSchema,
     isReadOnly: () => true,
@@ -182,7 +182,7 @@ async function executeWeatherFetch(input: WeatherFetchInput, context: ToolExecut
     gisData: {
       type: "wind-field",
       windField: {
-        bbox,
+        bbox: cloneBbox(bbox),
         grid,
         u: wind.u,
         v: wind.v,
@@ -214,6 +214,15 @@ function centerFromBbox(bbox: Bbox): Coordinate {
   return {
     lat: roundCoord((bbox.south + bbox.north) / 2),
     lng: roundCoord((bbox.west + bbox.east) / 2),
+  };
+}
+
+function cloneBbox(bbox: Bbox): Bbox {
+  return {
+    west: bbox.west,
+    east: bbox.east,
+    south: bbox.south,
+    north: bbox.north,
   };
 }
 

@@ -4,6 +4,7 @@ import type { CreateTaskRequest } from "@datasourceintelligence/shared";
 import { runAgentLoop } from "../agent-loop/runAgentLoop.js";
 import { createLegacySseAdapter } from "./agentLoopEventAdapter.js";
 import { buildAgentLoopTaskResult } from "./agentLoopResultProjection.js";
+import { createAgentLoopFileLogger, type AgentLoopFileLogger } from "../agent-loop/fileLogger.js";
 
 /**
  * Agent Pipeline 主入口。
@@ -12,6 +13,8 @@ import { buildAgentLoopTaskResult } from "./agentLoopResultProjection.js";
  * 旧的 Planner / Router / Executor / Harness 已移除，这里是全新 Agent Loop 的挂载点。
  */
 export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) {
+  let fileLogger: AgentLoopFileLogger | undefined;
+
   try {
     await taskService.updateTaskStatus(taskId, "running");
 
@@ -22,17 +25,32 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
     });
 
     console.log(`[Pipeline] Task ${taskId} received query: "${body.query}"`);
+    try {
+      fileLogger = await createAgentLoopFileLogger({ taskId, query: body.query });
+      console.log(`[Pipeline] Agent Loop log file: ${fileLogger.filePath}`);
+    } catch (logError) {
+      console.warn(
+        `[Pipeline] Agent Loop file logging disabled for task ${taskId}:`,
+        logError instanceof Error ? logError.message : String(logError)
+      );
+    }
 
     const legacySseAdapter = createLegacySseAdapter({
       taskId,
       query: body.query,
-      emit: (event) => notifyTaskUpdate(taskId, event),
+      emit: (event) => {
+        fileLogger?.logDerivedEvent("legacy_sse_event", event);
+        notifyTaskUpdate(taskId, event);
+      },
     });
 
     const loopResult = await runAgentLoop({
       taskId,
       query: body.query,
-      onEvent: (event) => legacySseAdapter.handle(event),
+      fileLogger,
+      onEvent: (event) => {
+        legacySseAdapter.handle(event);
+      },
     });
 
     const result = buildAgentLoopTaskResult(loopResult);
@@ -44,6 +62,7 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
         taskId,
         status: "failed",
         message: loopResult.finalAnswer,
+        logFilePath: loopResult.logFilePath,
       });
       return;
     }
@@ -55,12 +74,20 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
       taskId,
       status: "completed",
       message: loopResult.finalAnswer,
+      logFilePath: loopResult.logFilePath,
       result,
     });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[Pipeline] Error for task ${taskId}:`, errorMsg);
+    await fileLogger?.fail(error);
     await taskService.updateTaskStatus(taskId, "failed", errorMsg);
-    notifyTaskUpdate(taskId, { type: "failed", taskId, status: "failed", message: errorMsg });
+    notifyTaskUpdate(taskId, {
+      type: "failed",
+      taskId,
+      status: "failed",
+      message: errorMsg,
+      logFilePath: fileLogger?.filePath,
+    });
   }
 }

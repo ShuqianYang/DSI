@@ -87,7 +87,7 @@ export function buildRegionMarkTool(): ToolDefinition {
     name: "RegionMark",
     aliases: ["region-mark"],
     description:
-      'Create a GIS region layer from explicit user-provided WGS84 geometry. Input: {"name":"台湾海峡测试区","bbox":{"west":119.5,"east":122.5,"south":22,"north":25.5}} or {"name":"区域","polygon":[[120,22],[121,22],[120.5,23]]}. This tool does not resolve named places or guess region boundaries.',
+      'Create a visible GIS region layer from explicit WGS84 geometry. Input: {"name":"台湾海峡测试区","bbox":{"west":119.5,"east":122.5,"south":22,"north":25.5}} or {"name":"区域","polygon":[[120,22],[121,22],[120.5,23]]}. Use RegionResolve first for named places, then pass RegionResolve selected.bbox into this tool. This tool does not resolve named places or guess region boundaries.',
     kind: "domain",
     inputSchema: RegionMarkInputSchema,
     isReadOnly: () => true,
@@ -109,6 +109,7 @@ export function buildRegionMarkTool(): ToolDefinition {
 function executeRegionMark(input: RegionMarkInput, context: ToolExecutionContext): Promise<RegionMarkOutput> {
   const coordinates = normalizePolygon(input.polygon ?? polygonFromBbox(input.bbox!));
   const bbox = input.bbox ?? bboxFromPolygon(coordinates);
+  const cameraBbox = cloneBbox(bbox);
   const labelText = input.label ?? input.name;
   const labelPosition = centerFromBbox(bbox);
   const regionId = `region-${safeIdSegment(input.name)}`;
@@ -145,7 +146,7 @@ function executeRegionMark(input: RegionMarkInput, context: ToolExecutionContext
       ],
       cameraView: {
         type: "fit-bbox",
-        bbox,
+        bbox: cameraBbox,
       },
     },
   });
@@ -193,6 +194,15 @@ function centerFromBbox(bbox: Bbox): CoordinatePair {
     roundCoord((bbox.west + bbox.east) / 2),
     roundCoord((bbox.south + bbox.north) / 2),
   ];
+}
+
+function cloneBbox(bbox: Bbox): Bbox {
+  return {
+    west: bbox.west,
+    east: bbox.east,
+    south: bbox.south,
+    north: bbox.north,
+  };
 }
 
 function normalizeStyle(style: RegionMarkInput["style"]): RegionMarkOutput["gisData"]["regions"][number]["style"] {

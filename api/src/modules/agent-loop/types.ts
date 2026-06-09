@@ -1,21 +1,24 @@
 import type { z } from "zod";
+import type {
+  AgentLoopEvent,
+  AgentLoopResult,
+  AgentMessage,
+  AgentRole,
+  GatewayToolCall,
+  ToolObservation,
+  ToolProgressEvent,
+} from "@datasourceintelligence/shared";
 
-export type AgentRole = "system" | "user" | "assistant" | "tool";
-
-export interface GatewayToolCall {
-  id: string;
-  toolName: string;
-  input: Record<string, unknown>;
-  reason?: string;
-}
-
-export interface AgentMessage {
-  role: AgentRole;
-  content: string;
-  toolCallId?: string;
-  toolName?: string;
-  toolCalls?: GatewayToolCall[];
-}
+export type {
+  AgentLoopEvent,
+  AgentLoopEventType,
+  AgentLoopResult,
+  AgentMessage,
+  AgentRole,
+  GatewayToolCall,
+  ToolObservation,
+  ToolProgressEvent,
+} from "@datasourceintelligence/shared";
 
 export interface AgentRuntimeContext {
   taskId: string;
@@ -67,15 +70,6 @@ export type ToolPermissionHandler = <Input = unknown>(
   request: ToolPermissionRequest<Input>
 ) => Promise<ToolPermissionAnswer> | ToolPermissionAnswer;
 
-export interface ToolProgressEvent {
-  toolCallId?: string;
-  toolName?: string;
-  stage?: string;
-  message?: string;
-  percent?: number;
-  data?: unknown;
-}
-
 export interface ToolDefinition<Input = unknown, Output = unknown> {
   name: string;
   description: string;
@@ -96,17 +90,6 @@ export interface ToolDefinition<Input = unknown, Output = unknown> {
   execute(input: Input, context: ToolExecutionContext): Promise<Output>;
 }
 
-export interface ToolObservation {
-  toolCallId: string;
-  toolName: string;
-  ok: boolean;
-  output?: unknown;
-  error?: {
-    code: string;
-    message: string;
-  };
-}
-
 export type NormalizedAgentDecision =
   | {
       type: "tool_calls";
@@ -117,13 +100,6 @@ export type NormalizedAgentDecision =
       type: "final_answer";
       content: string;
     };
-
-export interface AgentLoopResult {
-  finalAnswer: string;
-  turns: number;
-  observations: ToolObservation[];
-  stoppedBy: "final_answer" | "max_turns" | "model_error" | "aborted";
-}
 
 export interface PromptSection {
   /**
@@ -207,77 +183,3 @@ export interface AgentLoopPrefetch {
   dispose?: () => void;
 }
 
-export type AgentLoopEvent =
-  | {
-      type: "agent_turn";
-      taskId: string;
-      turn: number;
-      maxTurns: number;
-      message: string;
-    }
-  | {
-      type: "model_request";
-      taskId: string;
-      turn: number;
-      messages: AgentMessage[];
-    }
-  | {
-      type: "assistant_message";
-      taskId: string;
-      turn: number;
-      message: AgentMessage;
-    }
-  | {
-      type: "tool_calls";
-      taskId: string;
-      turn: number;
-      count: number;
-      tools: string[];
-    }
-  | {
-      type: "tool_batch";
-      taskId: string;
-      turn: number;
-      mode: "concurrent" | "sequential";
-      tools: string[];
-    }
-  | {
-      type: "tool_call";
-      taskId: string;
-      turn: number;
-      toolCallId: string;
-      toolName: string;
-      reason?: string;
-    }
-  | {
-      type: "tool_observation";
-      taskId: string;
-      turn: number;
-      toolCallId: string;
-      toolName: string;
-      ok: boolean;
-      observation: ToolObservation;
-    }
-  | {
-      type: "tool_progress";
-      taskId: string;
-      turn: number;
-      toolCallId: string;
-      toolName: string;
-      stage?: string;
-      message?: string;
-      percent?: number;
-      data?: unknown;
-    }
-  | {
-      type: "tool_message";
-      taskId: string;
-      turn: number;
-      message: AgentMessage;
-    }
-  | {
-      type: "loop_stop";
-      taskId: string;
-      turn: number;
-      result: AgentLoopResult;
-    };

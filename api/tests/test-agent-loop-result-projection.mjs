@@ -7,6 +7,7 @@ const { buildAgentLoopTaskResult } = await import("../src/modules/tasks/agentLoo
     finalAnswer: "done",
     turns: 2,
     stoppedBy: "final_answer",
+    logFilePath: "S:\\Projects\\projects_new\\logs\\agent-loop-test.jsonl",
     observations: [
       {
         toolCallId: "tool-weather",
@@ -32,6 +33,7 @@ const { buildAgentLoopTaskResult } = await import("../src/modules/tasks/agentLoo
   assert.equal(result.message, "done");
   assert.equal(result.mode, "agent_loop");
   assert.equal(result.observations.length, 2);
+  assert.equal(result.logFilePath, "S:\\Projects\\projects_new\\logs\\agent-loop-test.jsonl");
   assert.equal(result["tool-weather"].gisData.type, "wind-field");
   assert.equal(result["tool-weather"].metadata.toolName, "WeatherFetch");
   assert.equal(result["tool-failed"].success, false);

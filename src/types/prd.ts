@@ -5,6 +5,7 @@ import type {
   Trajectory,
   Region,
   GisData,
+  AgentLoopEventType,
 } from "@datasourceintelligence/shared";
 
 export type { Entity, Trajectory, Region, GisData };
@@ -25,6 +26,10 @@ export interface ThinkingStep {
   status: 'pending' | 'running' | 'completed' | 'failed';
   detail?: string;
   duration?: number; // ms
+  category?: 'agent' | 'tool' | 'gis' | 'result' | 'legacy';
+  eventType?: AgentLoopEventType;
+  toolName?: string;
+  toolCallId?: string;
 }
 
 export interface ChatMessage {
@@ -38,6 +43,7 @@ export interface ChatMessage {
   thinking?: string;          // 智能体思考过程文本
   thinkingSteps?: ThinkingStep[]; // 分步思考/规划步骤
   isThinkingExpanded?: boolean;   // 思考过程是否展开（UI状态）
+  agentLoopLogFilePath?: string;
 }
 
 export interface Alert {

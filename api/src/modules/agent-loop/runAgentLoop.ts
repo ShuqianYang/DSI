@@ -2,6 +2,11 @@ import { db } from "../../config/database.js";
 import { taskSteps } from "../../db/schema.js";
 import { notifyTaskUpdate } from "../../sse/sseManager.js";
 import { eq } from "drizzle-orm";
+import {
+  createAgentLoopFileLogger,
+  type AgentLoopFileLogger,
+  withAgentLoopLogFilePath,
+} from "./fileLogger.js";
 import { defaultContextProvider, type ContextProvider } from "./contextProvider.js";
 import {
   defaultContextWindowManager,
@@ -54,24 +59,27 @@ export interface RunAgentLoopOptions {
   maxConcurrentToolCalls?: number;
   permissionHandler?: ToolPermissionHandler;
   signal?: AbortSignal;
+  fileLogger?: AgentLoopFileLogger | false;
   onEvent?: (event: AgentLoopEvent) => void;
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
 }
 
 export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentLoopResult> {
   let finalResult: AgentLoopResult | undefined;
+  const publishEvent = (event: AgentLoopEvent) => {
+    publishAgentLoopEvent(event);
+    options.onEvent?.(event);
+  };
   const eventOptions: RunAgentLoopOptions = {
     ...options,
     onToolProgress: (event) => {
-      publishAgentLoopEvent(event);
-      options.onEvent?.(event);
+      publishEvent(event);
       options.onToolProgress?.(event);
     },
   };
 
   for await (const event of runAgentLoopEvents(eventOptions)) {
-    publishAgentLoopEvent(event);
-    options.onEvent?.(event);
+    publishEvent(event);
     if (event.type === "loop_stop") {
       finalResult = event.result;
     }
@@ -82,6 +90,28 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentL
   }
 
   return finalResult;
+}
+
+async function resolveRunFileLogger(
+  options: RunAgentLoopOptions
+): Promise<AgentLoopFileLogger | undefined> {
+  if (options.fileLogger === false) return undefined;
+  if (options.fileLogger) return options.fileLogger;
+
+  try {
+    const fileLogger = await createAgentLoopFileLogger({
+      taskId: options.taskId,
+      query: options.query,
+    });
+    console.log(`[AgentLoop] log file: ${fileLogger.filePath}`);
+    return fileLogger;
+  } catch (error) {
+    console.warn(
+      `[AgentLoop] file logging disabled for task ${options.taskId}:`,
+      error instanceof Error ? error.message : String(error)
+    );
+    return undefined;
+  }
 }
 
 export async function* runAgentLoopEvents(
@@ -99,6 +129,20 @@ export async function* runAgentLoopEvents(
   const transcriptStore = options.transcriptStore ?? disabledTranscriptStore;
   const maxConcurrentToolCalls =
     options.maxConcurrentToolCalls ?? DEFAULT_MAX_CONCURRENT_TOOL_CALLS;
+  const fileLogger = await resolveRunFileLogger(options);
+  const emitEvent = (event: AgentLoopEvent): AgentLoopEvent => {
+    fileLogger?.logEvent(event);
+    return event;
+  };
+  const finishAndReturn = async (result: AgentLoopResult): Promise<AgentLoopResult> => {
+    const resultWithLogFilePath = withAgentLoopLogFilePath(result, fileLogger);
+    await fileLogger?.finish(resultWithLogFilePath);
+    return resultWithLogFilePath;
+  };
+  const failAndRethrow = async (error: unknown): Promise<never> => {
+    await fileLogger?.fail(error);
+    throw error;
+  };
 
   const observations: ToolObservation[] = [];
   const conversationMessages: AgentMessage[] = [];
@@ -175,13 +219,14 @@ export async function* runAgentLoopEvents(
           finalAnswer,
           error: finalAnswer,
         });
-        yield {
+        const resultWithLogFilePath = withAgentLoopLogFilePath(result, fileLogger);
+        yield emitEvent({
           type: "loop_stop",
           taskId: options.taskId,
           turn,
-          result,
-        };
-        return result;
+          result: resultWithLogFilePath,
+        });
+        return await finishAndReturn(result);
       }
 
       if (pendingSkillPrefetch) {
@@ -197,13 +242,13 @@ export async function* runAgentLoopEvents(
         }
       }
 
-      yield {
+      yield emitEvent({
         type: "agent_turn",
         taskId: options.taskId,
         turn,
         maxTurns,
         message: `Agent loop turn ${turn}/${maxTurns}`,
-      };
+      });
 
       const callId = `call-${turn}`;
       const skillSections = [...skillListingSections, ...skillDiscoverySections];
@@ -230,12 +275,12 @@ export async function* runAgentLoopEvents(
         kind: "model_request",
         messages,
       });
-      yield {
+      yield emitEvent({
         type: "model_request",
         taskId: options.taskId,
         turn,
         messages,
-      };
+      });
 
       let decision;
       try {
@@ -261,13 +306,14 @@ export async function* runAgentLoopEvents(
           finalAnswer,
           error: finalAnswer,
         });
-        yield {
+        const resultWithLogFilePath = withAgentLoopLogFilePath(result, fileLogger);
+        yield emitEvent({
           type: "loop_stop",
           taskId: options.taskId,
           turn,
-          result,
-        };
-        return result;
+          result: resultWithLogFilePath,
+        });
+        return await finishAndReturn(result);
       }
 
       if (decision.type === "final_answer") {
@@ -281,12 +327,12 @@ export async function* runAgentLoopEvents(
           kind: "assistant_message",
           message: assistantMessage,
         });
-        yield {
+        yield emitEvent({
           type: "assistant_message",
           taskId: options.taskId,
           turn,
           message: assistantMessage,
-        };
+        });
         const result: AgentLoopResult = {
           finalAnswer: decision.content,
           turns: turn,
@@ -309,13 +355,14 @@ export async function* runAgentLoopEvents(
             toolUseContext,
           });
         }
-        yield {
+        const resultWithLogFilePath = withAgentLoopLogFilePath(result, fileLogger);
+        yield emitEvent({
           type: "loop_stop",
           taskId: options.taskId,
           turn,
-          result,
-        };
-        return result;
+          result: resultWithLogFilePath,
+        });
+        return await finishAndReturn(result);
       }
 
       if (decision.toolCalls.length === 0) {
@@ -333,22 +380,23 @@ export async function* runAgentLoopEvents(
           finalAnswer,
           error: finalAnswer,
         });
-        yield {
+        const resultWithLogFilePath = withAgentLoopLogFilePath(result, fileLogger);
+        yield emitEvent({
           type: "loop_stop",
           taskId: options.taskId,
           turn,
-          result,
-        };
-        return result;
+          result: resultWithLogFilePath,
+        });
+        return await finishAndReturn(result);
       }
 
-      yield {
+      yield emitEvent({
         type: "tool_calls",
         taskId: options.taskId,
         turn,
         count: decision.toolCalls.length,
         tools: decision.toolCalls.map((toolCall) => toolCall.toolName),
-      };
+      });
 
       const assistantMessage: AgentMessage = {
         role: "assistant",
@@ -361,12 +409,12 @@ export async function* runAgentLoopEvents(
         kind: "assistant_message",
         message: assistantMessage,
       });
-      yield {
+      yield emitEvent({
         type: "assistant_message",
         taskId: options.taskId,
         turn,
         message: assistantMessage,
-      };
+      });
 
       const batches = partitionToolCalls(registry, decision.toolCalls, maxConcurrentToolCalls);
       for (const batch of batches) {
@@ -381,7 +429,11 @@ export async function* runAgentLoopEvents(
           allocateOrder: () => nextStepOrder++,
           signal: options.signal,
           permissionHandler: options.permissionHandler,
-          onToolProgress: options.onToolProgress,
+          onToolProgress: (event) => {
+            fileLogger?.logEvent(event);
+            options.onToolProgress?.(event);
+          },
+          fileLogger,
           toolUseContext,
           usedToolSignatures,
         });
@@ -394,12 +446,12 @@ export async function* runAgentLoopEvents(
             kind: "tool_message",
             message: toolMessage,
           });
-          yield {
+          yield emitEvent({
             type: "tool_message",
             taskId: options.taskId,
             turn,
             message: toolMessage,
-          };
+          });
         }
       }
 
@@ -420,6 +472,8 @@ export async function* runAgentLoopEvents(
         { ...toolUseContext, messages: postToolMessages }
       );
     }
+  } catch (error) {
+    return await failAndRethrow(error);
   } finally {
     memoryPrefetch?.dispose?.();
     pendingSkillPrefetch?.dispose?.();
@@ -444,13 +498,14 @@ export async function* runAgentLoopEvents(
     observations,
     stoppedBy: "max_turns",
   };
-  yield {
+  const resultWithLogFilePath = withAgentLoopLogFilePath(result, fileLogger);
+  yield emitEvent({
     type: "loop_stop",
     taskId: options.taskId,
     turn: maxTurns,
-    result,
-  };
-  return result;
+    result: resultWithLogFilePath,
+  });
+  return await finishAndReturn(result);
 }
 
 function toolObservationToMessage(observation: ToolObservation): AgentMessage {
@@ -687,16 +742,22 @@ async function* executeToolBatch(options: {
   signal?: AbortSignal;
   permissionHandler?: ToolPermissionHandler;
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
+  fileLogger?: AgentLoopFileLogger;
   toolUseContext: AgentLoopToolUseContext;
   usedToolSignatures: Map<string, ToolObservation>;
 }): AsyncGenerator<AgentLoopEvent, ToolObservation[], void> {
-  yield {
+  const emitBatchEvent = (event: AgentLoopEvent): AgentLoopEvent => {
+    options.fileLogger?.logEvent(event);
+    return event;
+  };
+
+  yield emitBatchEvent({
     type: "tool_batch",
     taskId: options.taskId,
     turn: options.turn,
     mode: options.concurrent ? "concurrent" : "sequential",
     tools: options.toolCalls.map((toolCall) => toolCall.toolName),
-  };
+  });
 
   if (options.concurrent) {
     const executions: Array<Promise<{ observation: ToolObservation; signature?: string }>> = [];
@@ -706,7 +767,7 @@ async function* executeToolBatch(options: {
     >();
 
     for (const toolCall of options.toolCalls) {
-      yield toolCallEvent(options, toolCall);
+      yield emitBatchEvent(toolCallEvent(options, toolCall));
       const signature = getReadOnlyToolSignature(options.registry, toolCall);
       const previousObservation = signature ? options.usedToolSignatures.get(signature) : undefined;
       if (signature && previousObservation) {
@@ -744,20 +805,20 @@ async function* executeToolBatch(options: {
       rememberToolSignature(options.usedToolSignatures, item.signature, item.observation);
     }
     for (const observation of observations) {
-      yield toolObservationEvent(options, observation);
+      yield emitBatchEvent(toolObservationEvent(options, observation));
     }
     return observations;
   }
 
   const observations: ToolObservation[] = [];
   for (const toolCall of options.toolCalls) {
-    yield toolCallEvent(options, toolCall);
+    yield emitBatchEvent(toolCallEvent(options, toolCall));
     const signature = getReadOnlyToolSignature(options.registry, toolCall);
     const previousObservation = signature ? options.usedToolSignatures.get(signature) : undefined;
     if (signature && previousObservation) {
       const duplicateObservation = createDuplicateToolObservation(toolCall, previousObservation);
       observations.push(duplicateObservation);
-      yield toolObservationEvent(options, duplicateObservation);
+      yield emitBatchEvent(toolObservationEvent(options, duplicateObservation));
       continue;
     }
     const observation = await executeSingleToolCall({
@@ -767,7 +828,7 @@ async function* executeToolBatch(options: {
     });
     rememberToolSignature(options.usedToolSignatures, signature, observation);
     observations.push(observation);
-    yield toolObservationEvent(options, observation);
+    yield emitBatchEvent(toolObservationEvent(options, observation));
   }
   return observations;
 }

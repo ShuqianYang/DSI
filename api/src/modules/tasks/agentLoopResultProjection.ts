@@ -14,6 +14,7 @@ export function buildAgentLoopTaskResult(loopResult: AgentLoopResult): AgentLoop
     mode: "agent_loop",
     turns: loopResult.turns,
     stoppedBy: loopResult.stoppedBy,
+    ...(loopResult.logFilePath ? { logFilePath: loopResult.logFilePath } : {}),
     observations: loopResult.observations,
     ...projectObservationsToLegacyActionResults(loopResult.observations),
   };
