@@ -5,6 +5,7 @@ interface AgentTaskLike {
   id: string;
   query: string;
   status: TaskStatus;
+  result?: unknown;
   createdAt: Date | string;
   updatedAt?: Date | string;
   completedAt?: Date | string | null;
@@ -38,6 +39,7 @@ export interface ApiTask {
   status: "running" | "completed" | "partial" | "failed";
   dataCount: number;
   agentTaskId?: string;
+  result?: unknown;
   subTasks?: ApiSubTask[];
 }
 
@@ -125,6 +127,7 @@ export function projectAgentTaskToApiTask(task: AgentTaskLike, steps: TaskStepLi
     status: projectTaskStatus(task.status),
     dataCount: orderedSteps.filter((step) => step.status === "completed").length,
     agentTaskId: task.id,
+    result: task.result ?? undefined,
     subTasks: orderedSteps.map((step, index) => ({
       id: step.id,
       name: stepName(step),

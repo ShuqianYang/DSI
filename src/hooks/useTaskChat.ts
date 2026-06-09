@@ -6,13 +6,24 @@ import { createAgentTask, getTask } from '@/lib/api';
 import { formatTaskResult } from '@/lib/taskResultFormatter';
 import { getMockResponse } from '@/lib/taskMock';
 import {
-  extractGisDataFromAgentLoopEvent,
   extractOperationsFromAgentLoopEvent,
   logAgentLoopEvent,
   parseTaskStreamEvent,
   type AgentLoopEvent,
 } from '@/lib/agentLoopEvents';
+import {
+  extractGisPushesFromAgentLoopEvent,
+  extractGisPushesFromLegacySse,
+  extractGisPushesFromTaskResult,
+  type AgentLoopGisPush,
+} from '@/lib/agentLoopGisBridge';
 import { formatAgentLoopThinkingUpdate } from '@/lib/agentLoopStepFormatter';
+import {
+  recordAgentLoopUpdate,
+  recordGisPush,
+  recordTaskFinished,
+  recordTaskStreamEvent,
+} from '@/lib/agentLoopFrontendTrace';
 
 export interface UseTaskChatOptions {
   onGisDataRequest?: (gisData: GisData) => void;
@@ -234,6 +245,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
         const data = JSON.parse(event.data);
         console.log('[useTaskChat] SSE msg:', data);
         const parsed = parseTaskStreamEvent(data);
+        recordTaskStreamEvent(taskId, data, parsed);
         if (parsed.kind === 'agent-loop') {
           logAgentLoopEvent(taskId, parsed.event);
           handleAgentLoopUpdate(taskId, parsed.event);
@@ -277,9 +289,34 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
     });
   };
 
+  const pushGisPushes = (taskId: string, pushes: AgentLoopGisPush[]) => {
+    for (const push of pushes) {
+      if (gisDataPushedRef.current.has(push.key)) continue;
+      gisDataPushedRef.current.add(push.key);
+      console.log('[useTaskChat] Received GIS data:', {
+        source: push.source,
+        key: push.key,
+        toolName: push.toolName,
+        type: push.gisData.type,
+        hasCameraView: !!push.gisData.cameraView,
+        cameraView: push.gisData.cameraView,
+        regionsCount: push.gisData.regions?.length,
+        entitiesCount: push.gisData.entities?.length,
+        imageOverlaysCount: push.gisData.imageOverlays?.length,
+      });
+      const traceSource = push.toolName
+        ? `${push.source}:${push.toolName}`
+        : `${push.source}:${push.toolCallId || 'gis'}`;
+      recordGisPush(taskId, push.gisData, traceSource);
+      onGisDataRequest?.(push.gisData);
+    }
+  };
+
   const handleAgentLoopUpdate = (taskId: string, event: AgentLoopEvent) => {
     const update = formatAgentLoopThinkingUpdate(event);
+    recordAgentLoopUpdate(taskId, event, update);
     update.steps.forEach((step) => upsertThinkingStep(taskId, step));
+    pushGisPushes(taskId, extractGisPushesFromAgentLoopEvent(taskId, event));
 
     if (update.content || update.completeOpenStepsAs) {
       setMessages((prev) => {
@@ -307,29 +344,12 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
     }
 
     if (event.type === 'tool_observation') {
-      const observation = event.observation || {};
       const operations = extractOperationsFromAgentLoopEvent(event);
       if (operations?.length) {
         console.log('[useTaskChat] Received GIS operations (agent-loop):', operations);
         onGisOperation?.(operations);
       }
 
-      const gisData = extractGisDataFromAgentLoopEvent(event);
-      if (gisData) {
-        const gisKey = `${taskId}:${event.toolCallId || observation.toolCallId || event.toolName || 'gis'}`;
-        if (!gisDataPushedRef.current.has(gisKey)) {
-          gisDataPushedRef.current.add(gisKey);
-          console.log('[useTaskChat] Received GIS data (agent-loop):', {
-            type: gisData.type,
-            hasCameraView: !!gisData.cameraView,
-            cameraView: gisData.cameraView,
-            regionsCount: gisData.regions?.length,
-            entitiesCount: gisData.entities?.length,
-            imageOverlaysCount: gisData.imageOverlays?.length,
-          });
-          onGisDataRequest?.(gisData);
-        }
-      }
       return;
     }
 
@@ -504,23 +524,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
       }
 
       // GIS 区域 / 实体 / 影像数据：步骤完成时实时推送（让 region-mark / satellite 等步骤的 flyTo + 划线即时触发）
-      if (data.status === 'completed' && (data as any).gisData) {
-        const actionId = data.actionId as string | undefined;
-        const gisKey = actionId ? `${taskId}:${actionId}` : undefined;
-        if (gisKey && !gisDataPushedRef.current.has(gisKey)) {
-          gisDataPushedRef.current.add(gisKey);
-          const gis = (data as any).gisData;
-          console.log('[useTaskChat] Received GIS data (step_update):', {
-            type: gis?.type,
-            hasCameraView: !!gis?.cameraView,
-            cameraView: gis?.cameraView,
-            regionsCount: gis?.regions?.length,
-            entitiesCount: gis?.entities?.length,
-            imageOverlaysCount: gis?.imageOverlays?.length,
-          });
-          onGisDataRequest?.(gis);
-        }
-      }
+      pushGisPushes(taskId, extractGisPushesFromLegacySse(taskId, data));
 
       setMessages((prev) => {
         const idx = prev.findIndex(
@@ -559,6 +563,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
         (data.result && typeof data.result.logFilePath === 'string'
           ? data.result.logFilePath
           : undefined);
+      recordTaskFinished(taskId, finalStatus, eventLogFilePath);
 
       // 通知上层任务结束，让 page.tsx 联动 chat / 进度弹窗的开合
       onTaskFinished?.(taskId, finalStatus);
@@ -601,7 +606,9 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
               }
 
               // 自动提取各 step 的 gisData 并推送给地图（仅兜底：step_update 未推送过的才补推）
+              pushGisPushes(taskId, extractGisPushesFromTaskResult(taskId, task.result));
               for (const [actionId, stepResult] of Object.entries(task.result)) {
+                if (actionId === 'logFilePath') continue;
                 const gisKey = `${taskId}:${actionId}`;
                 if (gisDataPushedRef.current.has(gisKey)) continue; // step_update 已推送，跳过
                 const sr = stepResult as Record<string, unknown> | undefined;
@@ -613,6 +620,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
                 console.log(`[useTaskChat] Step ${actionId} gisData (fallback):`, gisData ? `YES type=${gisData.type} overlays=${gisData.imageOverlays?.length || 0}` : 'NO');
                 if (gisData && onGisDataRequest) {
                   gisDataPushedRef.current.add(gisKey);
+                  recordGisPush(taskId, gisData, `task-result:${actionId}`);
                   onGisDataRequest(gisData);
                 }
               }
@@ -622,6 +630,9 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
                 typeof (task.result as Record<string, unknown>).logFilePath === 'string'
                   ? ((task.result as Record<string, unknown>).logFilePath as string)
                   : undefined;
+              if (resultLogFilePath) {
+                recordTaskFinished(taskId, 'completed', resultLogFilePath);
+              }
               setMessages((prev) => {
                 const idx = prev.findIndex(
                   (m) => m.taskId === taskId && m.role === 'assistant'

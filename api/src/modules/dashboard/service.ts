@@ -33,6 +33,7 @@ export async function listJobs(): Promise<{ tasks: ApiTask[] }> {
     : [];
   const stepsByTaskId = groupBy(stepRows, (step) => step.taskId);
   const jobAgentIds = new Set(jobRows.map((job) => job.agentTaskId).filter(Boolean));
+  const agentTaskById = new Map(agentTasks.map((task) => [task.id, task]));
 
   const projectedJobs: ApiTask[] = jobRows.map((job) => ({
     id: job.id,
@@ -42,6 +43,7 @@ export async function listJobs(): Promise<{ tasks: ApiTask[] }> {
     status: job.status,
     dataCount: job.dataCount ?? 0,
     agentTaskId: job.agentTaskId ?? undefined,
+    result: job.agentTaskId ? agentTaskById.get(job.agentTaskId)?.result ?? undefined : undefined,
     subTasks: Array.isArray(job.subTasks) ? (job.subTasks as ApiTask["subTasks"]) : undefined,
   }));
 

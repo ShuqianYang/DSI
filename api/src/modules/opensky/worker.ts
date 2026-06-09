@@ -32,7 +32,11 @@ export const openskyWorker = new Worker(
     }
     await processOpenSkyJob();
   },
-  { connection: redisConnection }
+  {
+    connection: redisConnection,
+    lockDuration: 120000,
+    maxStalledCount: 2,
+  }
 );
 
 openskyWorker.on("completed", (job) => {

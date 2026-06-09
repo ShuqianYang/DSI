@@ -1,7 +1,9 @@
 'use client';
 
-import { Brain, CheckCircle2, Loader2, AlertCircle, Lightbulb, Clock3, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState } from 'react';
+import { Brain, Check, CheckCircle2, Clipboard, Loader2, AlertCircle, Lightbulb, Clock3, ChevronDown, ChevronUp } from 'lucide-react';
 import { ChatMessage as ChatMessageType, ThinkingStep } from '@/types/prd';
+import { copyAgentLoopFrontendTrace } from '@/lib/agentLoopFrontendTrace';
 
 interface ThinkingProcessProps {
   msg: ChatMessageType;
@@ -52,7 +54,16 @@ function StepBadge({ step }: { step: ThinkingStep }) {
 }
 
 export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps) {
+  const [traceCopied, setTraceCopied] = useState(false);
   if (!msg.thinking && !msg.thinkingSteps && !msg.agentLoopLogFilePath) return null;
+
+  const handleCopyTrace = async () => {
+    if (!msg.taskId) return;
+    const ok = await copyAgentLoopFrontendTrace(msg.taskId);
+    if (!ok) return;
+    setTraceCopied(true);
+    window.setTimeout(() => setTraceCopied(false), 1500);
+  };
 
   return (
     <div className="mb-3 border border-[#3A3A4E] rounded-md overflow-hidden">
@@ -81,8 +92,25 @@ export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps)
         <div className="px-3 py-2.5 space-y-2 bg-[#1A1A28]">
           {msg.agentLoopLogFilePath && (
             <div className="rounded border border-[#3A3A4E] bg-[#121220] px-2 py-1.5">
-              <div className="text-[10px] uppercase tracking-normal text-[#8888AA]">
-                Agent Loop Log
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] uppercase tracking-normal text-[#8888AA]">
+                  Agent Loop Log
+                </div>
+                {msg.taskId && (
+                  <button
+                    type="button"
+                    onClick={handleCopyTrace}
+                    className="inline-flex h-6 items-center gap-1 rounded border border-[#3A3A4E] px-1.5 text-[10px] text-[#C8C8DA] hover:border-[#00E0FF]/60 hover:text-[#00E0FF]"
+                    title="Copy frontend Agent Loop trace JSON"
+                  >
+                    {traceCopied ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      <Clipboard className="h-3 w-3" />
+                    )}
+                    {traceCopied ? 'Copied' : 'Copy Trace'}
+                  </button>
+                )}
               </div>
               <div className="mt-0.5 break-all font-mono text-[11px] leading-relaxed text-[#C8C8DA]">
                 {msg.agentLoopLogFilePath}

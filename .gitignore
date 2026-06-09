@@ -27,6 +27,7 @@ coverage/
 # Logs
 logs/*.log
 logs/*.out
+logs/*.jsonl
 !.gitkeep
 *.log
 npm-debug.log*

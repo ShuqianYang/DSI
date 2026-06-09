@@ -34,6 +34,7 @@ export interface ApiTask {
   status: "running" | "completed" | "partial" | "failed";
   dataCount: number;
   agentTaskId?: string;
+  result?: Record<string, unknown> | null;
   subTasks?: ApiSubTask[];
 }
 

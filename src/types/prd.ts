@@ -7,6 +7,7 @@ import type {
   GisData,
   AgentLoopEventType,
 } from "@datasourceintelligence/shared";
+import type { AgentLoopTaskView } from "@/lib/agentLoopTaskView";
 
 export type { Entity, Trajectory, Region, GisData };
 
@@ -83,6 +84,7 @@ export interface Task {
   status: 'running' | 'completed' | 'partial' | 'failed';
   dataCount: number;
   subTasks?: SubTask[];
+  agentLoop?: AgentLoopTaskView;
 }
 
 export interface TaskEvent {

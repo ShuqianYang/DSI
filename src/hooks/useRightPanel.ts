@@ -11,6 +11,7 @@ import {
 } from '@/types/prd';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
 import type { ApiRequirement } from '@/lib/api';
+import { buildAgentLoopTaskView } from '@/lib/agentLoopTaskView';
 
 export interface UseRightPanelOptions {
   propTasks?: Task[];
@@ -108,6 +109,7 @@ export function useRightPanel({
       executeTime: toTimestamp(t.executeTime),
       status: t.status as Task['status'],
       dataCount: t.dataCount,
+      agentLoop: buildAgentLoopTaskView(t.result) ?? undefined,
       subTasks: t.subTasks?.map((s) => ({
         id: s.id,
         name: s.name,

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, CircleDot } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, CircleDot, MapPin, Terminal } from 'lucide-react';
 import type { getTask } from '@/lib/api';
+import { buildInfoCenterAgentLoopView } from '@/lib/infoCenterAgentLoop';
 
 interface TaskTraceProps {
   task: Awaited<ReturnType<typeof getTask>>;
@@ -37,6 +38,7 @@ const ACTION_TYPE_LABEL: Record<string, string> = {
 
 export default function TaskTrace({ task }: TaskTraceProps) {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  const agentLoop = buildInfoCenterAgentLoopView(task);
 
   const toggleStep = (id: string) => {
     setExpandedSteps((prev) => {
@@ -73,6 +75,69 @@ export default function TaskTrace({ task }: TaskTraceProps) {
       </div>
 
       {/* Steps 时间线 */}
+      {agentLoop && (
+        <div className="mb-4 pb-3 border-b border-[#3A3A4E] space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-[#00E0FF]">
+              <Terminal className="w-4 h-4" />
+              <span>Agent Loop Result</span>
+              {agentLoop.turns !== undefined && (
+                <span className="text-[#8888AA]">turns={agentLoop.turns}</span>
+              )}
+            </div>
+            <span className="text-[10px] text-[#8888AA] truncate">
+              stoppedBy={agentLoop.stoppedBy}
+            </span>
+          </div>
+
+          {agentLoop.message && (
+            <div className="text-sm text-[#EAEAEA] leading-relaxed whitespace-pre-wrap">
+              {agentLoop.message}
+            </div>
+          )}
+
+          {agentLoop.toolSummaries.length > 0 && (
+            <div className="space-y-1.5">
+              {agentLoop.toolSummaries.map((tool) => (
+                <div
+                  key={tool.toolCallId}
+                  className="flex items-start gap-2 rounded-lg bg-[#2A2A3E] border border-[#3A3A4E]/60 px-3 py-2"
+                >
+                  <span
+                    className={`mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 ${
+                      tool.ok ? 'bg-[#44FF44]' : 'bg-[#FF4444]'
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-[#EAEAEA] truncate">{tool.toolName}</span>
+                      {tool.gisDataType && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-[#00E0FF]">
+                          <MapPin className="w-3 h-3" />
+                          {tool.gisDataType}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-[#8888AA] mt-0.5">{tool.summary}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(agentLoop.gisDataItems.length > 0 || agentLoop.logFilePath) && (
+            <div className="flex flex-col gap-1 text-[10px] text-[#8888AA]">
+              {agentLoop.gisDataItems.length > 0 && (
+                <span>GIS outputs: {agentLoop.gisDataItems.length}</span>
+              )}
+              {agentLoop.logFilePath && (
+                <span className="font-mono truncate">{agentLoop.logFilePath}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2">
         {task.steps.map((step, index) => {
           const isExpanded = expandedSteps.has(step.id);

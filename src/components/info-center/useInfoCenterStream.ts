@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { getTasks } from '@/lib/api';
+import {
+  shouldCloseInfoCenterStreamForEvent,
+  shouldRefreshInfoCenterForStreamEvent,
+} from '@/lib/infoCenterAgentLoop';
 
 interface UseInfoCenterStreamOptions {
   refresh: () => void;
@@ -32,20 +36,11 @@ export function useInfoCenterStream({ refresh, enabled = true }: UseInfoCenterSt
           const data = JSON.parse(event.data);
           console.log('[InfoCenterStream] SSE msg:', data.type, 'task:', agentTaskId);
 
-          if (data.type === 'step_update' || data.type === 'progress') {
+          if (shouldRefreshInfoCenterForStreamEvent(data)) {
             refresh();
-            return;
           }
 
-          if (data.type === 'completed' || data.type === 'failed') {
-            refresh();
-            evtSource.close();
-            connectionsRef.current.delete(agentTaskId);
-            return;
-          }
-
-          if (data.type === 'subscription_completed' || data.type === 'subscription_failed') {
-            refresh();
+          if (shouldCloseInfoCenterStreamForEvent(data)) {
             evtSource.close();
             connectionsRef.current.delete(agentTaskId);
             return;

@@ -13,6 +13,11 @@ const now = new Date("2026-06-08T08:00:00.000Z");
     id: "11111111-1111-1111-1111-111111111111",
     query: "查询台湾海峡附近当前有哪些飞机，列出 callsign、国家、经纬度和高度。",
     status: "completed",
+    result: {
+      mode: "agent_loop",
+      message: "done",
+      observations: [],
+    },
     createdAt: now,
     updatedAt: now,
     completedAt: now,
@@ -48,6 +53,7 @@ const now = new Date("2026-06-08T08:00:00.000Z");
   assert.equal(apiTask.agentTaskId, task.id);
   assert.equal(apiTask.type, "realtime");
   assert.equal(apiTask.status, "completed");
+  assert.equal(apiTask.result, task.result);
   assert.match(apiTask.name, /查询台湾海峡/);
   assert.deepEqual(
     apiTask.subTasks.map((step) => [step.name, step.order, step.status]),

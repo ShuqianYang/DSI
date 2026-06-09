@@ -16,6 +16,12 @@ import { getAisData, getAdsData, getShipdtArea, getTask } from '@/lib/api';
 import type { ApiAisData, ApiAdsData, ApiShipdtAreaData } from '@/lib/api';
 import type { GisOperation, CesiumMapRef } from '@/components/cesium/CesiumMap';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
+import {
+  extractGisPushesFromAgentLoopEvent,
+  extractGisPushesFromLegacySse,
+  extractGisPushesFromTaskResult,
+} from '@/lib/agentLoopGisBridge';
+import { parseTaskStreamEvent } from '@/lib/agentLoopEvents';
 import LiveClock from '@/components/LiveClock';
 import WindParticleCanvasOverlay from '@/features/gis-custom/multi-layer-points/WindParticleCanvasOverlay';
 
@@ -41,7 +47,6 @@ export default function HomePage() {
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
   const [showChat, setShowChat] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
-  const [gisData, setGisData] = useState<GisData | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeEventIds, setActiveEventIds] = useState<Set<string>>(new Set());
   const [activeGisDataList, setActiveGisDataList] = useState<GisData[]>([]);
@@ -114,14 +119,6 @@ export default function HomePage() {
       />
     );
   }, [windFieldGisData]);
-
-  // 自动将任务 gisData 加入地图显示
-  useEffect(() => {
-    if (!gisData) return;
-    console.log('[page] Auto gisData:', gisData.type, 'imageOverlays=', gisData.imageOverlays?.length || 0, 'entities=', gisData.entities?.length || 0, 'regions=', gisData.regions?.length || 0);
-    const eventId = `auto-gis-${gisDataCounterRef.current++}`;
-    pushActiveGisData(gisData, eventId);
-  }, [gisData, pushActiveGisData]);
 
   // AIS 船舶实时数据状态
   const [aisEntities, setAisEntities] = useState<Entity[]>([]);
@@ -232,20 +229,24 @@ export default function HomePage() {
       try {
         const data = JSON.parse(event.data);
         console.log('[page] SSE auto-connect msg:', data.type, data);
+        const parsed = parseTaskStreamEvent(data);
+        if (parsed.kind === 'agent-loop') {
+          const pushes = extractGisPushesFromAgentLoopEvent(sseTaskId, parsed.event);
+          for (const push of pushes) {
+            console.log('[page] Auto-received gisData (agent-loop):', push.source, push.key, push.gisData.type);
+            pushActiveGisData(push.gisData, push.key);
+          }
+        }
 
         if (data.type === 'step_update' && data.status === 'completed' && data.operations) {
           console.log('[page] Auto-received operations:', data.operations);
           handleGisOperation(data.operations);
         }
         // GIS 数据：步骤完成时**直接 push** activeGisDataList（按 stepId 去重），
-        // 不走 setGisData state 中介——避免 React 18 batching 把短间隔的多次 setGisData 合并、吞掉中间值。
-        if (data.type === 'step_update' && data.status === 'completed' && data.gisData) {
-          console.log('[page] Auto-received gisData (step_update):', data.gisData);
-          const incomingGis = data.gisData as GisData;
-          const stepKey = (data as { stepId?: string }).stepId
-            ? `step-${(data as { stepId: string }).stepId}`
-            : `auto-gis-${gisDataCounterRef.current++}`;
-          pushActiveGisData(incomingGis, stepKey);
+        // Bridge pushes directly to activeGisDataList, preserving multiple GIS outputs in one SSE burst.
+        for (const push of extractGisPushesFromLegacySse(sseTaskId, data)) {
+          console.log('[page] Auto-received gisData (legacy-sse):', push.key, push.gisData.type);
+          pushActiveGisData(push.gisData, push.key);
         }
         if (data.type === 'completed' || data.type === 'failed') {
           console.log('[page] Task finished, fetching gisData from result...');
@@ -253,15 +254,9 @@ export default function HomePage() {
             .then((task) => {
               console.log('[page] Task result keys:', Object.keys(task.result || {}));
               if (task.result) {
-                for (const [actionId, stepResult] of Object.entries(task.result)) {
-                  const sr = stepResult as Record<string, unknown> | undefined;
-                  const nestedGis = (sr?.data as Record<string, unknown> | undefined)?.gisData as GisData | undefined;
-                  const topGis = sr?.gisData as GisData | undefined;
-                  const gisData = nestedGis || topGis;
-                  console.log(`[page] Step ${actionId} gisData:`, gisData ? `type=${gisData.type} overlays=${gisData.imageOverlays?.length || 0}` : 'NO');
-                  if (gisData) {
-                    setGisData(gisData);
-                  }
+                for (const push of extractGisPushesFromTaskResult(sseTaskId, task.result)) {
+                  console.log('[page] Auto-received gisData (task-result):', push.source, push.key, push.gisData.type);
+                  pushActiveGisData(push.gisData, push.key);
                 }
               }
             })
