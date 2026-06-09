@@ -6,7 +6,7 @@ import { tasks } from "../src/db/schema.js";
 import { ingestOpenSkySnapshotOnce } from "../src/modules/opensky/ingestion.js";
 import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
 import { defaultSkillManager, registerSkillTool } from "../src/modules/agent-loop/skillManager.js";
-import { buildDefaultToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
+import { buildDefaultToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 
 const repoRoot = path.resolve("..");
 process.env.AGENT_WORKSPACE_ROOT = repoRoot;

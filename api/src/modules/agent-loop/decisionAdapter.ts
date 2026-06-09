@@ -1,4 +1,4 @@
-import type { NormalizedAgentDecision } from "./types.js";
+import type { NormalizedAgentDecision } from "./tools/_shared/types.js";
 
 interface RawDecision {
   type?: unknown;

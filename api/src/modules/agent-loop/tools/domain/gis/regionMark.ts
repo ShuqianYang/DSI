@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ToolDefinition, ToolExecutionContext } from "./types.js";
+import type { ToolDefinition, ToolExecutionContext } from "../../_shared/types.js";
 
 const DEFAULT_OUTLINE_COLOR = "#0064FF";
 const DEFAULT_OUTLINE_WIDTH = 3;
@@ -218,7 +218,7 @@ function safeIdSegment(value: string): string {
   const normalized = value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/[^a-z0-9一-龥]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || "user-input";
 }

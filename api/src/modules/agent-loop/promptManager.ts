@@ -1,4 +1,4 @@
-import type { AgentMessage, PromptSection, ToolDefinition, ToolObservation } from "./types.js";
+import type { AgentMessage, PromptSection, ToolDefinition, ToolObservation } from "./tools/_shared/types.js";
 
 export interface PromptManagerInput {
   /** Original user request for this agent run. */

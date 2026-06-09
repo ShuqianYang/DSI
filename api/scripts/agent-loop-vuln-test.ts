@@ -3,9 +3,9 @@ import { eq } from "drizzle-orm";
 import { db } from "../src/config/database.js";
 import { tasks } from "../src/db/schema.js";
 import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
-import { buildClaudeCodeBaseSystemTools } from "../src/modules/agent-loop/systemTools.js";
-import { ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
-import type { AgentLoopEvent, ModelClient, ToolDefinition } from "../src/modules/agent-loop/types.js";
+import { buildSystemTools } from "../src/modules/agent-loop/tools/system/index.js";
+import { ToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import type { AgentLoopEvent, ModelClient, ToolDefinition } from "../src/modules/agent-loop/tools/_shared/types.js";
 
 interface VulnTest {
   name: string;
@@ -334,7 +334,7 @@ function buildRegistry(
 ): ToolRegistry {
   const selected = new Set(names);
   const registry = new ToolRegistry();
-  for (const tool of buildClaudeCodeBaseSystemTools()) {
+  for (const tool of buildSystemTools()) {
     if (selected.has(tool.name)) {
       registry.register(tool);
     }

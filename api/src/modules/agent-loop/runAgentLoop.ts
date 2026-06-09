@@ -15,14 +15,14 @@ import {
 import { noopMemoryManager, type MemoryManager } from "./memoryManager.js";
 import { createModelClient, type ModelClient } from "./modelClient.js";
 import { defaultPromptManager, type PromptManager } from "./promptManager.js";
-import { safeJsonStringify, sanitizeForJson } from "./serialization.js";
+import { safeJsonStringify, sanitizeForJson } from "./tools/_shared/serialization.js";
 import {
   defaultSkillManager,
   registerSkillTool,
   type SkillManager,
 } from "./skillManager.js";
-import { callTool } from "./toolGateway.js";
-import { buildDefaultToolRegistry, type ToolRegistry } from "./toolRegistry.js";
+import { callTool } from "./tools/_shared/toolGateway.js";
+import { buildDefaultToolRegistry, type ToolRegistry } from "./tools/_shared/toolRegistry.js";
 import {
   disabledTranscriptStore,
   type AgentTranscriptEntry,
@@ -38,7 +38,7 @@ import type {
   PromptSection,
   ToolPermissionHandler,
   ToolObservation,
-} from "./types.js";
+} from "./tools/_shared/types.js";
 
 const MAX_MODEL_TOOL_RESULT_CHARS = 50_000;
 const MODEL_TOOL_RESULT_PREVIEW_CHARS = 2_000;

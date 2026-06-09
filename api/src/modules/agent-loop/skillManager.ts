@@ -2,9 +2,9 @@ import { existsSync } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { escapeRegExp, matchesGlobPattern, normalizeGlobPath } from "./globUtils.js";
-import { callTool } from "./toolGateway.js";
-import type { ToolRegistry } from "./toolRegistry.js";
+import { escapeRegExp, matchesGlobPattern, normalizeGlobPath } from "./tools/_shared/globUtils.js";
+import { callTool } from "./tools/_shared/toolGateway.js";
+import type { ToolRegistry } from "./tools/_shared/toolRegistry.js";
 import type {
   AgentLoopPrefetch,
   AgentLoopToolUseContext,
@@ -13,7 +13,7 @@ import type {
   PromptSection,
   ToolDefinition,
   ToolExecutionContext,
-} from "./types.js";
+} from "./tools/_shared/types.js";
 
 const SKILL_LISTING_SECTION_ID = "skill.listing";
 const MAX_LISTING_CHARS = 8_000;

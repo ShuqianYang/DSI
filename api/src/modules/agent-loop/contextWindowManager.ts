@@ -2,7 +2,7 @@ import type {
   AgentLoopToolUseContext,
   AgentMessage,
   PreparedModelMessages,
-} from "./types.js";
+} from "./tools/_shared/types.js";
 
 export interface PrepareMessagesInput {
   /** Fully rendered model messages before context-window governance. */

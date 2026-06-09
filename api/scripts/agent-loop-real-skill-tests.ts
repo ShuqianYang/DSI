@@ -10,14 +10,14 @@ async function main() {
   const { defaultSkillManager, registerSkillTool } = await import(
     "../src/modules/agent-loop/skillManager.js"
   );
-  const { ToolRegistry } = await import("../src/modules/agent-loop/toolRegistry.js");
-  const { buildClaudeCodeBaseSystemTools } = await import(
-    "../src/modules/agent-loop/systemTools.js"
+  const { ToolRegistry } = await import("../src/modules/agent-loop/tools/_shared/toolRegistry.js");
+  const { buildSystemTools } = await import(
+    "../src/modules/agent-loop/tools/system/index.js"
   );
-  const { callTool } = await import("../src/modules/agent-loop/toolGateway.js");
+  const { callTool } = await import("../src/modules/agent-loop/tools/_shared/toolGateway.js");
 
   const registry = new ToolRegistry();
-  for (const tool of buildClaudeCodeBaseSystemTools()) {
+  for (const tool of buildSystemTools()) {
     registry.register(tool);
   }
   registerSkillTool(registry, defaultSkillManager);

@@ -2,9 +2,9 @@ import "dotenv/config";
 import { db } from "../src/config/database.js";
 import { tasks } from "../src/db/schema.js";
 import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
-import { buildClaudeCodeBaseSystemTools } from "../src/modules/agent-loop/systemTools.js";
-import { ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
-import type { AgentLoopEvent } from "../src/modules/agent-loop/types.js";
+import { buildSystemTools } from "../src/modules/agent-loop/tools/system/index.js";
+import { ToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import type { AgentLoopEvent } from "../src/modules/agent-loop/tools/_shared/types.js";
 import { defaultSkillManager, registerSkillTool } from "../src/modules/agent-loop/skillManager.js";
 import { createModelClient } from "../src/modules/agent-loop/modelClient.js";
 
@@ -274,7 +274,7 @@ async function runSingleTest(
   test: E2ETest
 ): Promise<{ pass: boolean; skipped?: boolean; summary: string; details?: string[] }> {
   const registry = new ToolRegistry();
-  for (const tool of buildClaudeCodeBaseSystemTools()) {
+  for (const tool of buildSystemTools()) {
     registry.register(tool);
   }
   registerSkillTool(registry, defaultSkillManager);

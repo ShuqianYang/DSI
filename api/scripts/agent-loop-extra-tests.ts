@@ -2,9 +2,9 @@ import "dotenv/config";
 import { db } from "../src/config/database.js";
 import { tasks } from "../src/db/schema.js";
 import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
-import { buildClaudeCodeBaseSystemTools } from "../src/modules/agent-loop/systemTools.js";
-import { ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
-import type { AgentLoopEvent, ModelClient, ToolDefinition } from "../src/modules/agent-loop/types.js";
+import { buildSystemTools } from "../src/modules/agent-loop/tools/system/index.js";
+import { ToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import type { AgentLoopEvent, ModelClient, ToolDefinition } from "../src/modules/agent-loop/tools/_shared/types.js";
 
 interface ExtraTest {
   name: string;
@@ -22,7 +22,7 @@ const ABORT_TEST: ExtraTest = {
   description: "Agent loop should stop cleanly when AbortSignal is triggered",
   async run() {
     const registry = new ToolRegistry();
-    for (const tool of buildClaudeCodeBaseSystemTools()) {
+    for (const tool of buildSystemTools()) {
       if (tool.name === "Sleep") registry.register(tool);
     }
     const controller = new AbortController();
@@ -73,7 +73,7 @@ const SANDBOX_ENV_TEST: ExtraTest = {
   async run() {
     process.env.SENSITIVE_SECRET_TEST = "should-not-leak-12345";
     const registry = new ToolRegistry();
-    for (const tool of buildClaudeCodeBaseSystemTools()) {
+    for (const tool of buildSystemTools()) {
       if (tool.name === "Bash") registry.register(tool);
     }
     const taskId = await createTask("sandbox-env-test");
@@ -121,7 +121,7 @@ const SLEEP_CANCEL_TEST: ExtraTest = {
   description: "Sleep tool should reject when AbortSignal fires during sleep",
   async run() {
     const registry = new ToolRegistry();
-    for (const tool of buildClaudeCodeBaseSystemTools()) {
+    for (const tool of buildSystemTools()) {
       if (tool.name === "Sleep") registry.register(tool);
     }
     const controller = new AbortController();
@@ -166,7 +166,7 @@ const WRITE_BOUNDARY_TEST: ExtraTest = {
   description: "Write tool should reject paths outside workspace",
   async run() {
     const registry = new ToolRegistry();
-    for (const tool of buildClaudeCodeBaseSystemTools()) {
+    for (const tool of buildSystemTools()) {
       if (tool.name === "Write") registry.register(tool);
     }
     const taskId = await createTask("write-boundary-test");
@@ -219,7 +219,7 @@ const EDIT_MISMATCH_TEST: ExtraTest = {
     await fs.writeFile(tmpFile, "hello world\n", "utf8");
 
     const registry = new ToolRegistry();
-    for (const tool of buildClaudeCodeBaseSystemTools()) {
+    for (const tool of buildSystemTools()) {
       if (tool.name === "Edit") registry.register(tool);
     }
     const taskId = await createTask("edit-mismatch-test");
@@ -270,7 +270,7 @@ const INVALID_TOOL_ARGS_TEST: ExtraTest = {
   description: "Loop should handle model returning invalid JSON in tool arguments",
   async run() {
     const registry = new ToolRegistry();
-    for (const tool of buildClaudeCodeBaseSystemTools()) {
+    for (const tool of buildSystemTools()) {
       if (tool.name === "Read") registry.register(tool);
     }
     const taskId = await createTask("invalid-args-test");
@@ -316,7 +316,7 @@ const CONCURRENT_SPLIT_TEST: ExtraTest = {
   description: "More than 5 concurrent-safe tools should be split into multiple batches",
   async run() {
     const registry = new ToolRegistry();
-    for (const tool of buildClaudeCodeBaseSystemTools()) {
+    for (const tool of buildSystemTools()) {
       if (tool.name === "Read") registry.register(tool);
     }
     const taskId = await createTask("batch-split-test");
@@ -376,7 +376,7 @@ const READ_OFFSET_TEST: ExtraTest = {
     await fs.writeFile(tmpFile, "line1\nline2\n", "utf8");
 
     const registry = new ToolRegistry();
-    for (const tool of buildClaudeCodeBaseSystemTools()) {
+    for (const tool of buildSystemTools()) {
       if (tool.name === "Read") registry.register(tool);
     }
     const taskId = await createTask("read-offset-test");

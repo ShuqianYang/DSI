@@ -1,4 +1,4 @@
-import type { AgentMessage, AgentLoopResult } from "./types.js";
+import type { AgentMessage, AgentLoopResult } from "./tools/_shared/types.js";
 
 export type AgentTranscriptEntryKind =
   | "model_request"

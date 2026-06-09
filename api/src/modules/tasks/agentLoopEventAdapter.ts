@@ -1,4 +1,4 @@
-import type { AgentLoopEvent, GatewayToolCall } from "../agent-loop/types.js";
+import type { AgentLoopEvent, GatewayToolCall } from "../agent-loop/tools/_shared/types.js";
 
 export type LegacySseEvent =
   | {

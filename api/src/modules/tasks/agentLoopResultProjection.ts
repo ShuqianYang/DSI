@@ -1,4 +1,4 @@
-import type { AgentLoopResult, ToolObservation } from "../agent-loop/types.js";
+import type { AgentLoopResult, ToolObservation } from "../agent-loop/tools/_shared/types.js";
 
 export type AgentLoopTaskResult = {
   message: string;

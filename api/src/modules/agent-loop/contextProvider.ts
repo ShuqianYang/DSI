@@ -9,7 +9,7 @@ import type {
   AgentLoopToolUseContext,
   PromptSection,
   ToolDefinition,
-} from "./types.js";
+} from "./tools/_shared/types.js";
 
 const execFile = promisify(execFileCallback);
 const DEFAULT_TIME_ZONE = process.env.AGENT_TIMEZONE || "Asia/Shanghai";

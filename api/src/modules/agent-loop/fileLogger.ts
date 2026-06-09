@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { sanitizeForJson } from "./serialization.js";
-import type { AgentLoopEvent, AgentLoopResult } from "./types.js";
+import { sanitizeForJson } from "./tools/_shared/serialization.js";
+import type { AgentLoopEvent, AgentLoopResult } from "./tools/_shared/types.js";
 
 export interface AgentLoopFileLogger {
   filePath: string;

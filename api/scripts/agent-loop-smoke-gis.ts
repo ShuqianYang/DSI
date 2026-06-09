@@ -3,7 +3,7 @@ import type {
   AgentLoopEvent,
   NormalizedAgentDecision,
   ToolObservation,
-} from "../src/modules/agent-loop/types.js";
+} from "../src/modules/agent-loop/tools/_shared/types.js";
 import type { LegacySseEvent } from "../src/modules/tasks/agentLoopEventAdapter.js";
 import type { AgentLoopTaskResult } from "../src/modules/tasks/agentLoopResultProjection.js";
 

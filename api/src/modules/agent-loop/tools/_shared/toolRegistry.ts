@@ -1,6 +1,6 @@
 import type { ToolDefinition } from "./types.js";
-import { registerDomainTools } from "./domainTools.js";
-import { registerClaudeCodeBaseSystemTools } from "./systemTools.js";
+import { registerSystemTools } from "../system/index.js";
+import { registerDomainTools } from "../domain/index.js";
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
@@ -38,7 +38,7 @@ export class ToolRegistry {
 
 export function buildDefaultToolRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
-  registerClaudeCodeBaseSystemTools(registry);
+  registerSystemTools(registry);
   registerDomainTools(registry);
   return registry;
 }

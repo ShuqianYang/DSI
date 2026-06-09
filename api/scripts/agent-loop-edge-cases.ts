@@ -5,14 +5,14 @@ import { db } from "../src/config/database.js";
 import { tasks } from "../src/db/schema.js";
 import type { ModelClient } from "../src/modules/agent-loop/modelClient.js";
 import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
-import { buildClaudeCodeBaseSystemTools } from "../src/modules/agent-loop/systemTools.js";
-import { ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
+import { buildSystemTools } from "../src/modules/agent-loop/tools/system/index.js";
+import { ToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
   GatewayToolCall,
   ToolDefinition,
   ToolPermissionHandler,
-} from "../src/modules/agent-loop/types.js";
+} from "../src/modules/agent-loop/tools/_shared/types.js";
 
 interface TestCase {
   name: string;
@@ -622,7 +622,7 @@ function createToolCallsModelClient(toolCalls: GatewayToolCall[]): ModelClient {
 function buildTestRegistry(names: string[], allowUnsafeTools: boolean): ToolRegistry {
   const selected = new Set(names);
   const registry = new ToolRegistry();
-  for (const tool of buildClaudeCodeBaseSystemTools()) {
+  for (const tool of buildSystemTools()) {
     if (selected.has(tool.name)) {
       if (!allowUnsafeTools) {
         assertReadOnlyTool(tool);

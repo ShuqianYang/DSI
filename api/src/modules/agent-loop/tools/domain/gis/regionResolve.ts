@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { ToolDefinition, ToolExecutionContext } from "./types.js";
+import type { ToolDefinition, ToolExecutionContext } from "../../_shared/types.js";
 
 const CHINA_GEOJSON_SOURCE = "public/geo/china.geojson";
 const EAST_CHINA_SEA_SOURCE = "public/geo/eastern_china_sea.geojson";
@@ -338,13 +338,13 @@ function collectBounds(
 function buildChinaProvinceAliases(name: string): string[] {
   const aliases = new Set<string>([name]);
   for (const suffix of [
-    "\u58ee\u65cf\u81ea\u6cbb\u533a",
-    "\u56de\u65cf\u81ea\u6cbb\u533a",
-    "\u7ef4\u543e\u5c14\u81ea\u6cbb\u533a",
-    "\u7279\u522b\u884c\u653f\u533a",
-    "\u81ea\u6cbb\u533a",
-    "\u7701",
-    "\u5e02",
+    "壮族自治区",
+    "回族自治区",
+    "维吾尔自治区",
+    "特别行政区",
+    "自治区",
+    "省",
+    "市",
   ]) {
     if (name.endsWith(suffix)) {
       aliases.add(name.slice(0, -suffix.length));
@@ -381,7 +381,7 @@ function safeIdSegment(value: string): string {
   const normalized = value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/[^a-z0-9一-龥]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || "region";
 }

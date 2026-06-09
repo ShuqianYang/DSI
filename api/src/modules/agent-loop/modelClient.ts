@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { safeJsonStringify } from "./serialization.js";
+import { safeJsonStringify } from "./tools/_shared/serialization.js";
 import type {
   AgentMessage,
   GatewayToolCall,
   NormalizedAgentDecision,
   ToolDefinition,
   ToolObservation,
-} from "./types.js";
+} from "./tools/_shared/types.js";
 
 export interface ModelClient {
   decide(input: {

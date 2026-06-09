@@ -5,7 +5,7 @@ import type {
   AgentMessage,
   PromptSection,
   ToolObservation,
-} from "./types.js";
+} from "./tools/_shared/types.js";
 
 export interface RememberInput {
   /** Original user request for this agent run. */

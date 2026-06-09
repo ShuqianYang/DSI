@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ToolDefinition, ToolExecutionContext } from "./types.js";
+import type { ToolDefinition, ToolExecutionContext } from "../_shared/types.js";
 
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const MARINE_URL = "https://marine-api.open-meteo.com/v1/marine";

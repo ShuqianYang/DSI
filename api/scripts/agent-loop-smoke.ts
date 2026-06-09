@@ -9,13 +9,13 @@ import {
   installMockOpenMeteoFetch,
   validateGisToolchainSmoke,
 } from "./agent-loop-smoke-gis.js";
-import { buildDefaultToolRegistry, ToolRegistry } from "../src/modules/agent-loop/toolRegistry.js";
+import { buildDefaultToolRegistry, ToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
   AgentLoopResult,
   AgentMessage,
   ToolPermissionHandler,
-} from "../src/modules/agent-loop/types.js";
+} from "../src/modules/agent-loop/tools/_shared/types.js";
 import type { LegacySseEvent } from "../src/modules/tasks/agentLoopEventAdapter.js";
 
 const DEFAULT_QUERY =
