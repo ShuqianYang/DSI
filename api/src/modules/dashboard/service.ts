@@ -154,7 +154,7 @@ export async function getAdsData() {
     .select()
     .from(aircraftCurrentStates)
     .orderBy(desc(aircraftCurrentStates.updatedAt))
-    .limit(3000);
+    .limit(20000);
   return projectAircraftStatesToAdsData(states);
 }
 

@@ -1484,15 +1484,15 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
         return { id: String(entity.id), display, payload: entity };
       });
 
-    // 事件点位渲染：按 entity.status 自然分色（danger=红 / warning=橙黄 / normal=蓝），不强制染色 + 不放大
-    // 语义：satellite/weather 已不输出 entity（区域事件 → 不画点位）；只有 oil-drift/ais 类 capability 推 entity 才会出现在地图上
+    // 事件点位渲染：使用事件颜色池（与 ADS-B/AIS 基础白/青色区分），避免重叠不可见
     const eventRows: PointLayerRow[] = Array.from(eventEntityMap.values()).map(({ entity, eventId }) => {
       const liveEntity = entities.find((e) => e.id === entity.id);
       const payload = liveEntity ?? entity;
+      const eventColor = getEventColor(eventId);
       const color = getStatusColor(
         payload.status,
-        false,
-        undefined,
+        true,
+        eventColor,
         payload.type,
         (payload as Record<string, unknown>).dataSource as string | undefined
       );
@@ -1503,7 +1503,7 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
       const display: PointDisplayItem = {
         ...payload,
         color,
-        size: getEntitySize(payload, false),
+        size: getEntitySize(payload, true),
         isEvent: true,
         eventId,
         imageUrl:

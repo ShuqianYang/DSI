@@ -84,10 +84,7 @@ S:/Projects/projects_new/
 │   ├── middleware/               # Express 中间件
 │   └── modules/                  # 业务模块
 │       ├── tasks/                # Agent 编排任务管理
-│       ├── planner/              # 任务规划器 (Planner) — DeepSeek
-│       ├── router/               # 路由决策器 (Router) — DeepSeek
-│       ├── executor/             # 任务执行器（含阻断校验）
-│       ├── agent-loop/           # Agent 运行时核心 (Claude Code 风格)
+│       ├── agent-loop/           # Agent 运行时核心 (Claude Code 风格，已替代旧 Planner / Router / Executor)
 │       │   ├── runAgentLoop.ts       # 主循环：turn 驱动、事件流、工具调度
 │       │   ├── contextProvider.ts    # 上下文加载：项目文件 / git / task 状态
 │       │   ├── promptManager.ts      # 提示词渲染：system prompt + 工具目录 + sections
@@ -102,37 +99,7 @@ S:/Projects/projects_new/
 │       │   ├── transcriptStore.ts    # 对话转录存储（接口预留，暂未持久化）
 │       │   ├── types.ts              # 核心类型（AgentMessage / ToolDefinition / PromptSection）
 │       │   └── ...                   # 序列化、决策适配、工具目录等辅助模块
-│       ├── blockage-analyzer/    # 执行阻断分析器
-│       ├── actions/              # 能力执行层（业务 capability）
-│       │   ├── registry.ts       # 能力注册中心
-│       │   ├── capabilities/     # 具体能力实现
-│       │   │   ├── maritime.ts       # 海域态势分析
-│       │   │   ├── intelligence.ts   # 情报分析
-│       │   │   ├── intelligent_qa.ts # 智能问答
-│       │   │   ├── daily_report.ts   # 日报生成（SSE 流式输出）
-│       │   │   ├── satellite.ts      # 天基数据查询
-│       │   │   ├── satelliteCallbackStore.ts # 卫星回调存储
-│       │   │   ├── news.ts           # 新闻/舆情分析
-│       │   │   ├── weather-fetch.ts  # 气象数据获取
-│       │   │   ├── ais-fetch.ts      # AIS 船舶数据获取
-│       │   │   ├── ais-match-suspects.ts # AIS 嫌疑船匹配
-│       │   │   ├── ais-suspect-ranking.ts # AIS 嫌疑船排序
-│       │   │   ├── oil-drift.ts      # 油污漂移溯源
-│       │   │   ├── earthquake-evaluation.ts # 地震灾后评估
-│       │   │   ├── flood-evaluation.ts # 洪水灾后评估
-│       │   │   ├── fire.ts           # 火情分析
-│       │   │   ├── region-mark.ts    # 区域标记
-│       │   │   ├── border-push.ts    # 边境推送
-│       │   │   ├── gis.ts            # GIS 操作
-│       │   │   └── requirement.ts    # 需求收集
-│       │   └── _mock/              # Mock 数据
-│       ├── insights/             # AI 洞察生成
-│       ├── scheduler/            # 订阅调度器
-│       ├── events/               # 事件管理
-│       ├── jobs/                 # 可执行任务
-│       ├── subscriptions/        # 订阅管理
-│       ├── requirements/         # 需求管理
-│       ├── info-center/          # 信息中心
+│       ├── dashboard/            # Dashboard 聚合查询（事件 / 洞察 / 订阅 / 任务等）
 │       ├── ais/                  # AIS 船舶数据（aisstream.io WebSocket → DB replaceAll）
 │       │   ├── client.ts         # WebSocket 连接 + 60s 全球数据累积
 │       │   ├── ingestion.ts      # 原始 PositionReport → DB schema 归一化
@@ -145,8 +112,7 @@ S:/Projects/projects_new/
 │       │   ├── repository.ts     # replaceAll 事务
 │       │   ├── queue.ts          # BullMQ hourly cron
 │       │   └── worker.ts         # BullMQ worker
-│       ├── ads/                  # ADS-B Dashboard 查询接口（已迁移到 opensky/）
-│       └── router_legacy/        # 遗留 Router（Dify 版）
+│       
 │
 ├── packages/shared/              # 共享类型包 (pnpm workspace)
 │   └── src/types/                # task / plan / action / maritime 类型
@@ -179,9 +145,10 @@ S:/Projects/projects_new/
 
 ## Agent 编排架构
 
-### 旧 Pipeline（仍在服务部分 capability）
+### 旧 Pipeline（已迁移）
 
-用户输入 → **Planner** (生成执行计划) → **Router** (决策工具调用) → **Executor** (按依赖执行 Action) → **Insights** (生成综合洞察)
+原 **Planner → Router → Executor → Insights** 编排流程已下线，相关模块（`planner/` / `router/` / `executor/` / `insights/` 等）已移除。  
+入口文件 `api/src/modules/tasks/pipeline.ts` 保留为兼容层，内部已替换为全新的 Agent Loop 架构。
 
 ### 新 Agent Loop（Claude Code 风格，逐 turn 执行）
 
@@ -441,4 +408,4 @@ pnpm start:prod
 3. **用户认证**：当前仅使用 localStorage 简单登录状态，无真实认证系统
 4. **性能**：Cesium 3D 地图在大量实体（1000+）时需注意性能；ADS 已放开到 3000 条，AIS 保持 1000 条。参考 `api/issues/frontend-performance-trace-*.md`
 5. **日志**：各服务日志统一输出到 `logs/` 目录
-6. **Agent Loop**：当前为 `agent-loop` 分支的功能，旧 Pipeline 仍在并行服务现有 capability
+6. **Agent Loop**：当前为 `agent-loop` 分支的功能，已全面替代旧 Pipeline 成为唯一的 Agent 编排入口

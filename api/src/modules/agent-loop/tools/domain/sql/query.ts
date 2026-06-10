@@ -2,6 +2,7 @@ import { Client } from "pg";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import type { GisData } from "@datasourceintelligence/shared";
 import type { ToolDefinition } from "../../_shared/types.js";
 import { safeJsonStringify, sanitizeForJson } from "../../_shared/serialization.js";
 import {
@@ -174,6 +175,7 @@ interface SqlQueryOutput {
     omittedRows?: number;
     note?: string;
   };
+  gisData?: GisData;
 }
 
 interface BuildSqlQueryOutputInput {
@@ -297,6 +299,8 @@ async function buildSqlQueryOutput(input: BuildSqlQueryOutputInput): Promise<Sql
       })
     : undefined;
 
+  const gisData = tryBuildGisDataFromRows(input.rows);
+
   return fitSqlResultToBudget({
     database: input.database,
     rowCount: input.rowCount,
@@ -309,6 +313,7 @@ async function buildSqlQueryOutput(input: BuildSqlQueryOutputInput): Promise<Sql
     truncated: returnedRows >= input.limit,
     durationMs: input.durationMs,
     ...(artifact ? { artifact } : {}),
+    ...(gisData ? { gisData } : {}),
   });
 }
 
@@ -415,5 +420,53 @@ function buildBudgetedSqlOutput(
         ? "SqlQuery output exceeded the result budget. Kept a preview prefix; use the artifact path for the full row set."
         : "SqlQuery output exceeded the result budget. Kept a row prefix and omitted the remainder; use a narrower query if more detail is needed.",
     },
+  };
+}
+
+// ─── SQL rows → GIS entity 自动转换 ───
+
+function tryBuildGisDataFromRows(rows: Array<Record<string, unknown>>): GisData | undefined {
+  if (!rows?.length) return;
+
+  const sample = rows[0];
+  const hasLat = 'latitude' in sample || 'lat' in sample;
+  const hasLng = 'longitude' in sample || 'lng' in sample || 'lon' in sample;
+  if (!hasLat || !hasLng) return;
+
+  // 必须有标识字段，排除纯聚合查询（count/avg/sum）
+  const hasIdentity = 'mmsi' in sample || 'icao24' in sample ||
+                      'ship_name' in sample || 'callsign' in sample ||
+                      'name' in sample || 'id' in sample;
+  if (!hasIdentity) return;
+
+  const isAis = 'mmsi' in sample || 'ship_name' in sample;
+  const isAds = 'icao24' in sample || 'callsign' in sample;
+  const entityType = isAis ? 'ship' : isAds ? 'aircraft' : 'base';
+
+  const entities = rows
+    .filter((r) => r.latitude != null || r.lat != null)
+    .filter((r) => r.longitude != null || r.lng != null || r.lon != null)
+    .map((r) => ({
+      id: `${entityType}-${String(r.mmsi ?? r.icao24 ?? r.id ?? Math.random().toString(36).slice(2, 8))}`,
+      name: String(r.ship_name ?? r.callsign ?? r.name ?? 'Unknown'),
+      type: entityType as 'ship' | 'aircraft' | 'base' | 'fire' | 'earthquake',
+      coordinates: [
+        Number(r.longitude ?? r.lng ?? r.lon),
+        Number(r.latitude ?? r.lat),
+      ] as [number, number],
+      importance: 'medium' as 'high' | 'medium' | 'low',
+      status: 'normal' as 'normal' | 'warning' | 'danger',
+      speed: r.sog != null ? Number(r.sog) : r.velocity != null ? Number(r.velocity) : undefined,
+      heading: r.heading != null ? Number(r.heading) : r.true_track != null ? Number(r.true_track) : undefined,
+      altitude: r.baro_altitude != null ? Number(r.baro_altitude) : undefined,
+      dataSource: isAis ? 'aisstream' : isAds ? 'opensky' : undefined,
+    }));
+
+  if (!entities.length) return;
+
+  return {
+    type: 'entity',
+    entities,
+    // 故意不输出 cameraView：RegionMark 或其他显式 GIS 工具负责控制视角
   };
 }
