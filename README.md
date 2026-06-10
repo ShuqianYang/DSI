@@ -133,8 +133,19 @@ S:/Projects/projects_new/
 │       ├── subscriptions/        # 订阅管理
 │       ├── requirements/         # 需求管理
 │       ├── info-center/          # 信息中心
-│       ├── ais/                  # AIS 数据接口
-│       ├── ads/                  # ADS-B 数据接口
+│       ├── ais/                  # AIS 船舶数据（aisstream.io WebSocket → DB replaceAll）
+│       │   ├── client.ts         # WebSocket 连接 + 60s 全球数据累积
+│       │   ├── ingestion.ts      # 原始 PositionReport → DB schema 归一化
+│       │   ├── repository.ts     # replaceAll: DELETE + batch INSERT（事务）
+│       │   ├── queue.ts          # BullMQ hourly cron 队列
+│       │   └── worker.ts         # BullMQ worker（lockDuration 120s）
+│       ├── opensky/              # ADS-B 航空器数据（OpenSky API → DB replaceAll）
+│       │   ├── client.ts         # REST API 拉取
+│       │   ├── ingestion.ts      # 状态归一化
+│       │   ├── repository.ts     # replaceAll 事务
+│       │   ├── queue.ts          # BullMQ hourly cron
+│       │   └── worker.ts         # BullMQ worker
+│       ├── ads/                  # ADS-B Dashboard 查询接口（已迁移到 opensky/）
 │       └── router_legacy/        # 遗留 Router（Dify 版）
 │
 ├── packages/shared/              # 共享类型包 (pnpm workspace)
@@ -226,7 +237,7 @@ ContextProvider ──→ PromptManager ──→ ContextWindowManager ──→
 | `ToolGateway` | ✅ 已完成 | 权限策略、并发调度、结果截断、readOnly 去重 |
 | `ModelClient` | ✅ 已完成 | DeepSeek API 调用 + 工具调用解析 |
 | `MemoryManager` | 🔄 接口预留 | `noopMemoryManager`，待实现 prefetch/remember |
-| `SkillManager` | 🔄 接口预留 | `noopSkillManager`，待实现 listing/discovery |
+| `SkillManager` | ✅ 已完成 | `LocalSkillManager`：frontmatter 解析、条件激活、discovery、prompt 注入 |
 | `TranscriptStore` | 🔄 接口预留 | `disabledTranscriptStore`，待实现数据库持久化 |
 
 **Agent Loop 计划**：
@@ -243,7 +254,8 @@ ContextProvider ──→ PromptManager ──→ ContextWindowManager ──→
 | REST API | 前端 ↔ 后端常规请求 (任务、事件、订阅等 CRUD) |
 | SSE | 任务状态实时推送到前端 |
 | Redis Pub/Sub | 后端内部状态广播 (Worker → API → 前端) |
-| WebSocket | AISStream 实时船舶数据流 |
+| BullMQ | 定时任务队列（OpenSky/AIS 每小时注入） |
+| WebSocket | AISStream 实时船舶数据流（→ DB replaceAll） |
 
 ## 核心 API 路由
 
@@ -384,8 +396,8 @@ pnpm start:prod
 | Dify | LLM Agent 服务 (Planner/Router/Insight/Maritime/News) | 未配置时降级为 Mock |
 | Qwen API | 阿里百练模型 | 可选 |
 | Tavily | 搜索增强 | 可选 |
-| AISStream | AIS 实时船舶数据 (WebSocket) | 可选，留空用 Mock |
-| ShipDT | AIS 船舶数据补充 | 可选 |
+| AISStream | AIS 实时船舶数据 (WebSocket → 每小时 DB 注入) | 可选 |
+| ShipDT | AIS 船舶静态数据 / 区域聚合查询 | 可选 |
 | OpenSky | ADS-B 航空器数据 | 可选 |
 | AWS S3 | 对象存储 | 可选 |
 
@@ -400,7 +412,17 @@ pnpm start:prod
 | Phase 2: Window Manager 增强（token 估算、优先级、per-tool 预算） | ✅ 已完成 | [plan](api/plan/context-window-phase2-plan.md) |
 | Phase 1: System Prompt 结构化 | ✅ 已完成 | [plan](api/plan/prompt-system-prompt-phase1-plan.md) |
 | Phase 2: Context Provider 增强 | 🔄 待执行 | [plan](api/plan/context-provider-phase2-plan.md) |
-| Phase 3: Memory + Skill + Transcript 持久化 | ⏳ 规划中 | — |
+| Phase 3: Memory + Transcript 持久化 | ⏳ 规划中 | — |
+
+### 数据注入（已完成）
+
+| 数据源 | 状态 | 说明 |
+|--------|------|------|
+| OpenSky ADS-B 每小时注入 | ✅ 已完成 | `api/src/modules/opensky/` — REST API → DB replaceAll |
+| AISStream 每小时注入 | ✅ 已完成 | `api/src/modules/ais/` — WebSocket 60s → DB replaceAll |
+| Dashboard ADS 查询 | ✅ 已完成 | `getAdsData()` 查询 `aircraft_current_states`，limit 3000 |
+| Dashboard AIS 查询 | ✅ 已完成 | `getAisData()` 查询 `ais_current_states`，limit 1000 |
+| Agent-loop AIS skill 查询 | ✅ 已完成 | `skills/ais-region-query/` — SqlQuery bbox 查询 |
 
 ### 前端性能（P0）
 
@@ -415,8 +437,8 @@ pnpm start:prod
 ## 注意事项
 
 1. **AI 服务降级**：当 Dify / DeepSeek API Key 未配置时，Planner/Router 自动降级为 Mock 模式
-2. **AIS/ADS-B 数据**：已接入真实数据源 — OpenSky（ADS-B 航空器）+ ShipDT（AIS 船舶）+ AISStream（实时流），未配置时使用 Mock 数据
+2. **AIS/ADS-B 数据**：已接入真实数据源 — OpenSky（ADS-B 航空器）+ AISStream（船舶实时流）→ 每小时注入 DB；ShipDT 提供区域聚合和静态数据补充。未配置时 Dashboard 返回空数据，Agent-loop 通过 skill 查询 DB
 3. **用户认证**：当前仅使用 localStorage 简单登录状态，无真实认证系统
-4. **性能**：Cesium 3D 地图在大量实体（300+）时需注意性能，参考 `api/issues/frontend-performance-trace-*.md`
+4. **性能**：Cesium 3D 地图在大量实体（1000+）时需注意性能；ADS 已放开到 3000 条，AIS 保持 1000 条。参考 `api/issues/frontend-performance-trace-*.md`
 5. **日志**：各服务日志统一输出到 `logs/` 目录
 6. **Agent Loop**：当前为 `agent-loop` 分支的功能，旧 Pipeline 仍在并行服务现有 capability
