@@ -552,7 +552,6 @@ function getStatusColor(
     return entityType === 'ship' || entityType === 'aircraft' ? 'rgba(254, 149, 29, 1)' : '#FFAA00';
   if (entityType === 'ship' && status === 'normal') return '#00E0FF';
   if (entityType === 'aircraft' && status === 'normal') return '#FFFFFF';
-  if (dataSource === 'shipdt') return '#FF8800';
   return '#EAEAEA';
 }
 

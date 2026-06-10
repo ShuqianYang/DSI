@@ -12,8 +12,8 @@ import { Entity, Insight, GisData, Task, TaskEvent, ThinkingStep, SubTask, Traje
 import { mockUser } from '@/data/mockData';
 
 const EMPTY_REGIONS: Region[] = [];
-import { getAisData, getAdsData, getShipdtArea, getTask } from '@/lib/api';
-import type { ApiAisData, ApiAdsData, ApiShipdtAreaData } from '@/lib/api';
+import { getAisData, getAdsData, getTask } from '@/lib/api';
+import type { ApiAisData, ApiAdsData } from '@/lib/api';
 import type { GisOperation, CesiumMapRef } from '@/components/cesium/CesiumMap';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
 import {
@@ -128,21 +128,11 @@ export default function HomePage() {
   const [adsEntities, setAdsEntities] = useState<Entity[]>([]);
   const [adsTrajectories, setAdsTrajectories] = useState<Trajectory[]>([]);
 
-  // ShipDT 区域补充数据
-  const [shipdtEntities, setShipdtEntities] = useState<Entity[]>([]);
-  const [denseCells, setDenseCells] = useState<ApiShipdtAreaData['denseCells']>([]);
-  const [, setShipdtLoading] = useState(false);
-
   // 稳定引用：避免每次渲染展开新数组导致 CesiumMap 内部 sync 频繁触发闪烁
   const allEntities = useMemo(() => [
     ...aisEntities,
     ...adsEntities,
-    ...shipdtEntities.filter(
-      (se) =>
-        !aisEntities.some((ae) => ae.id === se.id) &&
-        !adsEntities.some((ade) => ade.id === se.id)
-    ),
-  ], [aisEntities, adsEntities, shipdtEntities]);
+  ], [aisEntities, adsEntities]);
 
   const allTrajectories = useMemo(() => [...aisTrajectories, ...adsTrajectories], [aisTrajectories, adsTrajectories]);
 
@@ -171,7 +161,7 @@ export default function HomePage() {
         description: e.description,
         speed: e.speed,
         heading: e.heading,
-        dataSource: e.description?.includes('ShipDT') ? 'shipdt' : 'aisstream',
+        dataSource: 'aisstream',
       }));
       const trajectories: Trajectory[] = data.trajectories.map((t) => ({
         id: t.id,
@@ -276,86 +266,6 @@ export default function HomePage() {
       evtSource.close();
     };
   }, []);
-
-  // ShipDT 区域数据：视口驱动加载（debounce 800ms + 429 冷却期，避免频繁请求）
-  const shipdtTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shipdtAbortRef = useRef<AbortController | null>(null);
-  const shipdtFetchingRef = useRef(false);
-  const shipdtRetryAfterRef = useRef(0);
-
-  const handleViewportChange = useCallback(
-    (viewport: { lat: number; lng: number; altitude: number }) => {
-      if (!isLoggedIn) return;
-
-      // altitude > 3.0 不调用 ShipDT
-      if (viewport.altitude > 3.0) {
-        setShipdtEntities((prev) => (prev.length === 0 ? prev : []));
-        setDenseCells((prev) => (prev.length === 0 ? prev : []));
-        return;
-      }
-
-      // 如果上一次请求还在进行，跳过
-      if (shipdtFetchingRef.current) return;
-
-      // 如果在 429 冷却期内，跳过
-      if (Date.now() < shipdtRetryAfterRef.current) return;
-
-      // 根据 altitude 计算 bbox 范围
-      const latRange = Math.max(0.5, viewport.altitude * 0.8);
-      const lngRange = Math.max(0.5, viewport.altitude * 0.8);
-      const minLng = viewport.lng - lngRange;
-      const maxLng = viewport.lng + lngRange;
-      const minLat = viewport.lat - latRange;
-      const maxLat = viewport.lat + latRange;
-
-      // 取消之前的定时器
-      if (shipdtTimeoutRef.current) {
-        clearTimeout(shipdtTimeoutRef.current);
-      }
-      if (shipdtAbortRef.current) {
-        shipdtAbortRef.current.abort();
-      }
-
-      shipdtTimeoutRef.current = setTimeout(() => {
-        shipdtFetchingRef.current = true;
-        setShipdtLoading(true);
-        const controller = new AbortController();
-        shipdtAbortRef.current = controller;
-        getShipdtArea(minLng, maxLng, minLat, maxLat, Math.round(10 - viewport.altitude), controller.signal)
-          .then((data) => {
-            const entities: Entity[] = data.entities.map((e) => ({
-              id: e.id,
-              name: e.name,
-              type: e.type as Entity['type'],
-              coordinates: e.coordinates,
-              importance: e.importance as Entity['importance'],
-              status: e.status as Entity['status'],
-              description: e.description,
-              speed: e.speed,
-              heading: e.heading,
-              dataSource: 'shipdt' as const,
-            }));
-            setShipdtEntities(entities);
-            setDenseCells(data.denseCells);
-          })
-          .catch((err) => {
-            // 429：后端查询进行中，设置 5 秒冷却期
-            if (err.message?.includes('retry later') || err.message?.includes('429')) {
-              shipdtRetryAfterRef.current = Date.now() + 5000;
-              return;
-            }
-            // 忽略取消
-            if (err.name === 'AbortError') return;
-            console.error('[ShipDT] Failed to fetch area data:', err);
-          })
-          .finally(() => {
-            shipdtFetchingRef.current = false;
-            setShipdtLoading(false);
-          });
-      }, 800);
-    },
-    [isLoggedIn]
-  );
 
   // ADS-B 飞机数据：从后端 API 获取，确保前后端数据一致
   useEffect(() => {
@@ -775,8 +685,6 @@ export default function HomePage() {
             eventGisDataList={activeGisDataList}
             onCloseEventGis={handleCloseEventGis}
             onCloseAllEventGis={handleCloseAllEventGis}
-            denseCells={denseCells}
-            onViewportChange={handleViewportChange}
             rightPanelOpen={showRightPanel}
             fireOverlayVisible={fireOverlayVisible}
             pendingOperations={pendingOperations}

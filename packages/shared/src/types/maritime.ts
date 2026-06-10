@@ -24,7 +24,7 @@ export const Entity = z.object({
   speed: z.number().optional(),
   heading: z.number().optional(),
   altitude: z.number().optional(),
-  dataSource: z.string().optional(), // 'aisstream' | 'shipdt' | 'mock' 等
+  dataSource: z.string().optional(), // 'aisstream' | 'mock' 等
   color: z.string().optional(),
   size: z.number().optional(),
 });

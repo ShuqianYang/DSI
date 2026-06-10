@@ -200,54 +200,6 @@ export async function getAisData(): Promise<ApiAisData> {
   return fetchJson("/ais/data");
 }
 
-// ========== ShipDT 区域查询 ==========
-export interface ApiShipdtAreaData {
-  status: number;
-  entities: Array<{
-    id: string;
-    name: string;
-    type: string;
-    coordinates: [number, number];
-    importance: string;
-    status: string;
-    description: string;
-    speed: number;
-    heading: number;
-  }>;
-  denseCells: Array<{
-    minLng: number;
-    maxLng: number;
-    minLat: number;
-    maxLat: number;
-    count: number;
-  }>;
-  sourceBreakdown: {
-    aisstream: number;
-    shipdt: number;
-    mock: number;
-  };
-  meta?: {
-    tilesQueried: number;
-    tilesFromCache: number;
-    shipsAdded: number;
-    shipsSkipped: number;
-  };
-}
-
-export async function getShipdtArea(
-  minLng: number,
-  maxLng: number,
-  minLat: number,
-  maxLat: number,
-  zoom: number,
-  signal?: AbortSignal
-): Promise<ApiShipdtAreaData> {
-  return fetchJson(
-    `/ais/shipdt-area?minLng=${minLng}&maxLng=${maxLng}&minLat=${minLat}&maxLat=${maxLat}&zoom=${zoom}`,
-    { signal }
-  );
-}
-
 // ========== ADS-B 实时数据 ==========
 export interface ApiAdsData {
   entities: Array<{
