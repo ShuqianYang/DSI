@@ -263,5 +263,37 @@ export type Requirement = typeof requirements.$inferSelect;
 export type NewRequirement = typeof requirements.$inferInsert;
 export type Insight = typeof insights.$inferSelect;
 export type NewInsight = typeof insights.$inferInsert;
+// ============================================
+// AIS 船舶当前状态（外部数据源读模型）
+// ============================================
+
+export const aisCurrentStates = pgTable(
+  "ais_current_states",
+  {
+    mmsi: text("mmsi").primaryKey(),
+    shipName: text("ship_name"),
+    callSign: text("call_sign"),
+    shipType: integer("ship_type"),
+    longitude: doublePrecision("longitude"),
+    latitude: doublePrecision("latitude"),
+    sog: doublePrecision("sog"),
+    cog: doublePrecision("cog"),
+    heading: doublePrecision("heading"),
+    navigationalStatus: integer("navigational_status"),
+    destination: text("destination"),
+    sourceTime: timestamp("source_time", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("ais_lat_idx").on(table.latitude),
+    index("ais_lon_idx").on(table.longitude),
+    index("ais_updated_at_idx").on(table.updatedAt),
+  ]
+);
+
 export type AircraftCurrentState = typeof aircraftCurrentStates.$inferSelect;
 export type NewAircraftCurrentState = typeof aircraftCurrentStates.$inferInsert;
+export type AisCurrentState = typeof aisCurrentStates.$inferSelect;
+export type NewAisCurrentState = typeof aisCurrentStates.$inferInsert;

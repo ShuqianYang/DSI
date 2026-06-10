@@ -2,6 +2,7 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "../../config/database.js";
 import {
   aircraftCurrentStates,
+  aisCurrentStates,
   events,
   insights,
   jobTasks,
@@ -14,6 +15,7 @@ import {
   emptyAisData,
   projectAgentTaskToApiTask,
   projectAircraftStatesToAdsData,
+  projectAisStatesToAisData,
   projectTaskStepToSyntheticEvent,
   type ApiEvent,
   type ApiTask,
@@ -152,12 +154,13 @@ export async function getAdsData() {
     .select()
     .from(aircraftCurrentStates)
     .orderBy(desc(aircraftCurrentStates.updatedAt))
-    .limit(1000);
+    .limit(3000);
   return projectAircraftStatesToAdsData(states);
 }
 
 export async function getAisData() {
-  return emptyAisData();
+  const states = await db.select().from(aisCurrentStates).limit(1000);
+  return projectAisStatesToAisData(states);
 }
 
 function projectEventRow(row: typeof events.$inferSelect): ApiEvent {

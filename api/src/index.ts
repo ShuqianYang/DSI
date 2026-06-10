@@ -14,6 +14,10 @@ import {
   registerOpenSkyJob,
   shouldRegisterOpenSkyJob,
 } from "./modules/opensky/queue.js";
+import {
+  registerAisJob,
+  shouldRegisterAisJob,
+} from "./modules/ais/queue.js";
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || "3001", 10);
@@ -68,6 +72,16 @@ if (shouldRegisterOpenSkyJob()) {
 } else {
   console.log("[OpenSkyQueue] Disabled. Set OPENSKY_COLLECTOR_ENABLED=1 to enable hourly ingestion.");
 }
+
+// 注册 AIS 定时任务（不阻塞启动）
+if (shouldRegisterAisJob()) {
+  void registerAisJob();
+} else {
+  console.log("[AisQueue] Disabled. Set AIS_STREAM_COLLECTOR_ENABLED=1 to enable hourly ingestion.");
+}
+
+// Import AIS worker to ensure it is instantiated on startup
+import "./modules/ais/worker.js";
 
 app.listen(PORT, HOST, () => {
   console.log(`[API] Server listening on http://${HOST}:${PORT}`);

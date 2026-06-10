@@ -94,6 +94,19 @@ export interface ApiAdsData {
   count: number;
 }
 
+export interface AisStateLike {
+  mmsi: string;
+  shipName?: string | null;
+  longitude?: number | null;
+  latitude?: number | null;
+  sog?: number | null;
+  cog?: number | null;
+  heading?: number | null;
+  shipType?: number | null;
+  updatedAt?: Date | string | null;
+  sourceTime?: Date | string | null;
+}
+
 export interface ApiAisData {
   entities: Array<{
     id: string;
@@ -176,6 +189,37 @@ export function projectAircraftStatesToAdsData(states: AircraftStateLike[]): Api
       speed,
       heading,
       altitude,
+    };
+  });
+
+  return {
+    entities,
+    trajectories: [],
+    timestamp,
+    count: entities.length,
+  };
+}
+
+export function projectAisStatesToAisData(states: AisStateLike[]): ApiAisData {
+  const validStates = states.filter((state) => isFiniteNumber(state.longitude) && isFiniteNumber(state.latitude));
+  const timestamp = latestTimestamp(validStates.map((state) => state.updatedAt || state.sourceTime));
+  const entities = validStates.map((state) => {
+    const name = state.shipName?.trim() || state.mmsi;
+    const speed = isFiniteNumber(state.sog) ? state.sog : 0;
+    const heading = isFiniteNumber(state.heading) ? state.heading : 0;
+    const shipType = state.shipType ?? "Unknown";
+    const sog = isFiniteNumber(state.sog) ? `${state.sog.toFixed(1)} knots` : "N/A";
+    const cog = isFiniteNumber(state.cog) ? `${state.cog.toFixed(1)}°` : "N/A";
+    return {
+      id: `ais-${state.mmsi}`,
+      name,
+      type: "ship",
+      coordinates: [state.longitude as number, state.latitude as number] as [number, number],
+      importance: "low",
+      status: "normal",
+      description: `AIS | type:${shipType} | speed:${sog} | heading:${Math.round(heading)}° | COG:${cog}`,
+      speed,
+      heading,
     };
   });
 

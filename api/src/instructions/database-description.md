@@ -47,6 +47,19 @@ The current ingestion may leave `region` and `status` as empty strings, so do
 not rely on them for regional filtering or risk classification unless
 `SqlQuery` returns populated values.
 
+Use `SqlQuerySchema` to confirm the AIS vessel table before writing SQL:
+
+```json
+{"database":"default","schema":"public","table":"ais_current_states"}
+```
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `ais_current_states` | Hourly AIS vessel snapshot from aisstream.io, refreshed by the backend queue/worker | `mmsi`, `ship_name`, `call_sign`, `ship_type`, `longitude`, `latitude`, `sog`, `cog`, `heading`, `navigational_status`, `destination`, `source_time`, `updated_at` |
+
+Vessel regional queries should filter by `latitude` and `longitude` bbox.
+The `ship_type` column may contain nulls for vessels without static data.
+
 ---
 
 ## `default` / `agent_smoke`
