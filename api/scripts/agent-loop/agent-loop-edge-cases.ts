@@ -1,18 +1,18 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "../src/config/database.js";
-import { tasks } from "../src/db/schema.js";
-import type { ModelClient } from "../src/modules/agent-loop/modelClient.js";
-import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
-import { buildSystemTools } from "../src/modules/agent-loop/tools/system/index.js";
-import { ToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import { db } from "../../src/config/database.js";
+import { tasks } from "../../src/db/schema.js";
+import type { ModelClient } from "../../src/modules/agent-loop/modelClient.js";
+import { runAgentLoopEvents } from "../../src/modules/agent-loop/runAgentLoop.js";
+import { buildSystemTools } from "../../src/modules/agent-loop/tools/system/index.js";
+import { ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
   GatewayToolCall,
   ToolDefinition,
   ToolPermissionHandler,
-} from "../src/modules/agent-loop/tools/_shared/types.js";
+} from "../../src/modules/agent-loop/tools/_shared/types.js";
 
 interface TestCase {
   name: string;

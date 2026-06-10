@@ -1,11 +1,11 @@
-import type { ModelClient } from "../src/modules/agent-loop/modelClient.js";
+import type { ModelClient } from "../../src/modules/agent-loop/modelClient.js";
 import type {
   AgentLoopEvent,
   NormalizedAgentDecision,
   ToolObservation,
-} from "../src/modules/agent-loop/tools/_shared/types.js";
-import type { LegacySseEvent } from "../src/modules/tasks/agentLoopEventAdapter.js";
-import type { AgentLoopTaskResult } from "../src/modules/tasks/agentLoopResultProjection.js";
+} from "../../src/modules/agent-loop/tools/_shared/types.js";
+import type { LegacySseEvent } from "../../src/modules/tasks/agentLoopEventAdapter.js";
+import type { AgentLoopTaskResult } from "../../src/modules/tasks/agentLoopResultProjection.js";
 
 export const GIS_TOOLCHAIN_SCENARIO = "gis-toolchain";
 export const GIS_TOOLCHAIN_TOOLS = ["RegionResolve", "RegionMark", "WeatherFetch"] as const;

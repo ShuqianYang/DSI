@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { Client } from "pg";
-import { buildDefaultToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
-import { callTool } from "../src/modules/agent-loop/tools/_shared/toolGateway.js";
+import { buildDefaultToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import { callTool } from "../../src/modules/agent-loop/tools/_shared/toolGateway.js";
 
 const DEFAULT_LOCAL_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/datasource";
 

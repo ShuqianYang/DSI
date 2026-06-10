@@ -9,14 +9,14 @@ import {
   installMockOpenMeteoFetch,
   validateGisToolchainSmoke,
 } from "./agent-loop-smoke-gis.js";
-import { buildDefaultToolRegistry, ToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import { buildDefaultToolRegistry, ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
   AgentLoopResult,
   AgentMessage,
   ToolPermissionHandler,
-} from "../src/modules/agent-loop/tools/_shared/types.js";
-import type { LegacySseEvent } from "../src/modules/tasks/agentLoopEventAdapter.js";
+} from "../../src/modules/agent-loop/tools/_shared/types.js";
+import type { LegacySseEvent } from "../../src/modules/tasks/agentLoopEventAdapter.js";
 
 const DEFAULT_QUERY =
   "Use read-only tools to inspect the api/src/modules/agent-loop directory and summarize its core files.";
@@ -28,7 +28,7 @@ async function main() {
 
   if (options.refreshOpenSky) {
     process.env.AGENT_SQL_ALLOWED_SCHEMAS ||= JSON.stringify({ default: ["public"] });
-    const { ingestOpenSkySnapshotOnce } = await import("../src/modules/opensky/ingestion.js");
+    const { ingestOpenSkySnapshotOnce } = await import("../../src/modules/opensky/ingestion.js");
     console.log("[smoke] refreshing OpenSky aircraft_current_states...");
     const result = await ingestOpenSkySnapshotOnce();
     console.log(
@@ -38,9 +38,9 @@ async function main() {
 
   const registry = buildSelectedRegistry(options.tools);
   const smokeDb = await loadSmokeDb();
-  const { runAgentLoopEvents } = await import("../src/modules/agent-loop/runAgentLoop.js");
-  const { createLegacySseAdapter } = await import("../src/modules/tasks/agentLoopEventAdapter.js");
-  const { buildAgentLoopTaskResult } = await import("../src/modules/tasks/agentLoopResultProjection.js");
+  const { runAgentLoopEvents } = await import("../../src/modules/agent-loop/runAgentLoop.js");
+  const { createLegacySseAdapter } = await import("../../src/modules/tasks/agentLoopEventAdapter.js");
+  const { buildAgentLoopTaskResult } = await import("../../src/modules/tasks/agentLoopResultProjection.js");
   const taskId = await createSmokeTask(smokeDb, query);
   const permissionHandler = createCliPermissionHandler();
   const rawEvents: AgentLoopEvent[] = [];
@@ -187,8 +187,8 @@ async function createSmokeTask(smokeDb: Awaited<ReturnType<typeof loadSmokeDb>>,
 async function loadSmokeDb() {
   const [{ eq }, { db }, { tasks }] = await Promise.all([
     import("drizzle-orm"),
-    import("../src/config/database.js"),
-    import("../src/db/schema.js"),
+    import("../../src/config/database.js"),
+    import("../../src/db/schema.js"),
   ]);
   return { eq, db, tasks };
 }

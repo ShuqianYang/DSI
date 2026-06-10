@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { db } from "../src/config/database.js";
-import { insights } from "../src/db/schema.js";
+import { db } from "../../src/config/database.js";
+import { insights } from "../../src/db/schema.js";
 
 async function main() {
   const rows = await db.select().from(insights);

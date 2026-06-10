@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { buildDefaultToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
-import { callTool } from "../src/modules/agent-loop/tools/_shared/toolGateway.js";
+import { buildDefaultToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import { callTool } from "../../src/modules/agent-loop/tools/_shared/toolGateway.js";
 
 async function main() {
   process.env.AGENT_SQL_DATABASE_URLS = JSON.stringify({

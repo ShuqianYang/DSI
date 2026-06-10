@@ -86,13 +86,13 @@ async function main() {
   await writeFile(path.join(root, "src", "a.ts"), "export const a = 1;\n", "utf8");
 
   const { defaultSkillManager, registerSkillTool } = await import(
-    "../src/modules/agent-loop/skillManager.js"
+    "../../src/modules/agent-loop/skillManager.js"
   );
-  const { ToolRegistry } = await import("../src/modules/agent-loop/tools/_shared/toolRegistry.js");
+  const { ToolRegistry } = await import("../../src/modules/agent-loop/tools/_shared/toolRegistry.js");
   const { buildSystemTools } = await import(
-    "../src/modules/agent-loop/tools/system/index.js"
+    "../../src/modules/agent-loop/tools/system/index.js"
   );
-  const { callTool } = await import("../src/modules/agent-loop/tools/_shared/toolGateway.js");
+  const { callTool } = await import("../../src/modules/agent-loop/tools/_shared/toolGateway.js");
 
   const registry = new ToolRegistry();
   for (const tool of buildSystemTools()) {

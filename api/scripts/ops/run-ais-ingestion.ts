@@ -1,7 +1,7 @@
 import "dotenv/config";
-import { connectAisStream } from "../src/modules/ais/client.js";
-import { replaceAll } from "../src/modules/ais/repository.js";
-import { normalizeAisShips } from "../src/modules/ais/ingestion.js";
+import { connectAisStream } from "../../src/modules/ais/client.js";
+import { replaceAll } from "../../src/modules/ais/repository.js";
+import { normalizeAisShips } from "../../src/modules/ais/ingestion.js";
 
 console.log("[AIS] Starting manual ingestion...");
 const data = await connectAisStream(15000);

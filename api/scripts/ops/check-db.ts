@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { db } from "../src/config/database.js";
-import { jobTasks, taskSteps, tasks } from "../src/db/schema.js";
+import { db } from "../../src/config/database.js";
+import { jobTasks, taskSteps, tasks } from "../../src/db/schema.js";
 import { eq } from "drizzle-orm";
 
 async function check() {

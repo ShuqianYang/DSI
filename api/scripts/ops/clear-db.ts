@@ -1,8 +1,8 @@
 import "dotenv/config";
-import { db } from "../src/config/database.js";
+import { db } from "../../src/config/database.js";
 import { sql } from "drizzle-orm";
 import { Queue } from "bullmq";
-import { redisConnection } from "../src/config/redis.js";
+import { redisConnection } from "../../src/config/redis.js";
 
 const TASK_QUEUE_NAME = "task-execution";
 

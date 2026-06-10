@@ -1,11 +1,11 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
-import { db } from "../src/config/database.js";
-import { tasks } from "../src/db/schema.js";
-import { runAgentLoopEvents } from "../src/modules/agent-loop/runAgentLoop.js";
-import { buildSystemTools } from "../src/modules/agent-loop/tools/system/index.js";
-import { ToolRegistry } from "../src/modules/agent-loop/tools/_shared/toolRegistry.js";
-import type { AgentLoopEvent, ModelClient, ToolDefinition } from "../src/modules/agent-loop/tools/_shared/types.js";
+import { db } from "../../src/config/database.js";
+import { tasks } from "../../src/db/schema.js";
+import { runAgentLoopEvents } from "../../src/modules/agent-loop/runAgentLoop.js";
+import { buildSystemTools } from "../../src/modules/agent-loop/tools/system/index.js";
+import { ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import type { AgentLoopEvent, ModelClient, ToolDefinition } from "../../src/modules/agent-loop/tools/_shared/types.js";
 
 interface VulnTest {
   name: string;

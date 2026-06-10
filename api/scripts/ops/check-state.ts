@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { db } from "../src/config/database.js";
-import { tasks, taskSteps, jobTasks, events, subscriptions } from "../src/db/schema.js";
+import { db } from "../../src/config/database.js";
+import { tasks, taskSteps, jobTasks, events, subscriptions } from "../../src/db/schema.js";
 
 async function main() {
   const t = await db.select().from(tasks);
