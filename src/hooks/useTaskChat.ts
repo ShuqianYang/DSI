@@ -33,9 +33,9 @@ import {
 export interface UseTaskChatOptions {
   onGisDataRequest?: (gisData: GisData) => void;
   onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
-  /** 浠诲姟鍒涘缓鎴愬姛鍚庣珛鍗宠Е鍙戯紙鎷垮埌 taskId銆佹瀯閫?placeholder Task锛夛紱鐢ㄤ簬涓婂眰鑱斿姩 UI锛堟敹璧?chat / 寮硅繘搴︾獥锛夈€傝瑙?api/plan/auto-toggle-chat-and-task-panel.md */
+  /** 任务创建成功后立即触发（拿到 taskId、构造 placeholder Task）；用于上层联动 UI（收起 chat / 弹进度窗）。详见 api/plan/auto-toggle-chat-and-task-panel.md */
   onTaskCreate?: (task: Task, steps: ThinkingStep[], gisData?: GisData) => void;
-  /** 浠诲姟鏁翠綋瀹屾垚鎴栧け璐ユ椂瑙﹀彂锛涚敤浜庝笂灞傝仈鍔?UI锛堝睍寮€ chat / 鍏宠繘搴︾獥锛夈€傝瑙?api/plan/auto-toggle-chat-and-task-panel.md */
+  /** 任务整体完成或失败时触发；用于上层联动 UI（展开 chat / 关进度窗）。详见 api/plan/auto-toggle-chat-and-task-panel.md */
   onTaskFinished?: (taskId: string, status: 'completed' | 'failed') => void;
 }
 
@@ -56,13 +56,13 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
   const [isLoading, setIsLoading] = useState(false);
 
   const sseConnections = useRef<Map<string, EventSource>>(new Map());
-  // GIS 鏁版嵁鍘婚噸锛氳褰曞凡鎺ㄩ€佽繃 gisData 鐨?actionId锛岄伩鍏?step_update 鍜?task completed 閲嶅鎺ㄩ€?
+  // GIS 数据去重：记录已推送过 gisData 的 actionId，避免 step_update 和 task completed 重复推送
   const gisDataPushedRef = useRef<Set<string>>(new Set());
   const finishedTaskIdsRef = useRef<Set<string>>(new Set());
   const taskStreamModeTrackerRef = useRef(createTaskStreamModeTracker());
   const globalSseRef = useRef<EventSource | null>(null);
 
-  // 娓呯悊 SSE 杩炴帴鍜屽姩鐢诲畾鏃跺櫒
+  // 清理 SSE 连接和动画定时器
   useEffect(() => {
     return () => {
       sseConnections.current.forEach((es) => es.close());
@@ -73,7 +73,7 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
     };
   }, []);
 
-  // 鍏ㄥ眬 SSE锛氱洃鍚?subscription_triggered_task 绛夎法浠诲姟浜嬩欢
+  // 全局 SSE：监听 subscription_triggered_task 等跨任务事件
   useEffect(() => {
     const es = new EventSource('http://localhost:3001/sse/global');
     globalSseRef.current = es;
@@ -85,10 +85,10 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
 
         if (data.type === 'subscription_triggered_task' && data.taskId) {
           const taskId = data.taskId;
-          const name = data.name || '璁㈤槄浠诲姟';
+          const name = data.name || '订阅任务';
           const query = data.query || '';
 
-          // 閬垮厤閲嶅鍒涘缓鍚?taskId 鐨勫崰浣嶆秷鎭?
+          // 避免重复创建同 taskId 的占位消息
           setMessages((prev) => {
             if (prev.some((m) => m.taskId === taskId)) return prev;
 
@@ -96,22 +96,22 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
               id: `ai-sub-${Date.now()}`,
               role: 'assistant',
               taskId,
-              content: `馃敂 璁㈤槄銆?{name}銆嶅凡鑷姩瑙﹀彂锛屾鍦ㄦ墽琛岀伀鎯呯爺鍒?..\n\n**浠诲姟缂栧彿**锛?{taskId}`,
+              content: `🔔 订阅「${name}」已自动触发，正在执行火情研判...\n\n**任务编号**：${taskId}`,
               timestamp: Date.now(),
-              thinking: `璁㈤槄鑷姩瑙﹀彂锛?{query}`,
+              thinking: `订阅自动触发：${query}`,
               thinkingSteps: [
-                { id: 'planner', name: '浠诲姟瑙勫垝', status: 'pending', detail: '绛夊緟寮€濮?..' },
-                { id: 'router', name: '宸ュ叿鍐崇瓥', status: 'pending', detail: '绛夊緟瑙勫垝瀹屾垚...' },
+                { id: 'planner', name: '任务规划', status: 'pending', detail: '等待开始...' },
+                { id: 'router', name: '工具决策', status: 'pending', detail: '等待规划完成...' },
               ],
               isThinkingExpanded: true,
             };
             return [...prev, placeholderMsg];
           });
 
-          // 鍚姩璇?task 鐨?SSE 鐩戝惉
+          // 启动该 task 的 SSE 监听
           startTaskSse(taskId);
 
-          // 閫氱煡涓婂眰锛堝 page.tsx锛変换鍔″凡鍒涘缓锛屽彲灞曞紑鍙充晶闈㈡澘绛?
+          // 通知上层（如 page.tsx）任务已创建，可展开右侧面板等
           onTaskCreate?.({
             id: taskId,
             name: query.length > 30 ? `${query.slice(0, 30)}...` : query,
@@ -120,12 +120,12 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
             executeTime: Date.now(),
             dataCount: 0,
             subTasks: [
-              { id: 'planner', name: '浠诲姟瑙勫垝', description: '绛夊緟寮€濮?..', status: 'pending', order: 1 },
-              { id: 'router', name: '宸ュ叿鍐崇瓥', description: '绛夊緟瑙勫垝瀹屾垚...', status: 'pending', order: 2 },
+              { id: 'planner', name: '任务规划', description: '等待开始...', status: 'pending', order: 1 },
+              { id: 'router', name: '工具决策', description: '等待规划完成...', status: 'pending', order: 2 },
             ],
           }, [
-            { id: 'planner', name: '浠诲姟瑙勫垝', status: 'pending', detail: '绛夊緟寮€濮?..' },
-            { id: 'router', name: '宸ュ叿鍐崇瓥', status: 'pending', detail: '绛夊緟瑙勫垝瀹屾垚...' },
+            { id: 'planner', name: '任务规划', status: 'pending', detail: '等待开始...' },
+            { id: 'router', name: '工具决策', status: 'pending', detail: '等待规划完成...' },
           ]);
         }
       } catch (err) {
@@ -134,7 +134,7 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
     };
 
     es.onerror = () => {
-      // 闈欓粯澶勭悊锛屾祻瑙堝櫒浼氳嚜鍔ㄩ噸杩?
+      // 静默处理，浏览器会自动重连
     };
 
     return () => {
@@ -142,7 +142,7 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
     };
   }, []);
 
-  // 寤虹珛 SSE 杩炴帴骞剁洃鍚楠ょ骇瀹炴椂鏇存柊
+  // 建立 SSE 连接并监听步骤级实时更新
   const startTaskSse = (taskId: string) => {
     if (sseConnections.current.has(taskId)) return;
     taskStreamModeTrackerRef.current.preferNative(taskId);
@@ -180,7 +180,7 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
     };
   };
 
-  // 澶勭悊 SSE 娑堟伅锛屾洿鏂板搴旀秷鎭殑 thinkingSteps
+  // 处理 SSE 消息，更新对应消息的 thinkingSteps
   const upsertThinkingStep = (
     taskId: string,
     step: ThinkingStep,
@@ -415,12 +415,12 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
       const placeholderMsg: ChatMessage = {
         id: placeholderId,
         role: 'assistant',
-        content: '姝ｅ湪涓烘偍瑙勫垝浠诲姟...',
+        content: '正在为您规划任务...',
         timestamp: Date.now(),
-        thinking: '绛夊緟瑙勫垝缁撴灉...',
+        thinking: '等待规划结果...',
         thinkingSteps: [
-          { id: 'planner', name: '浠诲姟瑙勫垝', status: 'pending', detail: '绛夊緟寮€濮?..' },
-          { id: 'router', name: '宸ュ叿鍐崇瓥', status: 'pending', detail: '绛夊緟瑙勫垝瀹屾垚...' },
+          { id: 'planner', name: '任务规划', status: 'pending', detail: '等待开始...' },
+          { id: 'router', name: '工具决策', status: 'pending', detail: '等待规划完成...' },
         ],
         isThinkingExpanded: true,
       };
@@ -428,8 +428,8 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
 
       const result = await createAgentTask(userMessage.content);
 
-      // 鏋勯€?placeholder Task 绔嬪埢閫氱煡涓婂眰锛坰ubTasks 鐢?placeholder thinkingSteps 鍏滃簳锛?
-      // 绛夌湡瀹?task 鏁版嵁浠?useRightPanelData 鍛ㄦ湡鎬ф媺鍒板悗锛宲age.tsx 鍙寜 id 姣斿鍒锋柊锛?
+      // 构造 placeholder Task 立刻通知上层（subTasks 用 placeholder thinkingSteps 兜底；
+      // 等真实 task 数据从 useRightPanelData 周期性拉到后，page.tsx 可按 id 比对刷新）
       const placeholderSubTasks: SubTask[] = (placeholderMsg.thinkingSteps ?? []).map((s, i) => ({
         id: s.id,
         name: s.name,
@@ -465,18 +465,18 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
 
       window.dispatchEvent(new CustomEvent('agent:task-created', { detail: result.taskId }));
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : '浠诲姟鍒涘缓澶辫触';
+      const errorMsg = err instanceof Error ? err.message : '任务创建失败';
       console.warn('[useTaskChat] API failed, fallback to mock:', errorMsg);
 
       const mockResp = getMockResponse(userMessage.content);
       setMessages((prev) => {
-        const filtered = prev.filter((m) => m.role !== 'assistant' || m.content !== '姝ｅ湪涓烘偍瑙勫垝浠诲姟...');
+        const filtered = prev.filter((m) => m.role !== 'assistant' || m.content !== '正在为您规划任务...');
         return [
           ...filtered,
           {
             id: `ai-${Date.now()}`,
             role: 'assistant',
-            content: mockResp.content + '\n\n锛堝悗绔湇鍔℃殏涓嶅彲鐢紝浠ヤ笂鍐呭涓烘ā鎷熷洖澶嶏級',
+            content: mockResp.content + '\n\n（后端服务暂不可用，以上内容为模拟回复）',
             timestamp: Date.now(),
             hasGisData: !!mockResp.gisData,
             gisData: mockResp.gisData,
