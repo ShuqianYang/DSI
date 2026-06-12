@@ -93,7 +93,7 @@ const registry = buildDefaultToolRegistry();
 | Edit | file | 已实现 | `ask` |
 | TodoWrite | task | session 内 MVP | `allow` |
 | Sleep | automation | MVP 已实现 | `allow` |
-| WebSearch | web | Tavily provider | `allow` |
+| WebSearch | web | 火山引擎 provider | `allow` |
 | WebFetch | web | native fetch | `allow` |
 | SqlQuery | domain | 只读 SQL 查询 | `allow` |
 | SqlQuerySchema | domain | 白名单 schema 结构查询 | `allow` |

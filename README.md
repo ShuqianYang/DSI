@@ -12,7 +12,7 @@
 | 后端框架 | Express 5 + TypeScript |
 | 数据库 | PostgreSQL 16 + Drizzle ORM |
 | 缓存/队列 | Redis 7 + BullMQ |
-| AI 服务 | Dify API + DeepSeek API + Qwen API + Tavily 搜索 |
+| AI 服务 | Dify API + DeepSeek API + Qwen API + 火山引擎搜索 |
 | 包管理 | pnpm 9 workspace (monorepo) |
 
 ## 项目结构
@@ -322,7 +322,7 @@ DIFY_INSIGHT_API_KEY=your_key    # Insight 生成
 DIFY_MARITIME_API_KEY=your_key   # 海域态势
 DIFY_NEWS_API_KEY=your_key       # 新闻分析
 QWEN_API_KEY=your_key            # Qwen 模型
-TAVILY_API_KEY=your_key          # 搜索增强
+VOLCANO_SEARCH_API_KEY=your_key  # 搜索增强
 
 # Agent Loop 上下文（可选，有默认值）
 AGENT_WORKSPACE_ROOT=../..       # 工作区根目录（工具路径解析基准）
@@ -386,7 +386,7 @@ pnpm start:prod
 | DeepSeek API | Planner / Router LLM 推理 | 推荐 |
 | Dify | LLM Agent 服务 (Planner/Router/Insight/Maritime/News) | 未配置时降级为 Mock |
 | Qwen API | 阿里百练模型 | 可选 |
-| Tavily | 搜索增强 | 可选 |
+| 火山引擎搜索 | 搜索增强 | 可选 |
 | AISStream | AIS 实时船舶数据 (WebSocket → 每小时 DB 注入) | 可选 |
 | ShipDT | AIS 船舶静态数据 / 区域聚合查询 | 可选 |
 | OpenSky | ADS-B 航空器数据 | 可选 |

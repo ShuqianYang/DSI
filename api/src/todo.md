@@ -19,8 +19,7 @@ package script：
   - `DEEPSEEK_API_KEY`
   - `DEEPSEEK_API_URL`
   - `DEEPSEEK_MODEL`
-  - `TAVILY_API_KEY`
-  - `TAVILY_SEARCH_URL`
+  - `VOLCANO_SEARCH_API_KEY`
   - `AGENT_WORKSPACE_ROOT`
   - `AGENT_TIMEZONE`
 - 如果本机需要 conda 环境，先进入对应环境，例如 `conda activate dsi`。

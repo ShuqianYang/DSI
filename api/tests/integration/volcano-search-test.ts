@@ -1,12 +1,14 @@
+import "dotenv/config";
+
 /**
  * 火山引擎 Web Search API 返回格式测试
- * 用于验证返回结构，为替换 news capability 中的博查搜索做准备
+ * 用于验证返回结构，确保与 api/src/modules/agent-loop/tools/system/web.ts 的 normalize 逻辑一致。
  *
- * 运行方式: npx tsx api/tests/volcano-search-test.ts
+ * 运行方式: npx tsx api/tests/integration/volcano-search-test.ts
  */
 
-const API_URL = "https://open.feedcoopapi.com/search_api/web_search";
-const API_KEY = "veIwR91qBIrPSwmDwoPTfmMP1QsISPn8";
+const API_URL = process.env.VOLCANO_SEARCH_URL || "https://open.feedcoopapi.com/search_api/web_search";
+const API_KEY = process.env.VOLCANO_SEARCH_API_KEY;
 
 interface VolcanoSearchRequest {
   Query: string;
@@ -27,6 +29,10 @@ interface VolcanoSearchRequest {
 }
 
 async function volcanoSearch(params: Partial<VolcanoSearchRequest> = {}) {
+  if (!API_KEY) {
+    throw new Error("VOLCANO_SEARCH_API_KEY is required. Set it in your environment or .env file.");
+  }
+
   const body: VolcanoSearchRequest = {
     Query: params.Query || "南海新闻",
     SearchType: params.SearchType || "web",
@@ -101,6 +107,44 @@ function printResponseStructure(data: unknown, path = "") {
   }
 }
 
+function assertVolcanoWebResult(result: unknown, query: string) {
+  if (!result || typeof result !== "object") {
+    throw new Error(`[${query}] WebResult is not an object`);
+  }
+  const r = result as Record<string, unknown>;
+  const requiredStringFields = ["Title", "Url", "Snippet", "Summary", "Content", "PublishTime"];
+  for (const field of requiredStringFields) {
+    if (typeof r[field] !== "string" || !r[field]) {
+      throw new Error(`[${query}] WebResult.${field} is missing or not a non-empty string`);
+    }
+  }
+  if (typeof r.SiteName !== "string" || !r.SiteName) {
+    throw new Error(`[${query}] WebResult.SiteName is missing or empty`);
+  }
+}
+
+function assertVolcanoResponse(data: unknown, query: string) {
+  if (!data || typeof data !== "object") {
+    throw new Error(`[${query}] Response is not an object`);
+  }
+  const response = data as Record<string, unknown>;
+  const resultValue = response.Result;
+  if (resultValue === null) {
+    console.log(`[${query}] Result is null (empty result from provider)`);
+    return;
+  }
+  if (typeof resultValue !== "object") {
+    throw new Error(
+      `[${query}] Response.Result is invalid. Top-level keys: ${Object.keys(response).join(", ")}; Result type: ${typeof resultValue}; Result preview: ${String(resultValue).slice(0, 200)}`,
+    );
+  }
+  const result = resultValue as Record<string, unknown>;
+  if (!Array.isArray(result.WebResults) || result.WebResults.length === 0) {
+    throw new Error(`[${query}] Result.WebResults is empty or missing`);
+  }
+  result.WebResults.forEach((item) => assertVolcanoWebResult(item, query));
+}
+
 async function main() {
   const testQueries = [
     { Query: "南海新闻", Count: 5 },
@@ -112,41 +156,17 @@ async function main() {
   for (const queryParams of testQueries) {
     try {
       const result = await volcanoSearch(queryParams);
+      assertVolcanoResponse(result, queryParams.Query);
       console.log("\n--- 原始返回 ---");
       console.log(JSON.stringify(result, null, 2));
       console.log("\n--- 结构解析 ---");
       printResponseStructure(result, "root");
+      console.log(`\n[✓] "${queryParams.Query}" 结构校验通过`);
     } catch (err) {
       console.error(`查询 "${queryParams.Query}" 失败:`, err instanceof Error ? err.message : err);
+      process.exitCode = 1;
     }
   }
-
-  // 对比博查搜索的结构（用于适配参考）
-  console.log("\n\n========================================");
-  console.log("博查搜索（当前使用）的典型返回结构参考:");
-  console.log("");
-  console.log("{");
-  console.log("  data: {");
-  console.log("    webPages: {");
-  console.log("      value: [");
-  console.log("        {");
-  console.log("          id: string,");
-  console.log("          name: string,        // 标题");
-  console.log("          url: string,");
-  console.log("          displayUrl: string,");
-  console.log("          snippet: string,     // 摘要");
-  console.log("          siteName: string,");
-  console.log("          datePublished: string,");
-  console.log("          thumbnail: object,");
-  console.log("        }, ...");
-  console.log("      ]");
-  console.log("    },");
-  console.log("    _type: string");
-  console.log("  },");
-  console.log("  code: number,");
-  console.log("  log_id: string,");
-  console.log("  msg: string");
-  console.log("}");
 }
 
 main();

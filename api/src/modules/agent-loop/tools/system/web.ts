@@ -10,20 +10,18 @@ const WEBFETCH_DEFAULT_MAX_CHARS = parsePositiveIntegerEnv(
 );
 const WEBFETCH_USER_AGENT = process.env.WEBFETCH_USER_AGENT || "DSI-AgentLoop/0.1";
 const WEBSEARCH_TIMEOUT_MS = parsePositiveIntegerEnv(process.env.WEBSEARCH_TIMEOUT_MS, 30_000);
-const TAVILY_SEARCH_URL = process.env.TAVILY_SEARCH_URL || "https://api.tavily.com/search";
+const VOLCANO_SEARCH_URL =
+  process.env.VOLCANO_SEARCH_URL || "https://open.feedcoopapi.com/search_api/web_search";
 
 export function buildWebSearchTool(): ToolDefinition {
   return {
     name: "WebSearch",
     description:
-      'Search the web for current or unknown information. Input: {"query":"北京今天的天气","max_results":5,"search_depth":"basic|advanced","include_answer":true,"topic":"general|news","time_range":"day|week|month|year"}. Use WebFetch only after WebSearch returns a URL worth reading.',
+      'Search the web for current or unknown information. Input: {"query":"北京今天的天气","max_results":5,"time_range":"day|week|month|year"}. Use WebFetch only after WebSearch returns a URL worth reading.',
     kind: "system",
     inputSchema: z.strictObject({
       query: z.string().min(1),
       max_results: z.number().int().positive().max(10).optional(),
-      search_depth: z.enum(["basic", "advanced"]).optional(),
-      include_answer: z.boolean().optional(),
-      topic: z.enum(["general", "news"]).optional(),
       time_range: z.enum(["day", "week", "month", "year"]).optional(),
       include_domains: z.array(z.string().min(1)).max(10).optional(),
       exclude_domains: z.array(z.string().min(1)).max(10).optional(),
@@ -37,17 +35,14 @@ export function buildWebSearchTool(): ToolDefinition {
       const parsed = input as {
         query: string;
         max_results?: number;
-        search_depth?: "basic" | "advanced";
-        include_answer?: boolean;
-        topic?: "general" | "news";
         time_range?: "day" | "week" | "month" | "year";
         include_domains?: string[];
         exclude_domains?: string[];
       };
 
-      const apiKey = process.env.TAVILY_API_KEY;
+      const apiKey = process.env.VOLCANO_SEARCH_API_KEY;
       if (!apiKey) {
-        throw new Error("TAVILY_API_KEY is required for WebSearch.");
+        throw new Error("VOLCANO_SEARCH_API_KEY is required for WebSearch.");
       }
 
       const abortController = new AbortController();
@@ -60,43 +55,49 @@ export function buildWebSearchTool(): ToolDefinition {
       }
 
       const body = {
-        api_key: apiKey,
-        query: parsed.query,
-        search_depth: parsed.search_depth ?? "basic",
-        max_results: parsed.max_results ?? 5,
-        include_answer: parsed.include_answer ?? true,
-        topic: parsed.topic ?? "general",
-        time_range: parsed.time_range,
-        include_domains: parsed.include_domains,
-        exclude_domains: parsed.exclude_domains,
+        Query: parsed.query,
+        SearchType: "web",
+        Count: parsed.max_results ?? 5,
+        Filter: {
+          NeedContent: true,
+          NeedUrl: true,
+          Sites: parsed.include_domains?.join(",") ?? "",
+          BlockHosts: parsed.exclude_domains?.join(",") ?? "",
+          AuthInfoLevel: 0,
+        },
+        NeedSummary: true,
+        TimeRange: parsed.time_range ?? "",
+        QueryControl: {
+          QueryRewrite: false,
+        },
       };
 
-      const response = await fetch(TAVILY_SEARCH_URL, {
+      const response = await fetch(VOLCANO_SEARCH_URL, {
         method: "POST",
         signal: abortController.signal,
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify(dropUndefined(body)),
+        body: JSON.stringify(body),
       }).finally(() => clearTimeout(timeout));
 
       const text = await response.text();
       if (!response.ok) {
-        throw new Error(`Tavily search failed: ${response.status} ${truncate(text, 2_000)}`);
+        throw new Error(`Volcano search failed: ${response.status} ${truncate(text, 2_000)}`);
       }
 
-      const json = parseJsonObject(text, "Tavily search response");
-      const results = Array.isArray(json.results) ? json.results : [];
+      const json = parseJsonObject(text, "Volcano search response");
+      const result = json.Result && typeof json.Result === "object" ? (json.Result as Record<string, unknown>) : {};
+      const rawResults = Array.isArray(result.WebResults) ? result.WebResults : [];
+      const results = rawResults.slice(0, parsed.max_results ?? 5).map(normalizeVolcanoResult);
 
       return {
-        provider: "tavily",
+        provider: "volcano",
         query: parsed.query,
-        answer: typeof json.answer === "string" ? json.answer : undefined,
-        results: results.slice(0, parsed.max_results ?? 5).map(normalizeTavilyResult),
-        responseTime:
-          typeof json.response_time === "number" || typeof json.response_time === "string"
-            ? json.response_time
-            : undefined,
+        answer: buildVolcanoAnswer(results),
+        results,
+        responseTime: undefined,
       };
     },
   };
@@ -160,17 +161,28 @@ function parseJsonObject(text: string, label: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function normalizeTavilyResult(value: unknown): Record<string, unknown> {
+function normalizeVolcanoResult(value: unknown): Record<string, unknown> {
   const result = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return dropUndefined({
-    title: typeof result.title === "string" ? result.title : undefined,
-    url: typeof result.url === "string" ? result.url : undefined,
-    content: typeof result.content === "string" ? result.content : undefined,
-    rawContent: typeof result.raw_content === "string" ? result.raw_content : undefined,
-    score: typeof result.score === "number" ? result.score : undefined,
-    publishedDate:
-      typeof result.published_date === "string" ? result.published_date : undefined,
+    title: typeof result.Title === "string" ? result.Title : undefined,
+    url: typeof result.Url === "string" ? result.Url : undefined,
+    content: typeof result.Snippet === "string" ? result.Snippet : undefined,
+    rawContent: typeof result.Content === "string" ? result.Content : undefined,
+    summary: typeof result.Summary === "string" ? result.Summary : undefined,
+    siteName: typeof result.SiteName === "string" ? result.SiteName : undefined,
+    publishedDate: typeof result.PublishTime === "string" ? result.PublishTime : undefined,
   });
+}
+
+function buildVolcanoAnswer(results: Record<string, unknown>[]): string | undefined {
+  if (results.length === 0) return undefined;
+  // Prefer the first result's Summary if available.
+  const first = results[0];
+  const summary = first?.summary;
+  if (typeof summary === "string" && summary.trim()) {
+    return summary.trim();
+  }
+  return undefined;
 }
 
 function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {

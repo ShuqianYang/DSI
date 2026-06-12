@@ -11,7 +11,7 @@
 | **灾情数据查询** | 旧 `fire`/`earthquake`/`flood` capability 已删除，无后端数据源 | 需接入实时/历史灾情 API |
 | **卫星影像搜索** | 无卫星数据源接入；仅有独立 `tif-to-png.py` 脚本未集成 | 需接入 Sentinel/天地图/Google Earth 等 |
 | **图像解析** | 无图像分析能力；无 Vision LLM 集成 | 需接入 vision model 或遥感分析服务 |
-| **新闻搜索** | Tavily `WebSearch` 可用（支持 `topic: news`） | ✅ 可用，需加灾情关键词过滤 |
+| **新闻搜索** | 火山引擎 `WebSearch` 可用 | ✅ 可用，需加灾情关键词过滤 |
 | **区域解析** | `RegionResolve` + PostGIS `region_resolve_catalog` | ✅ 可用 |
 
 ---
