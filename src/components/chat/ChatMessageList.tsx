@@ -27,6 +27,7 @@ const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
   { label: '订阅每日日报', prompt: '订阅每日日报' },
   { label: '生成专项报告', prompt: '生成专项报告' },
   */
+  /* 暂时注释
   {
     label: '排查漏油',
     prompt:
@@ -50,6 +51,7 @@ const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
     prompt:
       '对湖南石门县暴雨洪涝做灾后评估，先查询国家气象信息中心、湖南省气象局、水利部水文信息官网获取暴雨权威信息，先获取暴雨前最新历史影像，再提交天基信息服务需求获取暴雨后最新影像，自动对比识别淹没情况并完成洪涝灾后评估。',
   },
+  */
   // {
   //   label: '定制',
   //   prompt:
