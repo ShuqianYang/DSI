@@ -170,24 +170,6 @@ validateGisToolchainSmoke({
       },
     },
   ],
-  legacyEvents: [
-    {
-      type: "step_update",
-      actionId: "gis-mark-1",
-      actionType: "RegionMark",
-      status: "completed",
-      name: "RegionMark",
-      gisData: { type: "region" },
-    },
-    {
-      type: "step_update",
-      actionId: "gis-weather-1",
-      actionType: "WeatherFetch",
-      status: "completed",
-      name: "WeatherFetch",
-      gisData: { type: "wind-field" },
-    },
-  ],
   projectedResult: {
     message: "ok",
     mode: "agent_loop",
@@ -255,24 +237,6 @@ assert.throws(
               },
             },
           },
-        },
-      ],
-      legacyEvents: [
-        {
-          type: "step_update",
-          actionId: "gis-mark-1",
-          actionType: "RegionMark",
-          status: "completed",
-          name: "RegionMark",
-          gisData: { type: "region" },
-        },
-        {
-          type: "step_update",
-          actionId: "gis-weather-1",
-          actionType: "WeatherFetch",
-          status: "completed",
-          name: "WeatherFetch",
-          gisData: { type: "wind-field" },
         },
       ],
       projectedResult: {

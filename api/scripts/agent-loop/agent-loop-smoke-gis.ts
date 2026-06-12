@@ -4,7 +4,6 @@ import type {
   NormalizedAgentDecision,
   ToolObservation,
 } from "../../src/modules/agent-loop/tools/_shared/types.js";
-import type { LegacySseEvent } from "../../src/modules/tasks/agentLoopEventAdapter.js";
 import type { AgentLoopTaskResult } from "../../src/modules/tasks/agentLoopResultProjection.js";
 
 export const GIS_TOOLCHAIN_SCENARIO = "gis-toolchain";
@@ -20,14 +19,11 @@ interface Bbox {
 
 export interface GisToolchainValidationInput {
   rawEvents: AgentLoopEvent[];
-  legacyEvents: LegacySseEvent[];
   projectedResult: AgentLoopTaskResult;
 }
 
 export interface GisToolchainValidationReport {
   toolOrder: string[];
-  legacyRegionGisData: boolean;
-  legacyWindFieldGisData: boolean;
   projectedRegionGisData: boolean;
   projectedWindFieldGisData: boolean;
 }
@@ -200,11 +196,6 @@ export function validateGisToolchainSmoke(
     "WeatherFetch bbox drifted from RegionResolve.selected.bbox."
   );
 
-  const legacyRegionGisData = hasLegacyGisData(input.legacyEvents, "region");
-  const legacyWindFieldGisData = hasLegacyGisData(input.legacyEvents, "wind-field");
-  assertCondition(legacyRegionGisData, "Legacy SSE events did not expose region gisData.");
-  assertCondition(legacyWindFieldGisData, "Legacy SSE events did not expose wind-field gisData.");
-
   const projectedRegionGisData = hasProjectedGisData(input.projectedResult, "region");
   const projectedWindFieldGisData = hasProjectedGisData(input.projectedResult, "wind-field");
   assertCondition(projectedRegionGisData, "Projected task.result did not expose region gisData.");
@@ -212,8 +203,6 @@ export function validateGisToolchainSmoke(
 
   return {
     toolOrder,
-    legacyRegionGisData,
-    legacyWindFieldGisData,
     projectedRegionGisData,
     projectedWindFieldGisData,
   };
@@ -264,13 +253,6 @@ function sameBbox(value: Record<string, unknown>, expected: Bbox): boolean {
 
 function sameJson(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
   return JSON.stringify(left, Object.keys(left).sort()) === JSON.stringify(right, Object.keys(right).sort());
-}
-
-function hasLegacyGisData(events: LegacySseEvent[], type: string): boolean {
-  return events.some((event) => {
-    if (event.type !== "step_update" || event.status !== "completed") return false;
-    return objectRecord(event.gisData).type === type;
-  });
 }
 
 function hasProjectedGisData(result: AgentLoopTaskResult, type: string): boolean {

@@ -12,16 +12,19 @@ import { Entity, Insight, GisData, Task, TaskEvent, ThinkingStep, SubTask, Traje
 import { mockUser } from '@/data/mockData';
 
 const EMPTY_REGIONS: Region[] = [];
-import { getAisData, getAdsData, getTask } from '@/lib/api';
+import { getAisData, getAdsData } from '@/lib/api';
 import type { ApiAisData, ApiAdsData } from '@/lib/api';
 import type { GisOperation, CesiumMapRef } from '@/components/cesium/CesiumMap';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
 import {
   extractGisPushesFromAgentLoopEvent,
-  extractGisPushesFromLegacySse,
-  extractGisPushesFromTaskResult,
 } from '@/lib/agentLoopGisBridge';
-import { parseTaskStreamEvent } from '@/lib/agentLoopEvents';
+import {
+  createTaskStreamModeTracker,
+  getTaskFinishFromStreamEvent,
+  isNativeAgentLoopProgressEvent,
+} from '@/lib/taskStreamLifecycle';
+import { routeTaskStreamEvent } from '@/lib/taskStreamRouter';
 import LiveClock from '@/components/LiveClock';
 import WindParticleCanvasOverlay from '@/features/gis-custom/multi-layer-points/WindParticleCanvasOverlay';
 
@@ -57,6 +60,7 @@ export default function HomePage() {
   const gisDataCounterRef = useRef(0);
   const highlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const cesiumMapRef = useRef<CesiumMapRef>(null);
+  const taskStreamModeTrackerRef = useRef(createTaskStreamModeTracker());
 
   const pushActiveGisData = useCallback((incoming: GisData, eventId: string) => {
     setActiveGisDataList((prev) => {
@@ -218,40 +222,27 @@ export default function HomePage() {
       try {
         const data = JSON.parse(event.data);
         console.log('[page] SSE auto-connect msg:', data.type, data);
-        const parsed = parseTaskStreamEvent(data);
-        if (parsed.kind === 'agent-loop') {
-          const pushes = extractGisPushesFromAgentLoopEvent(sseTaskId, parsed.event);
+        const routed = routeTaskStreamEvent({
+          taskId: sseTaskId,
+          event: data,
+          tracker: taskStreamModeTrackerRef.current,
+        });
+        if (routed.kind === 'agent-loop') {
+          const pushes = extractGisPushesFromAgentLoopEvent(sseTaskId, routed.event);
           for (const push of pushes) {
             console.log('[page] Auto-received gisData (agent-loop):', push.source, push.key, push.gisData.type);
             pushActiveGisData(push.gisData, push.key);
           }
+          const finish = getTaskFinishFromStreamEvent(routed.event);
+          if (finish) {
+            console.log('[page] Native task finished, closing auto SSE');
+            evtSource.close();
+            taskStreamModeTrackerRef.current.clear(sseTaskId);
+            return;
+          }
         }
 
-        if (data.type === 'step_update' && data.status === 'completed' && data.operations) {
-          console.log('[page] Auto-received operations:', data.operations);
-          handleGisOperation(data.operations);
-        }
         // GIS 数据：步骤完成时**直接 push** activeGisDataList（按 stepId 去重），
-        // Bridge pushes directly to activeGisDataList, preserving multiple GIS outputs in one SSE burst.
-        for (const push of extractGisPushesFromLegacySse(sseTaskId, data)) {
-          console.log('[page] Auto-received gisData (legacy-sse):', push.key, push.gisData.type);
-          pushActiveGisData(push.gisData, push.key);
-        }
-        if (data.type === 'completed' || data.type === 'failed') {
-          console.log('[page] Task finished, fetching gisData from result...');
-          getTask(sseTaskId)
-            .then((task) => {
-              console.log('[page] Task result keys:', Object.keys(task.result || {}));
-              if (task.result) {
-                for (const push of extractGisPushesFromTaskResult(sseTaskId, task.result)) {
-                  console.log('[page] Auto-received gisData (task-result):', push.source, push.key, push.gisData.type);
-                  pushActiveGisData(push.gisData, push.key);
-                }
-              }
-            })
-            .catch((err) => console.error('[page] getTask failed:', err));
-          evtSource.close();
-        }
       } catch (err) {
         console.warn('[page] SSE auto-connect parse error:', err);
       }
@@ -263,6 +254,7 @@ export default function HomePage() {
 
     return () => {
       evtSource.close();
+      taskStreamModeTrackerRef.current.clear(sseTaskId);
     };
   }, []);
 
@@ -424,11 +416,12 @@ export default function HomePage() {
     setSelectedTask(mapped);
   }, [apiTasks, selectedTask]);
 
-  // SSE：监听任务 step_update，实时刷新 apiTasks，让 selectedTask swap 跟上进度
+  // SSE: refresh apiTasks from native Agent Loop events so selectedTask stays in sync.
   useEffect(() => {
     const handleTaskCreated = (e: Event) => {
       const taskId = (e as CustomEvent).detail as string;
       refresh();
+      taskStreamModeTrackerRef.current.preferNative(taskId);
 
       const evtSource = new EventSource(`http://localhost:3001/tasks/${taskId}/stream`);
       console.log('[page] SSE connected for task', taskId);
@@ -437,19 +430,33 @@ export default function HomePage() {
         try {
           const data = JSON.parse(event.data);
           console.log('[page] SSE msg:', data);
+          const routed = routeTaskStreamEvent({
+            taskId,
+            event: data,
+            tracker: taskStreamModeTrackerRef.current,
+          });
 
-          if (data.type === 'step_update' || data.type === 'progress') {
-            console.log('[page] Step update, refreshing...');
-            refresh();
+          if (routed.kind === 'agent-loop') {
+            if (isNativeAgentLoopProgressEvent(routed.event)) {
+              console.log('[page] Native Agent Loop progress, refreshing...');
+              refresh();
+              return;
+            }
+
+            const finish = getTaskFinishFromStreamEvent(routed.event);
+            if (finish) {
+              console.log('[page] Native Agent Loop task finished, refreshing...');
+              refresh();
+              evtSource.close();
+              taskStreamModeTrackerRef.current.clear(taskId);
+              return;
+            }
+          }
+
+          if (routed.kind === 'ignored-legacy') {
             return;
           }
 
-          if (data.type === 'completed' || data.type === 'failed') {
-            console.log('[page] Task finished, refreshing...');
-            refresh();
-            evtSource.close();
-            return;
-          }
         } catch (err) {
           console.warn('[page] SSE parse error:', err);
         }
@@ -457,6 +464,7 @@ export default function HomePage() {
 
       evtSource.onerror = () => {
         evtSource.close();
+        taskStreamModeTrackerRef.current.clear(taskId);
       };
     };
 

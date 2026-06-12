@@ -16,7 +16,6 @@ import type {
   AgentMessage,
   ToolPermissionHandler,
 } from "../../src/modules/agent-loop/tools/_shared/types.js";
-import type { LegacySseEvent } from "../../src/modules/tasks/agentLoopEventAdapter.js";
 
 const DEFAULT_QUERY =
   "Use read-only tools to inspect the api/src/modules/agent-loop directory and summarize its core files.";
@@ -39,20 +38,10 @@ async function main() {
   const registry = buildSelectedRegistry(options.tools);
   const smokeDb = await loadSmokeDb();
   const { runAgentLoopEvents } = await import("../../src/modules/agent-loop/runAgentLoop.js");
-  const { createLegacySseAdapter } = await import("../../src/modules/tasks/agentLoopEventAdapter.js");
   const { buildAgentLoopTaskResult } = await import("../../src/modules/tasks/agentLoopResultProjection.js");
   const taskId = await createSmokeTask(smokeDb, query);
   const permissionHandler = createCliPermissionHandler();
   const rawEvents: AgentLoopEvent[] = [];
-  const legacyEvents: LegacySseEvent[] = [];
-  const legacySseAdapter =
-    options.scenario === GIS_TOOLCHAIN_SCENARIO
-      ? createLegacySseAdapter({
-          taskId,
-          query,
-          emit: (event) => legacyEvents.push(event),
-        })
-      : undefined;
   const modelClient =
     options.scenario === GIS_TOOLCHAIN_SCENARIO && !options.realModel
       ? createGisToolchainSmokeModelClient()
@@ -75,7 +64,6 @@ async function main() {
   let loopResult: AgentLoopResult | undefined;
   const handleEvent = (event: AgentLoopEvent) => {
     rawEvents.push(event);
-    legacySseAdapter?.handle(event);
   };
 
   try {
@@ -135,15 +123,11 @@ async function main() {
   if (options.scenario === GIS_TOOLCHAIN_SCENARIO && loopResult) {
     const report = validateGisToolchainSmoke({
       rawEvents,
-      legacyEvents,
       projectedResult: buildAgentLoopTaskResult(loopResult),
     });
     console.log("");
     console.log("[gis-smoke] validation passed");
     console.log(`[gis-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
-    console.log(
-      `[gis-smoke] legacy gisData: region=${report.legacyRegionGisData} wind-field=${report.legacyWindFieldGisData}`,
-    );
     console.log(
       `[gis-smoke] task.result projection: region=${report.projectedRegionGisData} wind-field=${report.projectedWindFieldGisData}`,
     );

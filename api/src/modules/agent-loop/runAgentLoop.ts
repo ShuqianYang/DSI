@@ -43,6 +43,9 @@ import type {
 const MAX_MODEL_TOOL_RESULT_CHARS = 50_000;
 const MODEL_TOOL_RESULT_PREVIEW_CHARS = 2_000;
 const DEFAULT_MAX_CONCURRENT_TOOL_CALLS = 5;
+const MIN_ASSISTANT_ANSWER_CANDIDATE_CHARS = 280;
+const MAX_CLOSING_ONLY_FINAL_ANSWER_CHARS = 160;
+const ANSWER_CANDIDATE_COMPATIBLE_TOOL_NAMES = new Set(["TodoWrite"]);
 
 export interface RunAgentLoopOptions {
   taskId: string;
@@ -148,6 +151,7 @@ export async function* runAgentLoopEvents(
   const conversationMessages: AgentMessage[] = [];
   const initialMessages: AgentMessage[] = [{ role: "user", content: options.query }];
   const usedToolSignatures = new Map<string, ToolObservation>();
+  let latestAssistantAnswerCandidate: string | undefined;
   let toolUseContext = createAgentLoopToolUseContext({
     taskId: options.taskId,
     query: options.query,
@@ -333,8 +337,9 @@ export async function* runAgentLoopEvents(
           turn,
           message: assistantMessage,
         });
+        const finalAnswer = selectFinalAnswer(decision.content, latestAssistantAnswerCandidate);
         const result: AgentLoopResult = {
-          finalAnswer: decision.content,
+          finalAnswer,
           turns: turn,
           observations,
           stoppedBy: "final_answer",
@@ -343,12 +348,12 @@ export async function* runAgentLoopEvents(
           turn,
           kind: "loop_stop",
           stoppedBy: "final_answer",
-          finalAnswer: decision.content,
+          finalAnswer,
         });
         if (memoryManager.remember) {
           await memoryManager.remember({
             query: options.query,
-            finalAnswer: decision.content,
+            finalAnswer,
             result,
             messages: [...initialMessages, ...conversationMessages],
             observations,
@@ -404,6 +409,8 @@ export async function* runAgentLoopEvents(
         toolCalls: decision.toolCalls,
       };
       conversationMessages.push(assistantMessage);
+      latestAssistantAnswerCandidate =
+        getAssistantAnswerCandidate(assistantMessage) ?? latestAssistantAnswerCandidate;
       await appendTranscript({
         turn,
         kind: "assistant_message",
@@ -969,6 +976,38 @@ function formatAbortReason(reason: unknown): string {
     return `Agent loop aborted: ${reason}`;
   }
   return "Agent loop aborted.";
+}
+
+function getAssistantAnswerCandidate(message: AgentMessage): string | undefined {
+  const content = message.content.trim();
+  if (content.length < MIN_ASSISTANT_ANSWER_CANDIDATE_CHARS) return undefined;
+  if (!message.toolCalls?.length) return undefined;
+  if (!message.toolCalls.every((toolCall) => ANSWER_CANDIDATE_COMPATIBLE_TOOL_NAMES.has(toolCall.toolName))) {
+    return undefined;
+  }
+  return content;
+}
+
+function selectFinalAnswer(currentFinalAnswer: string, previousCandidate: string | undefined): string {
+  const current = currentFinalAnswer.trim();
+  if (!previousCandidate) return currentFinalAnswer;
+  if (shouldPreferPreviousAnswerCandidate(current, previousCandidate)) return previousCandidate;
+  return currentFinalAnswer;
+}
+
+function shouldPreferPreviousAnswerCandidate(current: string, previousCandidate: string): boolean {
+  if (!current) return true;
+  if (previousCandidate.length < MIN_ASSISTANT_ANSWER_CANDIDATE_CHARS) return false;
+  if (current.length > MAX_CLOSING_ONLY_FINAL_ANSWER_CHARS) return false;
+  if (current.length * 3 >= previousCandidate.length && !isClosingOnlyFinalAnswer(current)) return false;
+  return isClosingOnlyFinalAnswer(current) || current.length < previousCandidate.length / 4;
+}
+
+function isClosingOnlyFinalAnswer(content: string): boolean {
+  const compact = content.replace(/\s+/g, " ").trim();
+  if (!compact) return false;
+  if (/^#{1,6}\s|\|.+\||```/.test(compact)) return false;
+  return /以上就是|完整的查询结果|如果您希望|可以告诉我|进一步了解|let me know|hope this helps/i.test(compact);
 }
 
 function toolCallEvent(

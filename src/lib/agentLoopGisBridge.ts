@@ -3,7 +3,6 @@ import type { AgentLoopEvent, GisData, ToolObservation } from '@datasourceintell
 export type AgentLoopGisPushSource =
   | 'agent-loop-event'
   | 'agent-loop-result'
-  | 'legacy-sse'
   | 'legacy-result';
 
 export interface AgentLoopGisPush {
@@ -86,29 +85,6 @@ export function extractGisPushesFromTaskResult(
   }
 
   return pushes;
-}
-
-export function extractGisPushesFromLegacySse(taskId: string, data: unknown): AgentLoopGisPush[] {
-  const event = asRecord(data);
-  if (event.type !== 'step_update' || event.status !== 'completed') return [];
-
-  const gisData = isGisData(event.gisData) ? event.gisData : undefined;
-  if (!gisData) return [];
-
-  const id =
-    stringValue(event.actionId) ||
-    stringValue(event.stepId) ||
-    stringValue(event.actionType) ||
-    'legacy-sse';
-  return [
-    {
-      key: buildGisPushKey(taskId, id),
-      source: 'legacy-sse',
-      toolCallId: stringValue(event.actionId) || stringValue(event.stepId),
-      toolName: stringValue(event.actionType) || stringValue(event.name),
-      gisData,
-    },
-  ];
 }
 
 function extractGisDataFromObservation(observation: ToolObservation): GisData | undefined {
