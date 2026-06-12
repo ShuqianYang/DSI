@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ToolDefinition, ToolExecutionContext } from "../_shared/types.js";
+import type { ToolDefinition, ToolExecutionContext } from "../../_shared/types.js";
 
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const MARINE_URL = "https://marine-api.open-meteo.com/v1/marine";
@@ -102,7 +102,7 @@ export function buildWeatherFetchTool(): ToolDefinition {
     name: "WeatherFetch",
     aliases: ["weather-fetch"],
     description:
-      'Fetch real Open-Meteo wind and ocean-current data for an explicit center or bbox and return a GIS wind-field layer. Input: {"center":{"lat":25,"lng":120},"grid":{"rows":5,"cols":5},"lookbackDays":3}. This tool does not create a visible region outline. For named-region map linkage, use RegionResolve -> RegionMark -> WeatherFetch. The tool never guesses a default region and never fabricates mock weather data.',
+      'Fetch real Open-Meteo wind and ocean-current data for an explicit center or bbox and return a GIS wind-field layer. Input: {"bbox":{"west":117,"east":122.5,"south":22,"north":26.5},"grid":{"rows":5,"cols":5},"lookbackDays":3}. This tool does not create a visible region outline. For named-region map linkage, use RegionResolve -> RegionMark -> WeatherFetch and pass RegionResolve.selected.bbox unchanged. The tool never guesses a default region and never fabricates mock weather data.',
     kind: "domain",
     inputSchema: WeatherFetchInputSchema,
     isReadOnly: () => true,

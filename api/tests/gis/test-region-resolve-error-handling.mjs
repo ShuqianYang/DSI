@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
+import "dotenv/config";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 const tempRoot = await mkdtemp(path.join(tmpdir(), "region-resolve-missing-"));
 const originalWorkspaceRoot = process.env.AGENT_WORKSPACE_ROOT;
+const originalSource = process.env.REGION_RESOLVE_SOURCE;
 process.env.AGENT_WORKSPACE_ROOT = path.join(tempRoot, "missing-workspace");
+process.env.REGION_RESOLVE_SOURCE = "geojson";
 
 try {
-  const { buildRegionResolveTool } = await import("../../src/modules/agent-loop/regionResolveTool.ts");
+  const { buildRegionResolveTool } = await import("../../src/modules/agent-loop/tools/domain/gis/regionResolve.ts");
   const tool = buildRegionResolveTool();
   const output = await tool.execute(
     { regionName: "\u4e1c\u6d77" },
@@ -28,6 +31,11 @@ try {
     delete process.env.AGENT_WORKSPACE_ROOT;
   } else {
     process.env.AGENT_WORKSPACE_ROOT = originalWorkspaceRoot;
+  }
+  if (originalSource === undefined) {
+    delete process.env.REGION_RESOLVE_SOURCE;
+  } else {
+    process.env.REGION_RESOLVE_SOURCE = originalSource;
   }
   await rm(tempRoot, { recursive: true, force: true });
 }

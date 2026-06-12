@@ -1,6 +1,6 @@
 version: "3.8"
 
-# 仅启动基础设施（PostgreSQL + Redis）
+# 仅启动基础设施（PostgreSQL + Redis + PostGIS 地理库）
 # API 和 Worker 在本地运行，避免 Docker 中的 pnpm workspace 问题
 
 services:
@@ -40,9 +40,30 @@ services:
     networks:
       - ds_network
 
+  postgis:
+    image: postgis/postgis:17-3.5
+    container_name: ds_postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: show_room
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d show_room"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ds_network
+
 volumes:
   postgres_data:
   redis_data:
+  postgis_data:
 
 networks:
   ds_network:

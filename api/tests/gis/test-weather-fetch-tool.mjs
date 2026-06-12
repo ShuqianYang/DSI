@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-const { buildWeatherFetchTool } = await import("../../src/modules/agent-loop/weatherTools.ts");
+const { buildWeatherFetchTool } = await import("../../src/modules/agent-loop/tools/domain/weather/weather.ts");
 
 function createContext() {
   return {

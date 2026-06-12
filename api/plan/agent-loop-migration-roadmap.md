@@ -116,8 +116,8 @@ RegionResolve -> RegionMark -> WeatherFetch
 
 核心文件：
 
-- `api/src/modules/agent-loop/weatherTools.ts`
-- `api/tests/test-weather-fetch-tool.mjs`
+- `api/src/modules/agent-loop/tools/domain/weather.ts`
+- `api/tests/gis/test-weather-fetch-tool.mjs`
 
 边界：
 
@@ -131,8 +131,8 @@ RegionResolve -> RegionMark -> WeatherFetch
 
 核心文件：
 
-- `api/src/modules/agent-loop/regionTools.ts`
-- `api/tests/test-region-mark-tool.mjs`
+- `api/src/modules/agent-loop/tools/domain/gis/regionMark.ts`
+- `api/tests/gis/test-region-mark-tool.mjs`
 
 边界：
 
@@ -146,9 +146,9 @@ RegionResolve -> RegionMark -> WeatherFetch
 
 核心文件：
 
-- `api/src/modules/agent-loop/regionResolveTool.ts`
-- `api/tests/test-region-resolve-tool.mjs`
-- `api/tests/test-region-resolve-error-handling.mjs`
+- `api/src/modules/agent-loop/tools/domain/gis/regionResolve.ts`
+- `api/tests/gis/test-region-resolve-tool.mjs`
+- `api/tests/gis/test-region-resolve-error-handling.mjs`
 
 边界：
 
@@ -167,11 +167,32 @@ RegionResolve -> RegionMark -> WeatherFetch
 
 - `台湾海峡`，除非后续补真实 GeoJSON 或区域 catalog。
 
+### 6. Agent Loop Prompt 策略（GIS Tool Routing Rules）
+
+核心文件：
+
+- `api/src/modules/agent-loop/promptManager.ts`
+- `api/tests/agent-loop/test-prompt-manager-gis-routing.mjs`
+
+已实现内容：
+
+```text
+When the user asks to mark, focus, circle, display, or analyze a named geographic region:
+1. Call RegionResolve first.
+2. If resolved=true, call RegionMark with selected.bbox.
+3. If downstream weather, aircraft, or maritime data is requested, reuse the same bbox.
+4. If resolved=false, do not guess. Ask for bbox/polygon or say the region GeoJSON is missing.
+```
+
+目标：让模型稳定形成 `RegionResolve -> RegionMark -> downstream tools` 的顺序，避免把"台湾海峡"直接塞给 `RegionMark` 导致失败。
+
+---
+
 ## 当前未完成
 
 ### 1. GIS 工具链端到端 smoke
 
-下一步优先做。
+**状态：基础设施已存在，独立测试文件待补齐。**
 
 目标链路：
 
@@ -185,9 +206,15 @@ RegionResolve -> RegionMark -> WeatherFetch
 -> 前端地图可恢复区域和风场
 ```
 
-建议新增：
+已有基础设施：
 
-- `api/tests/test-agent-loop-gis-toolchain-smoke.mjs`
+- `api/scripts/agent-loop/agent-loop-smoke-gis.ts`：含 `createGisToolchainSmokeModelClient`、`installMockOpenMeteoFetch`、`validateGisToolchainSmoke`
+- `api/tests/agent-loop/test-agent-loop-smoke-gis-helpers.mjs`：验证上述 helper
+- `api/scripts/agent-loop/agent-loop-smoke.ts` 支持 `--scenario gis-toolchain` 跑全链路
+
+待补齐：
+
+- `api/tests/test-agent-loop-gis-toolchain-smoke.mjs`（roadmap 原声称的独立文件，实际不存在）
 
 测试重点：
 
@@ -196,26 +223,7 @@ RegionResolve -> RegionMark -> WeatherFetch
 - 检查 legacy SSE 中至少出现 region 和 wind-field 两类 `gisData`。
 - 检查 `buildAgentLoopTaskResult` 可投影两个 toolCallId。
 
-### 2. Agent Loop GIS 工具调用策略
-
-需要在 prompt / skill / system instruction 中补规则。
-
-建议策略：
-
-```text
-When the user asks to mark, focus, circle, display, or analyze a named geographic region:
-1. Call RegionResolve first.
-2. If resolved=true, call RegionMark with selected.bbox.
-3. If downstream weather, aircraft, or maritime data is requested, reuse the same bbox.
-4. If resolved=false, do not guess. Ask for bbox/polygon or say the region GeoJSON is missing.
-```
-
-目标：
-
-- 让模型稳定形成 `RegionResolve -> RegionMark -> downstream tools` 的顺序。
-- 避免把“台湾海峡”直接塞给 `RegionMark` 导致失败。
-
-### 3. MaritimeSituation / FireAnalyze 迁移评估
+### 2. MaritimeSituation / FireAnalyze 迁移评估
 
 当前还没有迁移。
 
@@ -252,7 +260,7 @@ When the user asks to mark, focus, circle, display, or analyze a named geographi
 - 只在有真实火情数据输入时迁。
 - 否则先不迁。
 
-### 4. 批量迁移其他 capability
+### 3. 批量迁移其他 capability
 
 当前未开始。
 
@@ -277,7 +285,7 @@ When the user asks to mark, focus, circle, display, or analyze a named geographi
 
 这些旧能力中 mock、固定区域、固定剧情成分较高，应先判断产品是否仍需要 demo 场景。
 
-### 5. 前端原生支持 Agent Loop 事件
+### 4. 前端原生支持 Agent Loop 事件
 
 当前未开始。
 
@@ -301,7 +309,7 @@ When the user asks to mark, focus, circle, display, or analyze a named geographi
 4. RightPanel / InfoCenter 改读原生 task result。
 5. 保留旧 adapter 一段时间做双轨验证。
 
-### 6. 删除旧 pipeline / 旧事件兼容层
+### 5. 删除旧 pipeline / 旧事件兼容层
 
 当前不能删。
 
@@ -354,12 +362,12 @@ When the user asks to mark, focus, circle, display, or analyze a named geographi
 
 建议下一步任务：
 
-1. 新增 `api/tests/test-agent-loop-gis-toolchain-smoke.mjs`。
+1. 补齐 `api/tests/test-agent-loop-gis-toolchain-smoke.mjs`（独立文件），或确认 `--scenario gis-toolchain` 已足够。
 2. 用 fake model 明确模拟工具调用顺序。
 3. mock Open-Meteo fetch。
 4. 断言 SSE 中 region / wind-field 都出现。
 5. 断言最终 result 里按 toolCallId 可读到两个 `gisData`。
-6. 再补 prompt 策略，让真实模型更稳定地走同样顺序。
+6. ~~再补 prompt 策略~~（**已完成**：`promptManager.ts` 已含 GIS Tool Routing Rules）。
 
 ## 验证命令参考
 
@@ -367,13 +375,31 @@ When the user asks to mark, focus, circle, display, or analyze a named geographi
 
 ```powershell
 cd api
-.\node_modules\.bin\tsx.CMD tests\test-region-resolve-tool.mjs
-.\node_modules\.bin\tsx.CMD tests\test-region-resolve-error-handling.mjs
-.\node_modules\.bin\tsx.CMD tests\test-region-mark-tool.mjs
-.\node_modules\.bin\tsx.CMD tests\test-weather-fetch-tool.mjs
+# GIS 工具单测（路径已更新为 tests/gis/）
+.\node_modules\.bin\tsx.CMD tests\gis\test-region-resolve-tool.mjs
+.\node_modules\.bin\tsx.CMD tests\gis\test-region-resolve-error-handling.mjs
+.\node_modules\.bin\tsx.CMD tests\gis\test-region-mark-tool.mjs
+.\node_modules\.bin\tsx.CMD tests\gis\test-weather-fetch-tool.mjs
+
+# Agent Loop 基础测试
 .\node_modules\.bin\tsx.CMD tests\test-agent-loop-result-projection.mjs
 .\node_modules\.bin\tsx.CMD tests\test-legacy-sse-adapter.mjs
+
+# Prompt 策略测试（新增）
+.\node_modules\.bin\tsx.CMD tests\agent-loop\test-prompt-manager-gis-routing.mjs
+
+# GIS smoke helper 测试（新增）
+.\node_modules\.bin\tsx.CMD tests\agent-loop\test-agent-loop-smoke-gis-helpers.mjs
+
+# TypeScript 类型检查
 .\node_modules\.bin\tsc.CMD
+```
+
+GIS toolchain smoke（已有基础设施）：
+
+```powershell
+cd api
+pnpm agent:smoke -- --scenario gis-toolchain
 ```
 
 真实 OpenSky smoke：

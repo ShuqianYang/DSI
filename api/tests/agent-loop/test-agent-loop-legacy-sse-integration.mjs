@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 
 const { runAgentLoop } = await import("../../src/modules/agent-loop/runAgentLoop.ts");
 const { createLegacySseAdapter } = await import("../../src/modules/tasks/agentLoopEventAdapter.ts");
-const { ToolRegistry } = await import("../../src/modules/agent-loop/toolRegistry.ts");
+const { ToolRegistry } = await import("../../src/modules/agent-loop/tools/_shared/toolRegistry.ts");
 const { db } = await import("../../src/config/database.ts");
 const { tasks } = await import("../../src/db/schema.ts");
 

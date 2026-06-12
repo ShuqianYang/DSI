@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import "dotenv/config";
 
-const { buildRegionMarkTool } = await import("../../src/modules/agent-loop/regionTools.ts");
-const { buildDefaultToolRegistry } = await import("../../src/modules/agent-loop/toolRegistry.ts");
+const { buildRegionResolveTool } = await import("../../src/modules/agent-loop/tools/domain/gis/regionResolve.ts");
+const { buildRegionMarkTool } = await import("../../src/modules/agent-loop/tools/domain/gis/regionMark.ts");
+const { buildDefaultToolRegistry } = await import("../../src/modules/agent-loop/tools/_shared/toolRegistry.ts");
 const { buildAgentLoopTaskResult } = await import("../../src/modules/tasks/agentLoopResultProjection.ts");
 
 function createContext() {
@@ -13,11 +15,42 @@ function createContext() {
 }
 
 {
+  const resolveTool = buildRegionResolveTool();
+  const markTool = buildRegionMarkTool();
+  const resolved = await resolveTool.execute({ regionName: "\u53f0\u6e7e\u6d77\u5ce1" }, createContext());
+  assert.equal(resolved.resolved, true);
+
+  const output = await markTool.execute(
+    {
+      name: resolved.selected.name,
+      geometryRef: resolved.selected.geometryRef,
+      bbox: resolved.selected.bbox,
+      label: "\u53f0\u6e7e\u6d77\u5ce1\u76d1\u63a7\u533a",
+    },
+    createContext()
+  );
+
+  assert.equal(output.dataSource, "postgis");
+  assert.equal(output.regionName, "\u53f0\u6e7e\u6d77\u5ce1");
+  assert.deepEqual(output.bbox, resolved.selected.bbox);
+  assert.equal(output.gisData.cameraView.type, "fit-bbox");
+  assert.deepEqual(output.gisData.cameraView.bbox, resolved.selected.bbox);
+  assert.deepEqual(output.gisData.regions[0].coordinates, [
+    [117, 22],
+    [122.5, 22],
+    [122.5, 26.5],
+    [117, 26.5],
+    [117, 22],
+  ]);
+  assert.equal(output.gisData.regions[0].label.text, "\u53f0\u6e7e\u6d77\u5ce1\u76d1\u63a7\u533a");
+}
+
+{
   const tool = buildRegionMarkTool();
 
   await assert.rejects(
     () => tool.execute({ name: "台湾海峡" }, createContext()),
-    /RegionMark requires either bbox or polygon/,
+    /RegionMark requires geometryRef, bbox, or polygon/,
     "RegionMark must not guess named-region geometry"
   );
 }

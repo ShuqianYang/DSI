@@ -1,7 +1,10 @@
 import type { ToolRegistry } from "../_shared/toolRegistry.js";
 import { buildSqlQuerySchemaTool } from "./sql/schema.js";
 import { buildSqlQueryTool } from "./sql/query.js";
-import { buildWeatherFetchTool } from "./weather.js";
+import { buildWeatherFetchTool } from "./weather/weather.js";
+import { buildDisasterQueryTool } from "./disaster/disaster.js";
+import { buildSatelliteImageSearchTool } from "./satellite/satellite.js";
+import { buildImageAnalysisTool } from "./satellite/imageAnalysis.js";
 import { buildRegionResolveTool } from "./gis/regionResolve.js";
 import { buildRegionMarkTool } from "./gis/regionMark.js";
 
@@ -16,6 +19,9 @@ export function buildDomainTools(): ReturnType<typeof buildSqlQueryTool>[] {
     buildSqlQuerySchemaTool(),
     buildSqlQueryTool(),
     buildWeatherFetchTool(),
+    buildDisasterQueryTool(),
+    buildSatelliteImageSearchTool(),
+    buildImageAnalysisTool(),
     buildRegionResolveTool(),
     buildRegionMarkTool(),
   ];

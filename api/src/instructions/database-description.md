@@ -6,6 +6,16 @@ and foreign keys before writing `SqlQuery`.
 
 **Workflow:** catalog table choice → `SqlQuerySchema` → `SqlQuery`.
 
+**GIS bbox rule:** when a regional SQL query follows `RegionResolve`, reuse
+`RegionResolve.selected.bbox` exactly. For SQL filters, map it as:
+
+- `latitude BETWEEN selected.bbox.south AND selected.bbox.north`
+- `longitude BETWEEN selected.bbox.west AND selected.bbox.east`
+
+Do not widen, shrink, round, or replace the bbox for named regions or "nearby"
+wording. If `RegionResolve.resolved=false`, do not invent coordinates; ask for
+a bbox/polygon or say the region is not available.
+
 Use `SqlQuerySchema` with the optional `table` parameter when the target table
 is known:
 
@@ -42,7 +52,12 @@ Use `SqlQuerySchema` to confirm the aircraft table before writing SQL:
 |-------|---------|-------------|
 | `aircraft_current_states` | Hourly OpenSky current aircraft snapshot, refreshed by the backend queue/worker | `icao24`, `callsign`, `origin_country`, `longitude`, `latitude`, `baro_altitude`, `velocity`, `true_track`, `vertical_rate`, `on_ground`, `squawk`, `spi`, `position_source`, `category`, `source_time`, `updated_at`, `region`, `status` |
 
-Aircraft regional queries should filter by `latitude` and `longitude` bbox.
+Aircraft regional queries against `aircraft_current_states` should filter by
+`latitude` and `longitude` bbox. If the region came from RegionResolve, use
+`RegionResolve.selected.bbox` exactly.
+OpenSky `velocity` is stored as meters per second (`m/s`). When presenting
+speed in `km/h`, convert with `velocity * 3.6`; never label raw `velocity`
+values as `km/h`.
 The current ingestion may leave `region` and `status` as empty strings, so do
 not rely on them for regional filtering or risk classification unless
 `SqlQuery` returns populated values.
@@ -57,7 +72,9 @@ Use `SqlQuerySchema` to confirm the AIS vessel table before writing SQL:
 |-------|---------|-------------|
 | `ais_current_states` | Hourly AIS vessel snapshot from aisstream.io, refreshed by the backend queue/worker | `mmsi`, `ship_name`, `call_sign`, `ship_type`, `longitude`, `latitude`, `sog`, `cog`, `heading`, `navigational_status`, `destination`, `source_time`, `updated_at` |
 
-Vessel regional queries should filter by `latitude` and `longitude` bbox.
+Vessel regional queries against `ais_current_states` should filter by
+`latitude` and `longitude` bbox. If the region came from RegionResolve, use
+`RegionResolve.selected.bbox` exactly.
 The `ship_type` column may contain nulls for vessels without static data.
 
 ---

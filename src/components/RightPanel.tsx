@@ -22,8 +22,9 @@ interface RightPanelProps {
   onEntityClick?: (entityId: string) => void;
   onTaskClick?: (task: Task) => void;
   onEventGisClick?: (eventId: string, gisData: GisData) => void;
+  onAgentLoopGisClick?: (linkId: string, gisData: GisData) => void;
   onEventRead?: (eventId: string) => void;
-  activeEventIds?: Set<string>;
+  activeGisIds?: Set<string>;
 }
 
 type TabType = 'info' | 'subscription' | 'custom';
@@ -35,8 +36,9 @@ export default function RightPanel({
   onInsightClick,
   onTaskClick,
   onEventGisClick,
+  onAgentLoopGisClick,
   onEventRead,
-  activeEventIds,
+  activeGisIds,
 }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>('info');
   const [infoSubTab, setInfoSubTab] = useState<InfoSubTabType>('event');
@@ -90,6 +92,8 @@ export default function RightPanel({
             expandedTasks={expandedTasks}
             toggleTask={toggleTask}
             onTaskClick={onTaskClick}
+            onAgentLoopGisClick={onAgentLoopGisClick}
+            activeGisIds={activeGisIds}
           />
         )}
         {/* {activeTab === 'subscription' && (
@@ -147,7 +151,7 @@ export default function RightPanel({
               expandedEvents={expandedEvents}
               toggleEvent={toggleEvent}
               onEventGisClick={onEventGisClick}
-              activeEventIds={activeEventIds}
+              activeEventIds={activeGisIds}
             />
           )}
           {/* {infoSubTab === 'insight' && (

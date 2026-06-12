@@ -18,27 +18,25 @@ Use the user's original query as `$ARGUMENTS`.
 The query must contain:
 
 1. Vessel intent: vessel, ship, maritime, AIS, aisstream, naval, marine, 船舶, 船只,  vessel traffic, or equivalent wording.
-2. Region intent: one supported region below, or an explicit bbox with latitude/longitude bounds.
+2. Region intent: a `RegionResolve.selected.bbox` already present in the current agent context, or an explicit bbox with latitude/longitude bounds.
 
-If the vessel intent is present but the region is missing, ask the user to choose a supported region or provide a bbox.
+If the vessel intent is present but the region is missing, ask the user to provide a bbox or resolve the named region first with RegionResolve. Do not map named regions to coordinates inside this skill.
 
-## Supported Approximate Regions
+## Region Bbox Source
 
-Use these conservative bboxes when the user names a supported region. If the user asks for another place, do not invent coordinates; ask for a bbox or one of these regions.
+For named regions, the agent must call RegionResolve before using this skill. Reuse `RegionResolve.selected.bbox` exactly:
 
-| Region | minLat | maxLat | minLon | maxLon |
-|---|---:|---:|---:|---:|
-| 东海 | 24.0 | 33.5 | 119.0 | 128.5 |
-| 南海 | 3.0 | 23.5 | 105.0 | 122.0 |
-| 渤海 | 37.0 | 41.2 | 117.0 | 122.5 |
-| 黄海 | 31.0 | 39.5 | 119.0 | 126.5 |
-| 中国东部 | 20.0 | 42.0 | 110.0 | 124.0 |
-| 台湾海峡 | 22.0 | 26.5 | 117.0 | 122.5 |
+- `minLat = selected.bbox.south`
+- `maxLat = selected.bbox.north`
+- `minLon = selected.bbox.west`
+- `maxLon = selected.bbox.east`
+
+Do not widen, shrink, round, or replace that bbox for "附近/nearby" wording. If the user provides an explicit bbox, use the user's bbox exactly after validating latitude/longitude order.
 
 ## Workflow
 
 1. Extract the user's vessel question, region, time expectation, and detail level.
-2. Map the region to a supported bbox, or parse the user-provided bbox.
+2. Reuse `RegionResolve.selected.bbox` from the current context, or parse the user-provided bbox.
 3. Call `SqlQuerySchema` before querying:
 
 ```json
@@ -117,6 +115,7 @@ Replace `:minLat`, `:maxLat`, `:minLon`, `:maxLon` with numeric literals before 
 
 - Use only `SELECT` or `WITH` SQL.
 - Always include bbox filters for vessel detail queries.
+- For named regions, use the exact `RegionResolve.selected.bbox`; do not use hard-coded region coordinates.
 - Keep detail output bounded with `LIMIT 100` or less unless the user explicitly asks for more and the tool limit allows it.
 - Use `SqlQuerySchema` when uncertain about columns.
 - If the table or SQL alias is unavailable, say the AIS database query capability is unavailable and do not invent counts.

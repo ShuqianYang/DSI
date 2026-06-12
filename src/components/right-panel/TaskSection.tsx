@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { FileText, ChevronRight, RefreshCw, Download, MapPin, Terminal } from 'lucide-react';
-import { Task } from '@/types/prd';
+import { Task, GisData } from '@/types/prd';
+import { buildAgentLoopGisOutputLinkId } from '@/lib/agentLoopGisLink';
 import {
   formatTime,
   getTaskStatusStyle,
@@ -16,11 +17,20 @@ interface TaskSectionProps {
   expandedTasks: Set<string>;
   toggleTask: (id: string) => void;
   onTaskClick?: (task: Task) => void;
+  onAgentLoopGisClick?: (linkId: string, gisData: GisData) => void;
+  activeGisIds?: Set<string>;
 }
 
 type TaskFilterType = 'all' | 'running' | 'completed' | 'failed';
 
-export default function TaskSection({ tasks, expandedTasks, toggleTask, onTaskClick }: TaskSectionProps) {
+export default function TaskSection({
+  tasks,
+  expandedTasks,
+  toggleTask,
+  onTaskClick,
+  onAgentLoopGisClick,
+  activeGisIds,
+}: TaskSectionProps) {
   const [taskFilter, setTaskFilter] = useState<TaskFilterType>('all');
 
   const filteredTasks = tasks.filter((task) => {
@@ -151,8 +161,41 @@ export default function TaskSection({ tasks, expandedTasks, toggleTask, onTaskCl
                       </div>
                     )}
                     {task.agentLoop.gisDataItems.length > 0 && (
-                      <div className="text-[10px] text-[#8888AA]">
-                        GIS outputs: {task.agentLoop.gisDataItems.length}
+                      <div className="space-y-1.5">
+                        {task.agentLoop.gisDataItems.map((item, index) => {
+                          const linkId = buildAgentLoopGisOutputLinkId({
+                            taskId: task.id,
+                            toolCallId: item.toolCallId,
+                            index,
+                          });
+                          const isActive = activeGisIds?.has(linkId);
+                          return (
+                            <button
+                              key={linkId}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onAgentLoopGisClick?.(linkId, {
+                                  ...item.gisData,
+                                  eventName: `${item.toolName} · ${item.gisData.type}`,
+                                });
+                              }}
+                              className={`w-full flex items-center justify-between gap-2 rounded px-2 py-1 text-left transition-colors ${
+                                isActive
+                                  ? 'bg-[#FF44FF]/20 text-[#FF44FF] border border-[#FF44FF]/30'
+                                  : 'bg-[#00E0FF]/10 text-[#00E0FF] hover:bg-[#00E0FF]/20'
+                              }`}
+                            >
+                              <span className="min-w-0 flex items-center gap-1.5">
+                                <MapPin className="w-3 h-3 flex-shrink-0" />
+                                <span className="text-[10px] truncate">{item.toolName}</span>
+                              </span>
+                              <span className="text-[10px] text-[#8888AA] flex-shrink-0">
+                                {item.gisData.type}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                     {task.agentLoop.logFilePath && (

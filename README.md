@@ -274,12 +274,36 @@ pnpm install
 ### 启动基础设施
 
 ```bash
-# 方式1: Docker 启动 DB + Redis
+# 方式1: Docker 启动 DB + Redis + PostGIS
 docker compose -f docker/docker-compose.infra.yaml up -d
 
 # 方式2: 使用本地启动脚本（检查本地服务）
 ./start-local-api.sh
 ```
+
+### 地理数据库（PostGIS）导入
+
+如需使用地理信息数据（全球国家/地区边界、中国省市区县等），需将 PostGIS dump 恢复到 `ds_postgis` 容器：
+
+```bash
+# 1. 确保 postgis 容器已启动
+docker ps | findstr ds_postgis
+
+# 2. 创建缺失的 schema 和 sequence（dump 依赖 analysis schema 下的 sequence）
+docker exec ds_postgis psql -U postgres -d show_room -c "CREATE SCHEMA IF NOT EXISTS analysis; CREATE SEQUENCE IF NOT EXISTS analysis.region_geom_id_seq START 1; CREATE SEQUENCE IF NOT EXISTS analysis.region_geom_1_id_seq START 1; CREATE SEQUENCE IF NOT EXISTS analysis.taiwan_gid_seq START 1;"
+
+# 3. 复制 dump 文件到容器内（替换为实际路径）
+docker cp "path/to/dump-show_room-*.sql" ds_postgis:/tmp/dump.sql
+
+# 4. 恢复 dump
+docker exec ds_postgis pg_restore -U postgres -d show_room --no-owner --no-privileges /tmp/dump.sql
+
+# 5. 验证表数量和记录数
+docker exec ds_postgis psql -U postgres -d show_room -c "SELECT tablename FROM pg_tables WHERE schemaname = 'region_geom' ORDER BY tablename;"
+docker exec ds_postgis psql -U postgres -d show_room -c "SELECT 'international' as t, COUNT(*) FROM region_geom.international UNION ALL SELECT 'china_province', COUNT(*) FROM region_geom.china_province UNION ALL SELECT 'china_city', COUNT(*) FROM region_geom.china_city;"
+```
+
+> **注意**：dump 文件为 PostgreSQL custom format（PGDMP），必须用 `pg_restore` 恢复，不能用 `psql -f`。如果报错 `unsupported version`，需确保 PostGIS 容器镜像版本（`postgis/postgis:17-x.x`）不低于 dump 创建时的 pg_dump 版本。
 
 ### 配置环境变量
 

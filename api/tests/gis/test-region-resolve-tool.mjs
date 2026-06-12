@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
+import "dotenv/config";
 
-const { buildRegionResolveTool } = await import("../../src/modules/agent-loop/regionResolveTool.ts");
-const { buildRegionMarkTool } = await import("../../src/modules/agent-loop/regionTools.ts");
-const { buildDefaultToolRegistry } = await import("../../src/modules/agent-loop/toolRegistry.ts");
+const { buildRegionResolveTool } = await import("../../src/modules/agent-loop/tools/domain/gis/regionResolve.ts");
+const { buildRegionMarkTool } = await import("../../src/modules/agent-loop/tools/domain/gis/regionMark.ts");
+const { buildDefaultToolRegistry } = await import("../../src/modules/agent-loop/tools/_shared/toolRegistry.ts");
 
 const EAST_CHINA_SEA = "\u4e2d\u56fd\u4e1c\u6d77";
 const EAST_SEA_ALIAS = "\u4e1c\u6d77";
 const FUJIAN = "\u798f\u5efa\u7701";
 const TAIWAN_STRAIT = "\u53f0\u6e7e\u6d77\u5ce1";
+const FUZHOU = "\u798f\u5dde\u5e02";
+const TAICHUNG = "\u53f0\u4e2d\u5e02";
+const PHILIPPINES = "\u83f2\u5f8b\u5bbe";
 const GUANGXI = "\u5e7f\u897f";
 const GUANGXI_FULL = "\u5e7f\u897f\u58ee\u65cf\u81ea\u6cbb\u533a";
 const INVALID_GUANGXI_ALIAS = "\u5e7f\u897f\u58ee\u65cf";
+const BEIJING = "\u5317\u4eac";
+const BEIJING_FULL = "\u5317\u4eac\u5e02";
 
 function createContext(query = "resolve region") {
   return {
@@ -59,19 +65,85 @@ function assertValidBbox(bbox) {
 
   assert.equal(output.resolved, true);
   assert.equal(output.selected.name, FUJIAN);
-  assert.equal(output.selected.sourcePath, "public/geo/china.geojson");
+  assert.equal(output.selected.source, "postgis");
+  assert.equal(output.selected.sourceTable, "china_province");
+  assert.equal(output.selected.stableId, "350000");
+  assert.equal(output.selected.geometryRef.schema, "region_geom");
+  assert.equal(output.selected.geometryRef.catalog, "region_resolve_catalog");
   assert.equal(output.selected.matchType, "exact_name");
   assertValidBbox(output.selected.bbox);
 }
 
 {
   const tool = buildRegionResolveTool();
+  const output = await tool.execute({ regionName: BEIJING }, createContext());
+
+  assert.equal(output.resolved, true);
+  assert.equal(output.selected.name, BEIJING_FULL);
+  assert.notEqual(output.selected.sourceTable, "international", "capital alias should not beat the direct Beijing administrative region");
+  assert(["china_city", "china_province"].includes(output.selected.sourceTable));
+  assert.equal(output.selected.stableId, "110000");
+  assert.deepEqual(output.selected.bbox, {
+    west: 115.423411,
+    east: 117.514583,
+    south: 39.442758,
+    north: 41.0608,
+  });
+  assert.equal(
+    output.candidates.some((candidate) => candidate.name === "\u4e2d\u56fd"),
+    true,
+    "China can remain a candidate, but must not be selected for Beijing"
+  );
+}
+
+{
+  const tool = buildRegionResolveTool();
   const output = await tool.execute({ regionName: TAIWAN_STRAIT }, createContext());
 
-  assert.equal(output.resolved, false);
-  assert.equal(output.candidates.length, 0);
-  assert.equal(output.requirement.type, "region_geometry_missing");
-  assert.match(output.requirement.message, /bbox|polygon|GeoJSON/);
+  assert.equal(output.resolved, true);
+  assert.equal(output.selected.name, TAIWAN_STRAIT);
+  assert.equal(output.selected.source, "postgis");
+  assert.equal(output.selected.sourceTable, "custom_region");
+  assert.equal(output.selected.level, "strait");
+  assert.equal(output.selected.geometryRef.sourceId, "92");
+  assert.equal(output.selected.geometryRef.stableId, "92");
+  assert.equal(output.selected.matchType, "exact_name");
+  assert.deepEqual(output.selected.bbox, { west: 117, east: 122.5, south: 22, north: 26.5 });
+  assert.equal(JSON.stringify(output).includes("coordinates"), false, "RegionResolve observation must not include geometry coordinates");
+}
+
+{
+  const tool = buildRegionResolveTool();
+  const output = await tool.execute({ regionName: FUZHOU }, createContext());
+
+  assert.equal(output.resolved, true);
+  assert.equal(output.selected.name, FUZHOU);
+  assert.equal(output.selected.source, "postgis");
+  assert.equal(output.selected.sourceTable, "china_city");
+  assert.equal(output.selected.stableId, "350100");
+  assert.equal(output.selected.level, "city");
+}
+
+{
+  const tool = buildRegionResolveTool();
+  const output = await tool.execute({ regionName: TAICHUNG }, createContext());
+
+  assert.equal(output.resolved, true);
+  assert.equal(output.selected.name, TAICHUNG);
+  assert.equal(output.selected.source, "postgis");
+  assert.equal(output.selected.sourceTable, "taiwan");
+  assert.equal(output.selected.level, "taiwan_admin");
+}
+
+{
+  const tool = buildRegionResolveTool();
+  const output = await tool.execute({ regionName: PHILIPPINES }, createContext());
+
+  assert.equal(output.resolved, true);
+  assert.equal(output.selected.name, PHILIPPINES);
+  assert.equal(output.selected.source, "postgis");
+  assert.equal(output.selected.sourceTable, "international");
+  assert.equal(output.selected.level, "country");
 }
 
 {

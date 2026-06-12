@@ -9,7 +9,7 @@ import type { AgentLoopTaskResult } from "../../src/modules/tasks/agentLoopResul
 
 export const GIS_TOOLCHAIN_SCENARIO = "gis-toolchain";
 export const GIS_TOOLCHAIN_TOOLS = ["RegionResolve", "RegionMark", "WeatherFetch"] as const;
-export const GIS_TOOLCHAIN_QUERY = "\u5708\u9009\u4e1c\u6d77\u5e76\u67e5\u8be2\u8fd9\u4e2a\u533a\u57df\u7684\u98ce\u573a\u3002";
+export const GIS_TOOLCHAIN_QUERY = "\u5708\u9009\u53f0\u6e7e\u6d77\u5ce1\u5e76\u67e5\u8be2\u8fd9\u4e2a\u533a\u57df\u7684\u98ce\u573a\u3002";
 
 interface Bbox {
   west: number;
@@ -44,7 +44,7 @@ export function createGisToolchainSmokeModelClient(): ModelClient {
             {
               id: "gis-resolve-1",
               toolName: "RegionResolve",
-              input: { regionName: "\u4e1c\u6d77" },
+              input: { regionName: "\u53f0\u6e7e\u6d77\u5ce1" },
               reason: "Resolve the user's named region into local geometry.",
             },
           ],
@@ -60,7 +60,8 @@ export function createGisToolchainSmokeModelClient(): ModelClient {
       }
 
       const bbox = resolveObservation.output.selected.bbox;
-      const name = readString(resolveObservation.output.selected.name) ?? "\u4e1c\u6d77";
+      const geometryRef = objectRecord(resolveObservation.output.selected.geometryRef);
+      const name = readString(resolveObservation.output.selected.name) ?? "\u53f0\u6e7e\u6d77\u5ce1";
       const markObservation = findObservation(input.observations, "RegionMark");
       if (!markObservation) {
         return {
@@ -72,11 +73,12 @@ export function createGisToolchainSmokeModelClient(): ModelClient {
               toolName: "RegionMark",
               input: {
                 name,
+                ...(Object.keys(geometryRef).length > 0 ? { geometryRef } : {}),
                 bbox,
                 regionType: "monitor",
                 label: name,
               },
-              reason: "Create a map region layer from the resolved bbox.",
+              reason: "Create a map region layer from the resolved geometry reference.",
             },
           ],
         };
@@ -160,6 +162,8 @@ export function validateGisToolchainSmoke(
   const resolve = requireObservation(observations, "RegionResolve");
   assertCondition(resolve.ok, "RegionResolve observation failed.");
   assertCondition(isResolvedRegionObservation(resolve.observation), "RegionResolve did not return resolved=true with selected.bbox.");
+  const resolvedBbox = resolve.observation.output.selected.bbox;
+  const resolvedGeometryRef = objectRecord(resolve.observation.output.selected.geometryRef);
 
   const mark = requireObservation(observations, "RegionMark");
   assertCondition(mark.ok, "RegionMark observation failed.");
@@ -169,13 +173,32 @@ export function validateGisToolchainSmoke(
   assertCondition(markGisData.type === "region", "RegionMark did not return gisData.type=region.");
   assertCondition(markCameraView.type === "fit-bbox", "RegionMark did not return cameraView.type=fit-bbox.");
   assertCondition(isBbox(objectRecord(markCameraView.bbox)), "RegionMark cameraView.bbox is missing or invalid.");
+  assertCondition(
+    sameBbox(objectRecord(markOutput.bbox), resolvedBbox),
+    "RegionMark bbox drifted from RegionResolve.selected.bbox."
+  );
+  assertCondition(
+    sameBbox(objectRecord(markCameraView.bbox), resolvedBbox),
+    "RegionMark cameraView.bbox drifted from RegionResolve.selected.bbox."
+  );
+  if (Object.keys(resolvedGeometryRef).length > 0) {
+    assertCondition(
+      sameJson(objectRecord(markOutput.geometryRef), resolvedGeometryRef),
+      "RegionMark did not reuse RegionResolve.selected.geometryRef."
+    );
+  }
 
   const weather = requireObservation(observations, "WeatherFetch");
   assertCondition(weather.ok, "WeatherFetch observation failed.");
-  const weatherGisData = objectRecord(objectRecord(weather.observation.output).gisData);
+  const weatherOutput = objectRecord(weather.observation.output);
+  const weatherGisData = objectRecord(weatherOutput.gisData);
   const windField = objectRecord(weatherGisData.windField);
   assertCondition(weatherGisData.type === "wind-field", "WeatherFetch did not return gisData.type=wind-field.");
   assertCondition(arrayValue(windField.speed)?.length > 0, "WeatherFetch windField.speed is empty.");
+  assertCondition(
+    sameBbox(objectRecord(weatherOutput.bbox), resolvedBbox) || sameBbox(objectRecord(windField.bbox), resolvedBbox),
+    "WeatherFetch bbox drifted from RegionResolve.selected.bbox."
+  );
 
   const legacyRegionGisData = hasLegacyGisData(input.legacyEvents, "region");
   const legacyWindFieldGisData = hasLegacyGisData(input.legacyEvents, "wind-field");
@@ -233,6 +256,14 @@ function isResolvedRegionObservation(
 
 function isBbox(value: Record<string, unknown>): value is Bbox {
   return ["west", "east", "south", "north"].every((key) => typeof value[key] === "number");
+}
+
+function sameBbox(value: Record<string, unknown>, expected: Bbox): boolean {
+  return isBbox(value) && ["west", "east", "south", "north"].every((key) => value[key] === expected[key as keyof Bbox]);
+}
+
+function sameJson(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
+  return JSON.stringify(left, Object.keys(left).sort()) === JSON.stringify(right, Object.keys(right).sort());
 }
 
 function hasLegacyGisData(events: LegacySseEvent[], type: string): boolean {
