@@ -88,6 +88,8 @@ export const ImageOverlay = z.object({
   alpha: z.number().optional(),
   tileWidth: z.number().optional(),
   tileHeight: z.number().optional(),
+  /** 图片覆盖层边框颜色（hex 字符串，如 '#00E0FF'） */
+  outlineColor: z.string().optional(),
 });
 export type ImageOverlay = z.infer<typeof ImageOverlay>;
 

@@ -48,12 +48,11 @@ export default function HomePage() {
   const [showChat, setShowChat] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [activeEventIds, setActiveEventIds] = useState<Set<string>>(new Set());
+  const [activeGisIds, setActiveGisIds] = useState<Set<string>>(new Set());
   const [activeGisDataList, setActiveGisDataList] = useState<GisData[]>([]);
   // 真实 jobTask（含 agentTaskId）从 useRightPanelData 拿，供 swap effect 把 placeholder selectedTask 替换为真实版本
   const { tasks: apiTasks, refresh } = useRightPanelData();
   const [events, setEvents] = useState<TaskEvent[]>([]);
-  const [fireOverlayVisible, setFireOverlayVisible] = useState(false);
   const [pendingOperations, setPendingOperations] = useState<GisOperation[]>([]);
   const gisDataCounterRef = useRef(0);
   const highlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -512,7 +511,7 @@ export default function HomePage() {
       entitiesCount: data?.entities?.length,
       imageOverlaysCount: data?.imageOverlays?.length,
     });
-    setActiveEventIds((prev) => {
+    setActiveGisIds((prev) => {
       const next = new Set(prev);
       if (next.has(eventId)) {
         next.delete(eventId);
@@ -539,11 +538,11 @@ export default function HomePage() {
     setSelectedEntity(null);
     // 关闭任务弹窗
     setSelectedTask(null);
-  }, []);
+  }, [events]);
 
   // 关闭指定事件的地图联动
   const handleCloseEventGis = useCallback((eventId: string) => {
-    setActiveEventIds((prev) => {
+    setActiveGisIds((prev) => {
       const next = new Set(prev);
       next.delete(eventId);
       return next;
@@ -551,17 +550,10 @@ export default function HomePage() {
     setActiveGisDataList((prev) => prev.filter((g) => g.eventId !== eventId));
   }, []);
 
-  // 关闭所有事件地图联动（同时清除 fire overlay 等独立图层）
+  // 关闭所有事件地图联动
   const handleCloseAllEventGis = useCallback(() => {
-    setActiveEventIds(new Set());
+    setActiveGisIds(new Set());
     setActiveGisDataList([]);
-    setFireOverlayVisible(false);
-    cesiumMapRef.current?.hideFireOverlay();
-  }, []);
-
-  // 火灾检测触发地图联动
-  const handleFireDetected = useCallback(() => {
-    setFireOverlayVisible(true);
   }, []);
 
   // GIS 操作指令：后端 capability 返回的 operations 自动触发
@@ -651,7 +643,6 @@ export default function HomePage() {
               }}
               onTaskCreate={handleTaskCreate}
               onTaskFinished={handleTaskFinished}
-              onFireDetected={handleFireDetected}
               onGisOperation={handleGisOperation}
             />
           </div>
@@ -686,7 +677,6 @@ export default function HomePage() {
             onCloseEventGis={handleCloseEventGis}
             onCloseAllEventGis={handleCloseAllEventGis}
             rightPanelOpen={showRightPanel}
-            fireOverlayVisible={fireOverlayVisible}
             pendingOperations={pendingOperations}
           />
 
@@ -730,8 +720,9 @@ export default function HomePage() {
                 onEntityClick={handleEntityIdClick}
                 onTaskClick={handleTaskClick}
                 onEventGisClick={handleEventGisClick}
+                onAgentLoopGisClick={handleEventGisClick}
                 onEventRead={handleEventRead}
-                activeEventIds={activeEventIds}
+                activeGisIds={activeGisIds}
               />
             </div>
           )}

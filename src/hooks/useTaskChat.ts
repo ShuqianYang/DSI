@@ -27,7 +27,6 @@ import {
 
 export interface UseTaskChatOptions {
   onGisDataRequest?: (gisData: GisData) => void;
-  onFireDetected?: () => void;
   onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
   /** 任务创建成功后立即触发（拿到 taskId、构造 placeholder Task）；用于上层联动 UI（收起 chat / 弹进度窗）。详见 api/plan/auto-toggle-chat-and-task-panel.md */
   onTaskCreate?: (task: Task, steps: ThinkingStep[], gisData?: GisData) => void;
@@ -46,7 +45,7 @@ export interface UseTaskChatReturn {
   toggleThinkingExpanded: (msgId: string) => void;
 }
 
-export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, onTaskCreate, onTaskFinished }: UseTaskChatOptions = {}): UseTaskChatReturn {
+export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, onTaskFinished }: UseTaskChatOptions = {}): UseTaskChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -55,8 +54,6 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
   const stepAnimationTimers = useRef<Map<string, NodeJS.Timeout[]>>(new Map());
   const planAnimationState = useRef<Map<string, { total: number; completed: number; done: boolean }>>(new Map());
   const delayedEvents = useRef<Map<string, Array<{ type: string; data: any }>>>(new Map());
-  // 火灾跳转去重：每个 taskId 只触发一次（先到的事件触发，后到的兜底跳过）
-  const fireTriggeredRef = useRef<Set<string>>(new Set());
   // GIS 数据去重：记录已推送过 gisData 的 actionId，避免 step_update 和 task completed 重复推送
   const gisDataPushedRef = useRef<Set<string>>(new Set());
   const globalSseRef = useRef<EventSource | null>(null);
@@ -507,16 +504,6 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
 
     // 步骤级更新
     if (data.type === 'step_update' && data.actionId) {
-      // fire-detector 工具完成时立即触发跳转（早于综合洞察生成）
-      if (
-        data.status === 'completed' &&
-        data.actionType === 'fire-detector' &&
-        !fireTriggeredRef.current.has(taskId)
-      ) {
-        fireTriggeredRef.current.add(taskId);
-        onFireDetected?.();
-      }
-
       // GIS 操作指令：步骤完成时自动触发
       if (data.status === 'completed' && (data as any).operations && Array.isArray((data as any).operations)) {
         console.log('[useTaskChat] Received GIS operations:', (data as any).operations);
@@ -596,15 +583,6 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
           .then((task) => {
             console.log('[useTaskChat] Got task result:', task.result ? 'yes' : 'no');
             if (task.result) {
-              // 火灾兜底：若 step_update 阶段未触发过，再次检测 result 后触发
-              const hasFireResult = Object.values(task.result).some(
-                (r: any) => r?.summary?.fireDetected === true
-              );
-              if (hasFireResult && onFireDetected && !fireTriggeredRef.current.has(taskId)) {
-                fireTriggeredRef.current.add(taskId);
-                setTimeout(() => onFireDetected(), 500);
-              }
-
               // 自动提取各 step 的 gisData 并推送给地图（仅兜底：step_update 未推送过的才补推）
               pushGisPushes(taskId, extractGisPushesFromTaskResult(taskId, task.result));
               for (const [actionId, stepResult] of Object.entries(task.result)) {

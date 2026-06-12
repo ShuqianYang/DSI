@@ -13,7 +13,6 @@ import * as Cesium from 'cesium';
 import { Entity, Trajectory, Region, GisData } from '@/types/prd';
 import { getStyleById } from './ImageryManager';
 import { createLocalImageryProvider, getLocalConfigById } from './LocalTileProvider';
-import { createFireOverlayProvider, createFireMaskProvider, getFireRectangle } from './FireOverlay';
 import { collectFireGroundSpecs, syncFireGroundPulseRings } from './fireGroundEffect';
 import { collectEpicenterGroundSpecs, syncEpicenterGroundPulseRings } from './earthquakeGroundEffect';
 import {
@@ -478,6 +477,8 @@ export interface SingleTileOverlaySpec {
   /** 与图片像素一致为佳；当前 Cesium 版本构造 SingleTileImageryProvider 必填 */
   tileWidth?: number;
   tileHeight?: number;
+  /** 覆盖层边框颜色（hex 字符串），如 '#00E0FF' */
+  outlineColor?: string;
 }
 
 const SINGLE_TILE_DEFAULT_PIXEL_W = 2048;
@@ -923,8 +924,6 @@ export interface CesiumMapRef {
   resetView: () => void;
   toggleSceneMode: () => void;
   flyToRegion: (lng: number, lat: number, altitude: number) => void;
-  showFireOverlay: () => void;
-  hideFireOverlay: () => void;
   /** 移除地图上由绘制工具提交的持久几何（不影响当前交互草稿） */
   clearPersistedMapDraw: () => void;
   /** 执行后端推送的 GIS 操作指令 */
@@ -989,13 +988,12 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number>(0);
   const localTileOutlinesRef = useRef<string[]>([]);
-  const fireOverlayRef = useRef<Cesium.ImageryLayer | null>(null);
-  const fireMaskRef = useRef<Cesium.ImageryLayer | null>(null);
-  const fireOutlineIdRef = useRef<string | null>(null);
   const regionLightWallPrimitivesRef = useRef<Cesium.PrimitiveCollection | null>(null);
   /** 东海 GeoJSON（与 china.geojson 相同加载方式） */
   const eastChinaSeaGeoJsonRef = useRef<Cesium.GeoJsonDataSource | null>(null);
   const singleTileImageryLayersRef = useRef<Map<string, Cesium.ImageryLayer>>(new Map());
+  /** 卫星影像覆盖层边框 entity id → 清理用 */
+  const imageOverlayBorderEntitiesRef = useRef<Map<string, string>>(new Map());
   /** 与 Viewer SCENE2D/3D 对齐；2D 下点位/标签用平面样式（无 scaleByDistance、不 CLAMP_TO_GROUND） */
   const [mapLikePointStyle, setMapLikePointStyle] = useState(true);
 
@@ -2160,6 +2158,7 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
             alpha: img.alpha,
             tileWidth: img.tileWidth,
             tileHeight: img.tileHeight,
+            outlineColor: img.outlineColor,
           });
         }
       }
@@ -2184,6 +2183,13 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
     }
     bucket.clear();
 
+    // 清理旧边框
+    const borderMap = imageOverlayBorderEntitiesRef.current;
+    for (const entityId of borderMap.values()) {
+      viewer.entities.removeById(entityId);
+    }
+    borderMap.clear();
+
     for (const spec of singleTileOverlays) {
       try {
         const rectangle = Cesium.Rectangle.fromDegrees(
@@ -2192,8 +2198,14 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
           spec.rectangle.east,
           spec.rectangle.north
         );
+        // 外部 URL（CDSE 等）走同源代理，避免浏览器 CORS 阻断
+        const imageUrl =
+          spec.url.startsWith('http') && !spec.url.startsWith(window.location.origin)
+            ? `/api/proxy/image?url=${encodeURIComponent(spec.url)}`
+            : spec.url;
+
         const provider = new Cesium.SingleTileImageryProvider({
-          url: spec.url,
+          url: imageUrl,
           rectangle,
           tileWidth: spec.tileWidth ?? SINGLE_TILE_DEFAULT_PIXEL_W,
           tileHeight: spec.tileHeight ?? SINGLE_TILE_DEFAULT_PIXEL_H,
@@ -2203,6 +2215,28 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
         });
         viewer.imageryLayers.add(layer);
         bucket.set(spec.id, layer);
+
+        // 绘制边框（有 outlineColor 时）
+        if (spec.outlineColor) {
+          const borderId = `image-border-${spec.id}`;
+          const corners = [
+            Cesium.Cartesian3.fromDegrees(spec.rectangle.west, spec.rectangle.south, 0),
+            Cesium.Cartesian3.fromDegrees(spec.rectangle.east, spec.rectangle.south, 0),
+            Cesium.Cartesian3.fromDegrees(spec.rectangle.east, spec.rectangle.north, 0),
+            Cesium.Cartesian3.fromDegrees(spec.rectangle.west, spec.rectangle.north, 0),
+            Cesium.Cartesian3.fromDegrees(spec.rectangle.west, spec.rectangle.south, 0),
+          ];
+          viewer.entities.add({
+            id: borderId,
+            polyline: {
+              positions: corners,
+              width: 3,
+              material: Cesium.Color.fromCssColorString(spec.outlineColor),
+              clampToGround: true,
+            },
+          });
+          borderMap.set(spec.id, borderId);
+        }
       } catch (e) {
         console.warn('[CesiumMap] SingleTile overlay skipped:', spec.id, e);
       }
@@ -2213,6 +2247,10 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
         viewer.imageryLayers.remove(layer, true);
       }
       bucket.clear();
+      for (const entityId of borderMap.values()) {
+        viewer.entities.removeById(entityId);
+      }
+      borderMap.clear();
     };
   }, [currentStyle, singleTileOverlays]);
 
@@ -2294,62 +2332,6 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
         destination: Cesium.Cartesian3.fromDegrees(lng, lat, altitude),
         duration: 1.5,
       });
-    },
-    showFireOverlay: () => {
-      const viewer = viewerRef.current;
-      if (!viewer) return;
-
-      // 避免重复添加
-      if (fireOverlayRef.current) return;
-
-      // 灾后影像
-      const overlayLayer = new Cesium.ImageryLayer(createFireOverlayProvider());
-      viewer.imageryLayers.add(overlayLayer);
-      fireOverlayRef.current = overlayLayer;
-
-      // 烧毁遮罩（半透明红色）
-      const maskLayer = new Cesium.ImageryLayer(createFireMaskProvider(), {
-        alpha: 0.6,
-      });
-      viewer.imageryLayers.add(maskLayer);
-      fireMaskRef.current = maskLayer;
-
-      // 火灾区域红色边界线
-      if (!fireOutlineIdRef.current) {
-        const outline = viewer.entities.add({
-          id: 'fire-outline',
-          rectangle: {
-            coordinates: Cesium.Rectangle.fromDegrees(76.967, 43.241, 77.029, 43.286),
-            outline: true,
-            outlineColor: Cesium.Color.RED,
-            outlineWidth: 4,
-            fill: false,
-            classificationType: Cesium.ClassificationType.TERRAIN,
-          },
-        });
-        fireOutlineIdRef.current = outline.id;
-      }
-
-      // 火情 overlay 的 flyTo 已移除，视角统一由 gisData.cameraView 控制，与漏油场景保持一致
-    },
-    hideFireOverlay: () => {
-      const viewer = viewerRef.current;
-      if (!viewer) return;
-
-      if (fireOverlayRef.current) {
-        viewer.imageryLayers.remove(fireOverlayRef.current);
-        fireOverlayRef.current = null;
-      }
-
-      if (fireMaskRef.current) {
-        viewer.imageryLayers.remove(fireMaskRef.current);
-        fireMaskRef.current = null;
-      }
-
-      if (fireOutlineIdRef.current) {
-        viewer.entities.removeById(fireOutlineIdRef.current);
-        fireOutlineIdRef.current = null;
-      }
     },
     executeOperation: (op: GisOperation) => {
       const viewer = viewerRef.current;

@@ -13,11 +13,10 @@ interface ChatPanelProps {
   onGisDataRequest?: (gisData: GisData) => void;
   onTaskCreate?: (task: Task, steps: ThinkingStep[], gisData?: GisData) => void;
   onTaskFinished?: (taskId: string, status: 'completed' | 'failed') => void;
-  onFireDetected?: () => void;
   onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
 }
 
-export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreate, onTaskFinished, onFireDetected, onGisOperation }: ChatPanelProps) {
+export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreate, onTaskFinished, onGisOperation }: ChatPanelProps) {
   const {
     messages,
     inputValue,
@@ -27,7 +26,7 @@ export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreat
     deleteMessage,
     clearAll,
     toggleThinkingExpanded,
-  } = useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, onTaskCreate, onTaskFinished });
+  } = useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, onTaskFinished });
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
