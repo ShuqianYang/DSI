@@ -5,6 +5,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
 import { tasks, taskSteps } from "../../db/schema.js";
+import {
+  createDbTranscriptStore,
+  summarizeTranscriptForContext,
+  type AgentTranscriptStore,
+} from "./transcriptStore.js";
 import type {
   AgentLoopToolUseContext,
   PromptSection,
@@ -85,11 +90,14 @@ export interface ContextProviderTaskStepSnapshot {
   error?: string | null;
 }
 
+export type TranscriptContextStatus = "loaded" | "empty" | "failed";
+
 interface ContextProviderDiagnostics {
   projectInstructionsEnabled: boolean;
   loadedSections: string[];
   skippedSources: string[];
   estimateMethod: "chars";
+  transcriptContextStatus: TranscriptContextStatus;
 }
 
 export const noopContextProvider: ContextProvider = {
@@ -130,17 +138,19 @@ export const defaultContextProvider: ContextProvider = {
   async getContextSections(input) {
     throwIfAborted(input.signal);
     const workspaceRoot = getWorkspaceRoot();
-    const [domain, databaseDescription, adrIndex, taskSections] = await Promise.all([
+    const [domain, databaseDescription, adrIndex, taskSections, transcriptContext] = await Promise.all([
       readOptionalContextFile(path.join(workspaceRoot, "CONTEXT.md")),
       readOptionalContextFile(path.join(workspaceRoot, DATABASE_DESCRIPTION_PATH)),
       readAdrIndex(workspaceRoot),
       getTaskContextSections(input.taskId),
+      loadTranscriptContextSections(input.taskId),
     ]);
     const sections = [
       ...(domain ? [{ id: "project.domain", content: domain }] : []),
       ...(databaseDescription ? [{ id: "project.database_description", content: databaseDescription }] : []),
       ...(adrIndex ? [{ id: "project.adr_index", content: adrIndex }] : []),
       ...taskSections,
+      ...transcriptContext.sections,
     ];
     return [
       ...sections,
@@ -152,11 +162,61 @@ export const defaultContextProvider: ContextProvider = {
           databaseDescriptionLoaded: Boolean(databaseDescription),
           adrIndexLoaded: Boolean(adrIndex),
           taskSectionCount: taskSections.length,
+          transcriptContextStatus: transcriptContext.status,
         })),
       },
     ];
   },
 };
+
+export interface TranscriptContextLoadResult {
+  sections: PromptSection[];
+  status: TranscriptContextStatus;
+  error?: string;
+}
+
+export interface TranscriptContextLoadOptions {
+  transcriptStore?: AgentTranscriptStore;
+  createTranscriptStore?: () => Promise<AgentTranscriptStore> | AgentTranscriptStore;
+  logger?: Pick<Console, "warn">;
+}
+
+export async function loadTranscriptContextSections(
+  taskId: string,
+  options: TranscriptContextLoadOptions = {}
+): Promise<TranscriptContextLoadResult> {
+  try {
+    const store = options.transcriptStore ?? await (options.createTranscriptStore ?? getDefaultTranscriptStore)();
+    const section = summarizeTranscriptForContext(await store.load(taskId));
+    return section
+      ? { sections: [section], status: "loaded" }
+      : { sections: [], status: "empty" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    (options.logger ?? console).warn("[ContextProvider] transcript context load failed:", message);
+    return { sections: [], status: "failed", error: message };
+  }
+}
+
+export async function getTranscriptContextSections(
+  taskId: string,
+  transcriptStore?: AgentTranscriptStore,
+  logger: Pick<Console, "warn"> = console
+): Promise<PromptSection[]> {
+  return (await loadTranscriptContextSections(taskId, { transcriptStore, logger })).sections;
+}
+
+let defaultTranscriptStorePromise: Promise<AgentTranscriptStore> | undefined;
+
+function getDefaultTranscriptStore(): Promise<AgentTranscriptStore> {
+  defaultTranscriptStorePromise ??= import("../../config/database.js")
+    .then(({ db }) => createDbTranscriptStore(db))
+    .catch((error) => {
+      defaultTranscriptStorePromise = undefined;
+      throw error;
+    });
+  return defaultTranscriptStorePromise;
+}
 
 function getWorkspaceRoot(): string {
   return path.resolve(process.env.AGENT_WORKSPACE_ROOT || path.join(process.cwd(), ".."));
@@ -215,12 +275,13 @@ async function readAdrIndex(workspaceRoot: string): Promise<string | undefined> 
   }
 }
 
-function buildContextProviderDiagnostics(input: {
+export function buildContextProviderDiagnostics(input: {
   sections: PromptSection[];
   domainLoaded: boolean;
   databaseDescriptionLoaded: boolean;
   adrIndexLoaded: boolean;
   taskSectionCount: number;
+  transcriptContextStatus: TranscriptContextStatus;
 }): ContextProviderDiagnostics {
   const skippedSources: string[] = [];
   if (!shouldLoadProjectInstructions()) skippedSources.push("projectInstructions");
@@ -228,11 +289,18 @@ function buildContextProviderDiagnostics(input: {
   if (!input.databaseDescriptionLoaded) skippedSources.push(DATABASE_DESCRIPTION_PATH);
   if (!input.adrIndexLoaded) skippedSources.push("docs/adr");
   if (input.taskSectionCount === 0) skippedSources.push("taskSections");
+  if (input.transcriptContextStatus === "empty") {
+    skippedSources.push("transcript.resume_context.empty");
+  }
+  if (input.transcriptContextStatus === "failed") {
+    skippedSources.push("transcript.resume_context.failed");
+  }
   return {
     projectInstructionsEnabled: shouldLoadProjectInstructions(),
     loadedSections: input.sections.map((section) => section.id),
     skippedSources,
     estimateMethod: "chars",
+    transcriptContextStatus: input.transcriptContextStatus,
   };
 }
 

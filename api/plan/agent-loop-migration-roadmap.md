@@ -1,24 +1,26 @@
-# Agent Loop 迁移路线长期参考
+# Agent Loop Migration Roadmap
 
-> 目标：记录旧 Planner/Router/Executor/Capability 体系向 Agent Loop 迁移的当前进度、下一步顺序和长期收敛方向，方便后续继续推进时快速接上上下文。
+> 目标：长期记录从旧 Planner/Router/Executor/Capability 体系迁移到 Agent Loop 体系的真实进度、保留边界和下一步优先级。
 
 ## 当前结论
 
-Agent Loop 已经可以作为主执行入口承接前端提问，并通过兼容层维持旧前端的任务、事件和 GIS 联动能力。当前不建议批量搬运旧 capability，而应继续按“真实/半真实数据优先、纯 mock/硬编码能力暂缓”的原则迁移。
-
-当前最稳的新增纵切是：
+Agent Loop 已经成为前端提问和后端工具执行的主路径。当前阶段不再是“让 Agent Loop 能跑起来”，而是进入：
 
 ```text
-RegionResolve -> RegionMark -> WeatherFetch
+native Agent Loop 稳定化
+-> 结构化可观测性
+-> transcript persistence
+-> prompt versioning
+-> resume / context recovery / memory
 ```
 
-这条链路覆盖了“命名区域解析、本地 GIS 区域联动、真实气象风场数据获取”三个关键点，比直接迁移旧 `region-mark` / `weather-fetch` 的 mock 版本更适合 Agent Loop。
+Legacy SSE adapter 和前端 legacy fallback 已删除。仍然保留的旧形状主要是 Dashboard 展示 API 的兼容投影，例如 `/jobs`、`/events` 和 `task.result[toolCallId]`，这些不再视为运行时 legacy fallback，而是前端展示层的 projection contract。
 
 ## 已完成
 
-### 1. 兼容路由
+### 1. Dashboard 兼容路由
 
-已补齐旧前端依赖的展示路由：
+已保留旧前端依赖的展示路由：
 
 - `/jobs`
 - `/events`
@@ -37,45 +39,94 @@ RegionResolve -> RegionMark -> WeatherFetch
 - `api/src/modules/dashboard/routes.ts`
 - `api/src/index.ts`
 
-说明：
+当前定位：
 
 - `/jobs` 动态投影 `tasks` / `task_steps`。
-- `/events` 动态投影 completed / failed tool step。
+- `/events` 动态投影已完成或失败的 tool observations。
 - `/ads/data` 读取 `aircraft_current_states`。
-- `/ais/data` 当前仍是空结构兼容。
+- `/ais/data` 暂时保留为空结果兼容接口。
 
-### 2. Legacy SSE Adapter
+### 2. Native Agent Loop SSE
 
-已实现 Agent Loop 事件到旧前端 SSE 事件的适配。
+已完成，且已经成为唯一主路径。
 
 核心文件：
 
-- `api/src/modules/tasks/agentLoopEventAdapter.ts`
-- `api/src/modules/tasks/pipeline.ts`
 - `api/src/modules/agent-loop/runAgentLoop.ts`
+- `api/src/modules/tasks/routes.ts`
+- `api/src/modules/tasks/agentLoopSseMode.ts`
 
-已适配事件：
+原生事件：
 
-- `agent_turn -> planning_done`
-- `assistant_message.toolCalls -> routing / routing_done`
-- `tool_call / tool_progress -> step_update running`
-- `tool_observation -> step_update completed / failed`
+- `agent_turn`
+- `assistant_message`
+- `tool_call`
+- `tool_progress`
+- `tool_observation`
+- `loop_stop`
 
 说明：
 
-- 旧前端仍可通过 `step_update.gisData` 实时推地图。
-- 后续前端原生支持 Agent Loop 事件后，该层可以删除。
+- `runAgentLoop` 直接通过 `notifyTaskUpdate` 推送 native events。
+- `/tasks/:taskId/stream` 对已结束任务只 replay `loop_stop`。
+- `model_request` 和 `tool_message` 仍可进入 transcript/log，但不作为前端主 SSE 展示事件。
 
-### 3. task.result 兼容投影
+### 3. Legacy SSE Adapter 和前端 fallback 删除
 
-已把 Agent Loop 的 observations 投影为旧前端可遍历的 action result 结构。
+已完成删除。
+
+删除内容：
+
+- `api/src/modules/tasks/agentLoopEventAdapter.ts`
+- `src/lib/legacyTaskStreamFallback.ts`
+- legacy SSE adapter 相关测试
+- 前端 `legacy-fallback` 处理分支
+
+保留内容：
+
+- `src/lib/agentLoopEvents.ts` 仍能识别旧事件类型，但只用于分类后忽略。
+- `src/lib/taskStreamRouter.ts` 对旧事件统一返回 `ignored-legacy`。
+
+设计含义：
+
+- 前端不再从 `planning` / `routing_done` / `step_update` 推导 UI。
+- 若后端误发旧事件，前端不会被它驱动。
+
+### 4. 前端原生 Agent Loop 支持
+
+已完成主链路。
+
+核心文件：
+
+- `src/lib/agentLoopEvents.ts`
+- `src/lib/taskStreamRouter.ts`
+- `src/lib/taskStreamLifecycle.ts`
+- `src/lib/agentLoopStepFormatter.ts`
+- `src/lib/agentLoopGisBridge.ts`
+- `src/hooks/useTaskChat.ts`
+- `src/hooks/useRightPanel.ts`
+- `src/app/page.tsx`
+- `src/components/right-panel/TaskSection.tsx`
+- `src/components/info-center/TaskTrace.tsx`
+
+能力：
+
+- ChatPanel 展示 native tool step。
+- RightPanel 从 native task result 提取 Agent Loop GIS outputs。
+- 地图从 `tool_observation.output.gisData` 和 `loop_stop.result.observations` 联动。
+- 前端内存 trace 和 Copy Trace 已支持排查。
+- 每次 Agent Loop 运行会写入 `projects_new/logs` 的 JSONL 文件。
+
+### 5. task.result projection
+
+已完成，并暂时保留。
 
 核心文件：
 
 - `api/src/modules/tasks/agentLoopResultProjection.ts`
 - `api/src/modules/tasks/pipeline.ts`
 
-当前 `task.result` 同时保留：
+当前结构：
 
 ```ts
 {
@@ -83,319 +134,246 @@ RegionResolve -> RegionMark -> WeatherFetch
   mode: "agent_loop",
   turns,
   stoppedBy,
+  logFilePath,
   observations,
   [toolCallId]: {
     success,
+    message,
     gisData,
     metadata
   }
 }
 ```
 
-作用：
+当前定位：
 
-- SSE 实时推送失败或前端刷新后，旧前端仍能从 `task.result[toolCallId].gisData` 兜底恢复地图数据。
+- `observations` 是 native 结果主结构。
+- `[toolCallId]` 是 Dashboard / RightPanel 恢复 GIS 输出的展示投影。
+- 后续可以把内部函数名从 `LegacyActionResult` 改成 `DashboardActionProjection`，但不急于删除该投影。
 
-### 4. OpenSky 真实数据链路
+### 6. OpenSky 真实数据链路
 
-已完成 OpenSky 获取、落库、worker 和 smoke 测试链路的主要修复。
+已完成主要闭环。
 
-已修重点：
+能力：
 
-- OpenSky 空 `states` 不替换当前表。
+- OpenSky fetch。
+- 当前快照落库。
+- worker 定时写入。
+- 空 states 不替换当前表。
 - 无效 `icao24` / `last_contact` 计数。
-- worker shutdown 加超时保护。
-- `.env` 补齐 OpenSky / Agent Loop 相关变量。
+- worker shutdown 超时保护。
 - `agent:smoke -- --refresh-opensky --query ...` 可触发真实写入后测试。
 
-### 5. 真实/半真实 GIS 工具纵切
+核心计划参考：
 
-已完成三个 Agent Loop domain tools：
+- `api/plan/opensky-hourly-ingestion-plan.md`
+- `api/plan/opensky-agent-tool-plan.md`
+- `api/plan/ais-hourly-ingestion-and-query-plan.md`
 
-#### WeatherFetch
+### 7. GIS 工具链
 
-核心文件：
+已完成第一条稳定真实/半真实纵切：
 
-- `api/src/modules/agent-loop/tools/domain/weather.ts`
-- `api/tests/gis/test-weather-fetch-tool.mjs`
-
-边界：
-
-- 只接受明确 `center` / `bbox`。
-- 只查 Open-Meteo。
-- 不猜默认区域。
-- 不返回 mock 风场。
-- 输出 `gisData.windField`。
-
-#### RegionMark
-
-核心文件：
-
-- `api/src/modules/agent-loop/tools/domain/gis/regionMark.ts`
-- `api/tests/gis/test-region-mark-tool.mjs`
-
-边界：
-
-- 只接受明确 `bbox` / `polygon`。
-- 不解析地名。
-- 不内置 preset。
-- 不 fallback 到东海。
-- 输出 `gisData.region` 和 `cameraView: { type: "fit-bbox", bbox }`。
-
-#### RegionResolve
+```text
+RegionResolve -> RegionMark -> WeatherFetch
+```
 
 核心文件：
 
 - `api/src/modules/agent-loop/tools/domain/gis/regionResolve.ts`
-- `api/tests/gis/test-region-resolve-tool.mjs`
-- `api/tests/gis/test-region-resolve-error-handling.mjs`
+- `api/src/modules/agent-loop/tools/domain/gis/regionMark.ts`
+- `api/src/modules/agent-loop/tools/domain/weather/weather.ts`
+- `api/scripts/agent-loop/agent-loop-smoke-gis.ts`
+- `api/tests/agent-loop/test-agent-loop-smoke-gis-helpers.mjs`
 
-边界：
+当前策略：
 
-- 只读本地 GeoJSON 资产。
-- 不联网。
-- 不生成 bbox。
-- 不写死台湾海峡。
-- 当前支持 `public/geo/china.geojson` 和 `public/geo/eastern_china_sea.geojson`。
+- 命名区域先 `RegionResolve`。
+- `RegionMark` 只接受明确 geometryRef / bbox / polygon，不负责地名解析。
+- 下游 weather / aircraft / maritime / disaster 复用 `RegionResolve.selected.bbox`。
+- 不能解析时不猜 bbox。
 
-当前可解析：
+### 8. RegionResolve PostGIS 化
 
-- `东海` / `中国东海`
-- 中国省级行政区，例如 `福建省`、`广西`
+已完成到可用阶段。
 
-当前不可解析：
+当前 PostGIS 表：
 
-- `台湾海峡`，除非后续补真实 GeoJSON 或区域 catalog。
+```text
+amazon
+china_board
+china_city
+china_province
+china_town
+chinabasin
+custom_region
+custom_region_copy1
+hexicorridor
+international
+international_copt
+rivers
+sea_geom
+taiwan
+```
 
-### 6. Agent Loop Prompt 策略（GIS Tool Routing Rules）
+已补 curated region：
+
+- `region_cn='台湾海峡'`
+- `region_en='Taiwan Strait'`
+- `level='strait'`
+
+参考计划：
+
+- `api/plan/region-resolve-global-geojson.md`
+
+### 9. Disaster / Satellite 工具链
+
+已不再只是计划，已有第一版工具和 prompt 规则。
 
 核心文件：
 
+- `api/src/modules/agent-loop/tools/domain/disaster/disaster.ts`
+- `api/src/modules/agent-loop/tools/domain/satellite/satellite.ts`
+- `api/src/modules/agent-loop/tools/domain/satellite/imageAnalysis.ts`
 - `api/src/modules/agent-loop/promptManager.ts`
-- `api/tests/agent-loop/test-prompt-manager-gis-routing.mjs`
+- `api/tests/gis/test-disaster-query-tool.mjs`
+- `api/tests/gis/test-satellite-image-search-tool.mjs`
+- `api/tests/gis/test-image-analysis-tool.mjs`
+- `api/tests/agent-loop/test-prompt-manager-disaster-satellite-routing.mjs`
 
-已实现内容：
+当前策略：
 
-```text
-When the user asks to mark, focus, circle, display, or analyze a named geographic region:
-1. Call RegionResolve first.
-2. If resolved=true, call RegionMark with selected.bbox.
-3. If downstream weather, aircraft, or maritime data is requested, reuse the same bbox.
-4. If resolved=false, do not guess. Ask for bbox/polygon or say the region GeoJSON is missing.
-```
+- 灾害、遥感、卫星影像、震洪台火等问题先 `RegionResolve`。
+- 复用同一个 bbox 调用 `DisasterQuery` / `SatelliteImageSearch`。
+- 有影像 URL 且用户要求评估时再调用 `ImageAnalysis`。
+- 无事件或无影像时明确说明，不编造灾情、损失、伤亡或来源链接。
 
-目标：让模型稳定形成 `RegionResolve -> RegionMark -> downstream tools` 的顺序，避免把"台湾海峡"直接塞给 `RegionMark` 导致失败。
+## 当前保留边界
 
----
+### 1. Dashboard projection 保留
 
-## 当前未完成
+`/jobs`、`/events`、`task.result[toolCallId]` 仍保留旧前端展示形状。它们现在的定位是 projection contract，不是旧 Planner/Router 运行时。
 
-### 1. GIS 工具链端到端 smoke
+下一步可做轻量命名清理：
 
-**状态：基础设施已存在，独立测试文件待补齐。**
+- `projectObservationsToLegacyActionResults` -> `projectObservationsToDashboardActionResults`
+- `legacy-result` -> `dashboard-result`
 
-目标链路：
+### 2. `agentLoopEvents.ts` 仍识别 legacy event type
 
-```text
-用户提问：圈选东海并查询风场
--> RegionResolve
--> RegionMark
--> WeatherFetch
--> SSE step_update 推 gisData
--> task.result 持久化 gisData
--> 前端地图可恢复区域和风场
-```
+这是为了防御后端误发旧事件，前端统一 ignored。该识别逻辑可以保留一段时间，等日志确认不会再出现旧事件后再删除。
 
-已有基础设施：
+### 3. `/ais/data` 仍为空实现
 
-- `api/scripts/agent-loop/agent-loop-smoke-gis.ts`：含 `createGisToolchainSmokeModelClient`、`installMockOpenMeteoFetch`、`validateGisToolchainSmoke`
-- `api/tests/agent-loop/test-agent-loop-smoke-gis-helpers.mjs`：验证上述 helper
-- `api/scripts/agent-loop/agent-loop-smoke.ts` 支持 `--scenario gis-toolchain` 跑全链路
+AIS 真实数据源还未确认，不建议迁移 MaritimeSituation 直到数据源真实可用。
 
-待补齐：
+### 4. ContextProvider Phase 2 已完成
 
-- `api/tests/test-agent-loop-gis-toolchain-smoke.mjs`（roadmap 原声称的独立文件，实际不存在）
+参考：
 
-测试重点：
+- `api/plan/context-provider-phase2-plan.md`
+- `api/src/modules/agent-loop/contextProvider.ts`
+- `api/tests/agent-loop/test-context-provider.mjs`
 
-- fake model 依次调用 `RegionResolve`、`RegionMark`、`WeatherFetch`。
-- mock `fetch` 返回 Open-Meteo 数据。
-- 检查 legacy SSE 中至少出现 region 和 wind-field 两类 `gisData`。
-- 检查 `buildAgentLoopTaskResult` 可投影两个 toolCallId。
+Phase 2 已完成：
 
-### 2. MaritimeSituation / FireAnalyze 迁移评估
+- 项目 instruction 默认关闭，环境变量开启。
+- `CONTEXT.md` 作为 `project.domain`。
+- `docs/adr` 作为 `project.adr_index`。
+- task requirements / progress sections。
+- diagnostics section。
 
-当前还没有迁移。
+## 下一阶段优先级
 
-原则：
+### P0. Transcript Persistence
 
-- 只迁真实或半真实数据能力。
-- 旧代码中纯 mock / 场景写死能力暂缓。
-- 不把旧 Planner/Router 的任务顺序硬搬进 Agent Loop。
-
-建议先评估：
-
-#### MaritimeSituation
-
-风险：
-
-- 旧实现依赖的 AIS 数据源 / 内存存储在当前分支不完整。
-- 如果没有真实 AIS / ShipDT 数据源，迁移价值有限。
-
-建议：
-
-- 先确认 AIS 数据源是否真实可用。
-- 若可用，做 `MaritimeSituation` 为只读 domain tool。
-- 若不可用，暂缓。
-
-#### FireAnalyze
-
-风险：
-
-- 旧实现 mock 和固定场景较多。
-- 如果没有真实火点/遥感/新闻数据源，容易回到硬编码 demo。
-
-建议：
-
-- 只在有真实火情数据输入时迁。
-- 否则先不迁。
-
-### 3. 批量迁移其他 capability
-
-当前未开始。
-
-迁移顺序建议：
-
-1. 已有真实数据源的工具。
-2. 有外部 API 且失败可明确返回 unavailable 的工具。
-3. 能输出稳定 GIS 数据结构的工具。
-4. 纯 mock / 场景写死工具最后处理，或直接删除。
-
-暂缓迁移：
-
-- `news`
-- `satellite`
-- `oil-drift`
-- `ais-fetch`
-- `ais-match-suspects`
-- `ais-suspect-ranking`
-- `fire`
-- `earthquake-evaluation`
-- `flood-evaluation`
-
-这些旧能力中 mock、固定区域、固定剧情成分较高，应先判断产品是否仍需要 demo 场景。
-
-### 4. 前端原生支持 Agent Loop 事件
-
-当前未开始。
-
-目标：
-
-- 前端直接识别 Agent Loop 原生事件：
-  - `agent_turn`
-  - `assistant_message`
-  - `tool_call`
-  - `tool_progress`
-  - `tool_observation`
-  - `loop_stop`
-
-完成后可以减少 legacy adapter 的语义损耗。
-
-建议阶段：
-
-1. 新增前端 Agent Loop event parser。
-2. ChatPanel 支持原生 tool step 展示。
-3. 地图继续从 `tool_observation.output.gisData` 提取。
-4. RightPanel / InfoCenter 改读原生 task result。
-5. 保留旧 adapter 一段时间做双轨验证。
-
-### 5. 删除旧 pipeline / 旧事件兼容层
-
-当前不能删。
-
-删除前置条件：
-
-- 前端原生支持 Agent Loop 事件。
-- `/jobs` / `/events` 不再依赖旧结构投影，或投影被明确保留为展示 API。
-- 所有保留 capability 都已经迁成 Agent Loop tools。
-- smoke / e2e 覆盖聊天、GIS、OpenSky、订阅或需求生成核心路径。
-
-可删除候选：
-
-- legacy SSE adapter。
-- task.result 旧 actionId 投影。
-- 旧 planner/router/executor 残余测试脚本。
-- 旧 mock capability 文件或 issue 中明确废弃的能力。
-
-### 7. 长期能力：Memory / Transcript / Prompt Versioning
-
-当前未开始。
-
-建议顺序：
-
-1. Transcript persistence
-   - 保存每轮 messages、tool calls、observations。
-   - 支持任务恢复和调试。
-
-2. Prompt versioning
-   - 给 system prompt / skill prompt / tool policy prompt 加版本号。
-   - 每次 agent run 记录 prompt version。
-
-3. Memory
-   - 先做只读摘要记忆。
-   - 再做跨任务偏好或区域上下文记忆。
-   - 避免一开始引入不可控写入。
-
-## 推荐下一步
-
-优先级最高的是：
-
-```text
-补 GIS 工具链端到端 smoke
-```
+这是当前最高优先级。
 
 原因：
 
-- `RegionResolve`、`RegionMark`、`WeatherFetch` 都已经单测通过。
-- legacy SSE adapter 和 task.result 投影也已经存在。
-- 但还缺一个完整的 agent-loop 级测试证明模型工具调用链、SSE、最终 result 可以协同工作。
+- Agent Loop native SSE、日志文件、前端 trace 都已经有了。
+- `runAgentLoop` 已经有 `transcriptStore` 注入点和 append 调用。
+- 当前默认 `disabledTranscriptStore`，所以 transcript 还没有结构化持久化。
+- 没有 transcript，就很难可靠做 resume、context recovery、长期审计和 prompt versioning。
 
-建议下一步任务：
+建议实现顺序见：
 
-1. 补齐 `api/tests/test-agent-loop-gis-toolchain-smoke.mjs`（独立文件），或确认 `--scenario gis-toolchain` 已足够。
-2. 用 fake model 明确模拟工具调用顺序。
-3. mock Open-Meteo fetch。
-4. 断言 SSE 中 region / wind-field 都出现。
-5. 断言最终 result 里按 toolCallId 可读到两个 `gisData`。
-6. ~~再补 prompt 策略~~（**已完成**：`promptManager.ts` 已含 GIS Tool Routing Rules）。
+- `api/plan/transcript-persistence-plan.md`
 
-## 验证命令参考
+### P1. Prompt Versioning
 
-当前相关测试：
+Transcript persistence 完成后做。
+
+目标：
+
+- 给 base system prompt、GIS routing rules、disaster satellite rules、tool policy prompt 加版本号。
+- 每次 agent run 记录 prompt version。
+- transcript 中记录每轮 model_request 使用的 prompt/context 版本摘要。
+
+### P2. ContextProvider Phase 3
+
+Transcript persistence 完成后，可以启动 Phase 3 的 transcript-resume context 部分。
+
+注意：
+
+- 可以做 `transcript-resume context`。
+- 不建议立即做完整 runtime resume。
+- user preference loading、include expansion、DB-backed integration tests、project-context caching 可以并行或后置。
+
+### P3. Disaster / Satellite E2E Smoke
+
+类似 GIS toolchain smoke，补一条：
+
+```text
+RegionResolve -> RegionMark -> DisasterQuery -> SatelliteImageSearch -> ImageAnalysis
+```
+
+目标：
+
+- fake model 固定工具顺序。
+- mock 或真实 CDSE/satellite API。
+- 校验 `gisData`、image overlays、final answer 和 `task.result.observations`。
+
+### P4. Projection 命名清理
+
+将仍带 legacy 命名但实际承担 dashboard projection 的代码重命名，降低后续理解成本。
+
+候选：
+
+- `api/src/modules/tasks/agentLoopResultProjection.ts`
+- `src/lib/agentLoopGisBridge.ts`
+- `src/types/prd.ts`
+
+### P5. Memory
+
+最后再做 Memory。
+
+建议顺序：
+
+1. 只读 session summary memory。
+2. project/user scoped file-based memory。
+3. relevant recall。
+4. 写入型 memory。
+
+不要一开始就做自动写入长期记忆，容易污染后续 agent 行为。
+
+## 验证命令
+
+常用回归：
 
 ```powershell
 cd api
-# GIS 工具单测（路径已更新为 tests/gis/）
-.\node_modules\.bin\tsx.CMD tests\gis\test-region-resolve-tool.mjs
-.\node_modules\.bin\tsx.CMD tests\gis\test-region-resolve-error-handling.mjs
-.\node_modules\.bin\tsx.CMD tests\gis\test-region-mark-tool.mjs
-.\node_modules\.bin\tsx.CMD tests\gis\test-weather-fetch-tool.mjs
-
-# Agent Loop 基础测试
-.\node_modules\.bin\tsx.CMD tests\test-agent-loop-result-projection.mjs
-.\node_modules\.bin\tsx.CMD tests\test-legacy-sse-adapter.mjs
-
-# Prompt 策略测试（新增）
-.\node_modules\.bin\tsx.CMD tests\agent-loop\test-prompt-manager-gis-routing.mjs
-
-# GIS smoke helper 测试（新增）
-.\node_modules\.bin\tsx.CMD tests\agent-loop\test-agent-loop-smoke-gis-helpers.mjs
-
-# TypeScript 类型检查
-.\node_modules\.bin\tsc.CMD
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-task-stream-router.mjs
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-task-stream-lifecycle.mjs
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-agent-loop-sse-mode.mjs
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-agent-loop-smoke-gis-helpers.mjs
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-prompt-manager-gis-routing.mjs
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-prompt-manager-disaster-satellite-routing.mjs
+..\node_modules\.bin\tsc.CMD -p tsconfig.json --noEmit --pretty false
 ```
 
-GIS toolchain smoke（已有基础设施）：
+GIS smoke：
 
 ```powershell
 cd api
@@ -409,16 +387,17 @@ cd api
 pnpm agent:smoke -- --refresh-opensky --query "查询台湾海峡附近当前有哪些飞机，列出 callsign、国家、经纬度和高度。" --max-turns 10
 ```
 
-GIS 工具可尝试提问：
+前端 trace：
+
+- URL 加 `?agentLoopTrace=1`
+- 或设置 `localStorage["agent-loop-trace"]="true"`
+
+## 当前判断
+
+下一刀应做：
 
 ```text
-圈选东海并查询这个区域的风场。
+Transcript Persistence MVP
 ```
 
-明确几何提问：
-
-```text
-标记一个区域，名称台湾海峡测试区，west=119.5 east=122.5 south=22 north=25.5。
-```
-
-注意：当前 `台湾海峡` 作为纯地名不会被 `RegionResolve` 解析，除非补真实区域 GeoJSON。
+完成后，可以进入 `context-provider-phase2-plan.md` 的 Phase 3 中和 transcript resume 相关的部分。

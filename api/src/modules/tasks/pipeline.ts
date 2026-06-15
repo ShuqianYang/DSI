@@ -1,10 +1,15 @@
 import * as taskService from "./service.js";
 import { notifyTaskUpdate } from "../../sse/sseManager.js";
 import type { CreateTaskRequest } from "@datasourceintelligence/shared";
+import { db } from "../../config/database.js";
 import { runAgentLoop } from "../agent-loop/runAgentLoop.js";
 import { buildAgentLoopTaskResult } from "./agentLoopResultProjection.js";
 import { buildLoopStopEventFromTaskResult } from "./agentLoopSseMode.js";
 import { createAgentLoopFileLogger, type AgentLoopFileLogger } from "../agent-loop/fileLogger.js";
+import {
+  createBestEffortTranscriptStore,
+  createDbTranscriptStore,
+} from "../agent-loop/transcriptStore.js";
 
 /**
  * Main task pipeline entry.
@@ -32,6 +37,7 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
       taskId,
       query: body.query,
       fileLogger,
+      transcriptStore: createBestEffortTranscriptStore(createDbTranscriptStore(db), console),
     });
 
     const result = buildAgentLoopTaskResult(loopResult);

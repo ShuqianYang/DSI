@@ -64,6 +64,35 @@ export const taskSteps = pgTable(
   ]
 );
 
+export const agentTranscriptEntries = pgTable(
+  "agent_transcript_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    turn: integer("turn").notNull(),
+    sequence: integer("sequence").notNull(),
+    kind: text("kind", {
+      enum: ["model_request", "assistant_message", "tool_message", "loop_stop"],
+    }).notNull(),
+    message: jsonb("message"),
+    messages: jsonb("messages"),
+    finalAnswer: text("final_answer"),
+    error: text("error"),
+    stoppedBy: text("stopped_by"),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("agent_transcript_entries_task_seq_idx").on(table.taskId, table.sequence),
+    index("agent_transcript_entries_task_kind_idx").on(table.taskId, table.kind),
+    index("agent_transcript_entries_created_at_idx").on(table.createdAt),
+  ]
+);
+
 // ============================================
 // OpenSky 飞机当前状态（外部数据源读模型）
 // ============================================
@@ -253,6 +282,8 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type TaskStep = typeof taskSteps.$inferSelect;
 export type NewTaskStep = typeof taskSteps.$inferInsert;
+export type AgentTranscriptEntry = typeof agentTranscriptEntries.$inferSelect;
+export type NewAgentTranscriptEntry = typeof agentTranscriptEntries.$inferInsert;
 export type JobTask = typeof jobTasks.$inferSelect;
 export type NewJobTask = typeof jobTasks.$inferInsert;
 export type Event = typeof events.$inferSelect;

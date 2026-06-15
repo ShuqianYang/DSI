@@ -21,6 +21,7 @@
     "agent:skills": "tsx scripts/agent-loop-skill-tests.ts",
     "agent:skills:real": "tsx scripts/agent-loop-real-skill-tests.ts",
     "agent:aircraft:real": "tsx tests/test-aircraft-agent-real.mjs",
+    "agent:capability-probe": "tsx tests/agent-loop/test-agent-loop-capability-probe.mjs",
     "lint": "eslint src/"
   },
   "dependencies": {

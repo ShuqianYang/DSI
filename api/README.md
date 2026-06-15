@@ -172,3 +172,21 @@ Claude Code 的系统工具大体分为这些组：
 - `ask`：交给 `permissionHandler`；CLI smoke runner 会询问 `[y/N]`。
 
 默认策略在 `src/modules/agent-loop/toolPolicy.ts`，统一执行入口在 `src/modules/agent-loop/toolGateway.ts`。工具自己的 `checkPermissions()` 优先于默认策略。
+
+## Agent Loop Transcript Persistence
+
+Agent Loop transcript rows are stored in the `agent_transcript_entries` table defined in
+`src/db/schema.ts`. Drizzle uses `drizzle.config.ts` with `schema: "./src/db/schema.ts"`,
+so the transcript table is included in the normal database lifecycle.
+
+Apply schema changes from `api/`:
+
+```bash
+pnpm db:push
+```
+
+In local environments without `pnpm` on PATH, use the workspace-local equivalent:
+
+```powershell
+.\node_modules\.bin\drizzle-kit.CMD push
+```
