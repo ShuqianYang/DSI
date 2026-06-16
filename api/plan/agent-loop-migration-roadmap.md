@@ -249,6 +249,30 @@ taiwan
 - 有影像 URL 且用户要求评估时再调用 `ImageAnalysis`。
 - 无事件或无影像时明确说明，不编造灾情、损失、伤亡或来源链接。
 
+### 10. Transcript Persistence / Resume Context
+
+已完成 MVP，并通过 Postgres 运行时验收。
+
+核心文件：
+
+- `api/src/db/schema.ts`
+- `api/src/modules/agent-loop/transcriptStore.ts`
+- `api/src/modules/tasks/pipeline.ts`
+- `api/src/modules/agent-loop/contextProvider.ts`
+- `api/tests/agent-loop/test-agent-loop-transcript-integration.mjs`
+- `api/tests/agent-loop/test-transcript-store.mjs`
+- `api/tests/agent-loop/test-transcript-read-model.mjs`
+- `api/tests/agent-loop/test-context-provider-transcript-context.mjs`
+
+能力：
+
+- `agent_transcript_entries` append-only 存储 `model_request`、`assistant_message`、`tool_message`、`loop_stop`。
+- `runAgentPipeline` 默认注入 DB-backed transcript store，并用 best-effort wrapper 防止审计写入影响用户任务。
+- `summarizeTranscriptForContext` 生成 bounded、JSON-safe 的 `transcript.resume_context`。
+- `ContextProvider` 已读取当前 `taskId` 的 transcript summary，并在 diagnostics 中区分 `loaded` / `empty` / `failed`。
+- `drizzle-kit.CMD push --force` 已在 Postgres 启动后通过，`agent_transcript_entries` 表可见且已有运行时 rows。
+- GIS smoke 已验证 JSONL 日志和 Agent Loop 工具链仍正常。
+
 ## 当前保留边界
 
 ### 1. Dashboard projection 保留
@@ -286,42 +310,71 @@ Phase 2 已完成：
 
 ## 下一阶段优先级
 
-### P0. Transcript Persistence
+### 已完成前置. Transcript Persistence
 
-这是当前最高优先级。
+已完成并通过运行时验收。
 
-原因：
+完成内容：
 
-- Agent Loop native SSE、日志文件、前端 trace 都已经有了。
-- `runAgentLoop` 已经有 `transcriptStore` 注入点和 append 调用。
-- 当前默认 `disabledTranscriptStore`，所以 transcript 还没有结构化持久化。
-- 没有 transcript，就很难可靠做 resume、context recovery、长期审计和 prompt versioning。
+- `agent_transcript_entries` 已加入 `api/src/db/schema.ts`。
+- `createDbTranscriptStore` / `createBestEffortTranscriptStore` 已实现。
+- `runAgentPipeline` 默认使用 DB-backed transcript store，同时保留 JSONL file logger。
+- `runAgentLoop` 已持久化 `model_request`、`assistant_message`、`tool_message`、`loop_stop`。
+- `entriesToConversationMessages` 和 `summarizeTranscriptForContext` 已提供 bounded read helper。
+- `ContextProvider` 已接入 fail-closed 的 `transcript.resume_context`。
+- `drizzle-kit.CMD push --force` 在 Postgres 可用后返回 `No changes detected`。
+- `agent_transcript_entries` 在 Postgres 中可见，并已有运行时 transcript rows。
 
-建议实现顺序见：
+参考：
 
 - `api/plan/transcript-persistence-plan.md`
+- `api/src/modules/agent-loop/transcriptStore.ts`
+- `api/src/modules/agent-loop/contextProvider.ts`
+- `api/tests/agent-loop/test-agent-loop-transcript-integration.mjs`
+- `api/tests/agent-loop/test-context-provider-transcript-context.mjs`
 
-### P1. Prompt Versioning
+### P0. Prompt Versioning
 
-Transcript persistence 完成后做。
+已完成 MVP。
 
-目标：
+完成内容：
 
-- 给 base system prompt、GIS routing rules、disaster satellite rules、tool policy prompt 加版本号。
-- 每次 agent run 记录 prompt version。
-- transcript 中记录每轮 model_request 使用的 prompt/context 版本摘要。
+- `PromptManager` 暴露稳定的 prompt/component version metadata。
+- `DEFAULT_PROMPT_COMPONENT_VERSIONS` 增加维护注释：编辑对应 prompt 规则后必须同步 bump 版本号。
+- 每个 `model_request` transcript entry 记录 `metadata.prompt`。
+- metadata 包含 prompt version、component versions、tool catalog hash、context/runtime/memory/skill section hash、raw/prepared message hash。
+- DB transcript store 已验证能持久化并 reload `metadata.prompt`，不需要新增 schema。
+- 复用了共享 stable JSON canonicalization，避免 run loop 和 prompt versioning 各自维护一份。
 
-### P2. ContextProvider Phase 3
+下一阶段：
 
-Transcript persistence 完成后，可以启动 Phase 3 的 transcript-resume context 部分。
+- Prompt Versioning 已具备 memory 前的审计基础。
+- 可以进入 Memory MVP，但仍建议先从只读 session summary memory 开始，避免直接做自动写入型长期记忆。
 
-注意：
+### P1. ContextProvider Phase 3
 
-- 可以做 `transcript-resume context`。
-- 不建议立即做完整 runtime resume。
-- user preference loading、include expansion、DB-backed integration tests、project-context caching 可以并行或后置。
+Transcript resume context 的第一版已完成。
 
-### P3. Disaster / Satellite E2E Smoke
+收口文档：
+
+- `api/plan/context-provider-phase3-closeout.md`
+
+已完成：
+
+- `transcript.resume_context` section 已接入 `defaultContextProvider.getContextSections()`。
+- 只读取当前 `taskId` 的 transcript entries。
+- 只注入 bounded summary，不回放完整 `model_request.messages`。
+- 表缺失或 DB 失败时 fail-closed，并在 diagnostics 中区分 `loaded` / `empty` / `failed`。
+
+仍暂缓：
+
+- 完整 runtime resume。
+- user preference loading。
+- include expansion。
+- project-context caching。
+- 大 transcript 的模型摘要压缩策略。
+
+### P2. Disaster / Satellite E2E Smoke
 
 类似 GIS toolchain smoke，补一条：
 
@@ -335,7 +388,7 @@ RegionResolve -> RegionMark -> DisasterQuery -> SatelliteImageSearch -> ImageAna
 - mock 或真实 CDSE/satellite API。
 - 校验 `gisData`、image overlays、final answer 和 `task.result.observations`。
 
-### P4. Projection 命名清理
+### P3. Projection 命名清理
 
 将仍带 legacy 命名但实际承担 dashboard projection 的代码重命名，降低后续理解成本。
 
@@ -345,18 +398,34 @@ RegionResolve -> RegionMark -> DisasterQuery -> SatelliteImageSearch -> ImageAna
 - `src/lib/agentLoopGisBridge.ts`
 - `src/types/prd.ts`
 
-### P5. Memory
+### P4. Memory
 
-最后再做 Memory。
+MVP in progress / completed:
 
-建议顺序：
+- Read-only session summary memory is env-gated by `AGENT_MEMORY_SESSION_SUMMARY=1`.
+- It recalls bounded summaries from recent completed tasks with the same `userId`.
+- It excludes the current task and does not duplicate `transcript.resume_context`; current-task transcript resume remains owned by ContextProvider.
+- It does not write long-term memory.
 
-1. 只读 session summary memory。
-2. project/user scoped file-based memory。
-3. relevant recall。
-4. 写入型 memory。
+MVP reference:
 
-不要一开始就做自动写入长期记忆，容易污染后续 agent 行为。
+- `api/plan/memory-mvp-plan.md`
+
+Implemented surface:
+
+- `api/src/modules/agent-loop/memoryManager.ts`
+- `api/src/modules/agent-loop/sessionSummaryMemoryManager.ts`
+- `api/src/modules/tasks/pipelineMemory.ts`
+- `api/src/modules/tasks/pipeline.ts`
+- `api/tests/agent-loop/test-session-summary-memory-manager.mjs`
+- `api/tests/agent-loop/test-agent-loop-session-memory.mjs`
+- `api/tests/agent-loop/test-pipeline-memory-manager.mjs`
+
+Next memory steps:
+
+1. File-based project/user memory with explicit human-maintained or reviewed content.
+2. Query-relevant recall over small memory sections.
+3. Write-capable memory only after confirmation/review UX is designed.
 
 ## 验证命令
 
@@ -397,7 +466,19 @@ pnpm agent:smoke -- --refresh-opensky --query "查询台湾海峡附近当前有
 下一刀应做：
 
 ```text
-Transcript Persistence MVP
+File-based project/user memory design, then query-relevant recall
 ```
 
-完成后，可以进入 `context-provider-phase2-plan.md` 的 Phase 3 中和 transcript resume 相关的部分。
+当前判断：
+
+- Transcript Persistence 已完成。
+- `transcript.resume_context` 已接入 ContextProvider。
+- Prompt Versioning MVP 已完成，`model_request.metadata.prompt` 可审计 prompt/context/tool surface。
+- Read-only session summary Memory MVP 已完成，并通过 `AGENT_MEMORY_SESSION_SUMMARY=1` env flag 接入 pipeline。
+- 当前 memory 只读取同 userId 的 recent completed task transcript summaries，不写入长期记忆。
+
+建议 Memory 后续顺序：
+
+```text
+file-based project/user memory -> query-relevant recall -> write-capable memory
+```

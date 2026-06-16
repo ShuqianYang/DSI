@@ -1,7 +1,7 @@
 import type { AgentMessage, AgentLoopResult, PromptSection } from "./tools/_shared/types.js";
 import { asc, eq } from "drizzle-orm";
 import { agentTranscriptEntries } from "../../db/schema.js";
-import { safeJsonStringify, sanitizeForJson } from "./tools/_shared/serialization.js";
+import { safeJsonStringify, sanitizeForJson, truncateText } from "./tools/_shared/serialization.js";
 
 const TRANSCRIPT_CONTEXT_SECTION_ID = "transcript.resume_context";
 const MAX_TRANSCRIPT_CONTEXT_CHARS = 4_000;
@@ -256,11 +256,6 @@ function previewText(value: string | undefined): string | null {
   return truncateText(value.replace(/\s+/g, " ").trim(), MAX_TRANSCRIPT_PREVIEW_CHARS);
 }
 
-function truncateText(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value;
-  return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
-}
-
 function stringifyTranscriptSummary(summary: {
   taskId: string | undefined;
   totalEntries: number;
@@ -276,7 +271,7 @@ function stringifyTranscriptSummary(summary: {
   }>;
 }): string {
   const serialized = JSON.stringify(summary, null, 2);
-  if (serialized.length < MAX_TRANSCRIPT_CONTEXT_CHARS) return serialized;
+  if (serialized.length <= MAX_TRANSCRIPT_CONTEXT_CHARS) return serialized;
 
   const fallback = JSON.stringify(
     {
@@ -297,7 +292,7 @@ function stringifyTranscriptSummary(summary: {
     null,
     2
   );
-  if (fallback.length < MAX_TRANSCRIPT_CONTEXT_CHARS) return fallback;
+  if (fallback.length <= MAX_TRANSCRIPT_CONTEXT_CHARS) return fallback;
 
   return JSON.stringify(
     {

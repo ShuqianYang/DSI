@@ -4,6 +4,7 @@ const {
   createBestEffortTranscriptStore,
   createDbTranscriptStore,
   disabledTranscriptStore,
+  summarizeTranscriptForContext,
 } = await import("../../src/modules/agent-loop/transcriptStore.ts");
 
 {
@@ -23,6 +24,7 @@ const {
   const store = createDbTranscriptStore(db);
   const circular = { name: "root" };
   circular.self = circular;
+  const shared = { key: "value" };
 
   await store.append({
     taskId: "11111111-1111-1111-1111-111111111111",
@@ -47,6 +49,8 @@ const {
     metadata: {
       value: undefined,
       big: 12n,
+      duplicateA: shared,
+      duplicateB: shared,
     },
     createdAt: new Date("2026-06-12T00:00:00.000Z"),
   });
@@ -58,7 +62,65 @@ const {
   assert.equal(insertedRows[0].message.toolCalls[0].input.fn, "[Function demo]");
   assert.equal(insertedRows[0].message.toolCalls[0].input.symbol, "Symbol(agent-transcript)");
   assert.equal(insertedRows[0].metadata.big, "12n");
+  assert.deepEqual(insertedRows[0].metadata.duplicateA, { key: "value" });
+  assert.deepEqual(insertedRows[0].metadata.duplicateB, { key: "value" });
   assert.equal(Object.hasOwn(insertedRows[0].metadata, "value"), false);
+}
+
+{
+  const taskId = "22222222-2222-2222-2222-222222222222";
+  let exactToolName;
+  for (let length = 1; length < 5000; length += 1) {
+    const toolName = "T".repeat(length);
+    const naturalSummary = {
+      taskId,
+      totalEntries: 2,
+      stoppedBy: "final_answer",
+      error: null,
+      finalAnswerPreview: "done",
+      lastAssistantAnswerPreview: null,
+      recentTools: [
+        {
+          toolName,
+          toolCallId: "call-1",
+          ok: true,
+          error: null,
+        },
+      ],
+    };
+    if (JSON.stringify(naturalSummary, null, 2).length === 4000) {
+      exactToolName = toolName;
+      break;
+    }
+  }
+
+  assert(exactToolName);
+  const section = summarizeTranscriptForContext([
+    {
+      taskId,
+      turn: 1,
+      sequence: 1,
+      kind: "tool_message",
+      message: {
+        role: "tool",
+        content: JSON.stringify({ ok: true }),
+        toolCallId: "call-1",
+        toolName: exactToolName,
+      },
+    },
+    {
+      taskId,
+      turn: 1,
+      sequence: 2,
+      kind: "loop_stop",
+      stoppedBy: "final_answer",
+      finalAnswer: "done",
+    },
+  ]);
+
+  assert(section);
+  assert.equal(section.content.length, 4000);
+  assert.equal(section.content.includes('"truncated": true'), false);
 }
 
 {

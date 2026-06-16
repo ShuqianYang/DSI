@@ -10,6 +10,8 @@ import {
   createBestEffortTranscriptStore,
   createDbTranscriptStore,
 } from "../agent-loop/transcriptStore.js";
+import { createDbRecentTaskLister } from "../agent-loop/sessionSummaryMemoryManager.js";
+import { createPipelineMemoryManager } from "./pipelineMemory.js";
 
 /**
  * Main task pipeline entry.
@@ -33,11 +35,21 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
       );
     }
 
+    const transcriptStore = createDbTranscriptStore(db);
+    const currentTask = await taskService.getTaskById(taskId);
     const loopResult = await runAgentLoop({
       taskId,
       query: body.query,
       fileLogger,
-      transcriptStore: createBestEffortTranscriptStore(createDbTranscriptStore(db), console),
+      transcriptStore: createBestEffortTranscriptStore(transcriptStore, console),
+      memoryManager: createPipelineMemoryManager({
+        currentTaskId: taskId,
+        currentTask,
+        env: process.env,
+        transcriptStore,
+        listRecentCompletedTasks: createDbRecentTaskLister(db),
+        logger: console,
+      }),
     });
 
     const result = buildAgentLoopTaskResult(loopResult);

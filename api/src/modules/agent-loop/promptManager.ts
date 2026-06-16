@@ -1,5 +1,10 @@
 import type { AgentMessage, PromptSection, ToolDefinition, ToolObservation } from "./tools/_shared/types.js";
 
+export interface PromptManagerVersionMetadata {
+  promptVersion: string;
+  componentVersions: Record<string, string>;
+}
+
 export interface PromptManagerInput {
   /** Original user request for this agent run. */
   query: string;
@@ -32,9 +37,24 @@ export interface PromptManager {
    * - Window compaction should happen after this call in ContextWindowManager.
    */
   buildMessages(input: PromptManagerInput): AgentMessage[];
+  getVersionMetadata?(): PromptManagerVersionMetadata;
 }
 
-type ToolMetadataValue = string | number | boolean | "dynamic";
+export type ToolMetadataValue = string | number | boolean | "dynamic";
+
+export const DEFAULT_PROMPT_VERSION = "agent-loop-prompt-v1";
+
+// When editing a corresponding prompt rule below, bump its component version too;
+// otherwise transcript metadata will misrepresent which prompt behavior ran.
+export const DEFAULT_PROMPT_COMPONENT_VERSIONS = {
+  baseSystem: "base-system-v1",
+  toolUseRules: "tool-use-rules-v1",
+  gisRoutingRules: "gis-routing-rules-v2",
+  disasterSatelliteRules: "disaster-satellite-rules-v1",
+  contextPriorityRules: "context-priority-rules-v1",
+  toolCatalogRenderer: "tool-catalog-renderer-v1",
+  promptSectionRenderer: "prompt-section-renderer-v1",
+} as const;
 
 const BASE_SYSTEM_PROMPT = [
   "# Agent Role",
@@ -88,6 +108,13 @@ const BASE_SYSTEM_PROMPT = [
 ].join("\n");
 
 export const defaultPromptManager: PromptManager = {
+  getVersionMetadata() {
+    return {
+      promptVersion: DEFAULT_PROMPT_VERSION,
+      componentVersions: { ...DEFAULT_PROMPT_COMPONENT_VERSIONS },
+    };
+  },
+
   buildMessages(input) {
     const toolCatalog = renderToolCatalog(input.tools);
     const sections = [
@@ -115,7 +142,7 @@ export const defaultPromptManager: PromptManager = {
   },
 };
 
-function metadataValue(value: unknown): ToolMetadataValue | undefined {
+export function metadataValue(value: unknown): ToolMetadataValue | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value === "function") return "dynamic";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {

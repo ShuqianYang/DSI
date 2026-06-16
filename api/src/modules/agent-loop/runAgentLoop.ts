@@ -1,7 +1,4 @@
-import { db } from "../../config/database.js";
-import { taskSteps } from "../../db/schema.js";
 import { notifyTaskUpdate } from "../../sse/sseManager.js";
-import { eq } from "drizzle-orm";
 import {
   createAgentLoopFileLogger,
   type AgentLoopFileLogger,
@@ -15,7 +12,12 @@ import {
 import { noopMemoryManager, type MemoryManager } from "./memoryManager.js";
 import { createModelClient, type ModelClient } from "./modelClient.js";
 import { defaultPromptManager, type PromptManager } from "./promptManager.js";
-import { safeJsonStringify, sanitizeForJson } from "./tools/_shared/serialization.js";
+import { buildPromptVersionMetadata } from "./promptVersioning.js";
+import {
+  safeJsonStringify,
+  sanitizeForJson,
+  stableStringify,
+} from "./tools/_shared/serialization.js";
 import {
   defaultSkillManager,
   registerSkillTool,
@@ -46,6 +48,7 @@ const DEFAULT_MAX_CONCURRENT_TOOL_CALLS = 5;
 const MIN_ASSISTANT_ANSWER_CANDIDATE_CHARS = 280;
 const MAX_CLOSING_ONLY_FINAL_ANSWER_CHARS = 160;
 const ANSWER_CANDIDATE_COMPATIBLE_TOOL_NAMES = new Set(["TodoWrite"]);
+let taskStepDependenciesPromise: ReturnType<typeof loadTaskStepDependencies> | undefined;
 
 export interface RunAgentLoopOptions {
   taskId: string;
@@ -257,7 +260,16 @@ export async function* runAgentLoopEvents(
       const callId = `call-${turn}`;
       const skillSections = [...skillListingSections, ...skillDiscoverySections];
       const runtimeSections = buildRuntimeToolStateSections(toolUseContext);
-      const rawMessages = promptManager.buildMessages({
+      const prePromptMemorySections = await consumeMemoryPrefetchIfReady({
+        prefetch: memoryPrefetch,
+        turn,
+        memoryManager,
+        toolUseContext,
+      });
+      if (prePromptMemorySections.length > 0) {
+        memorySections = [...memorySections, ...prePromptMemorySections];
+      }
+      const promptInput = {
         query: options.query,
         tools: activeTools,
         userContext,
@@ -267,17 +279,31 @@ export async function* runAgentLoopEvents(
         memorySections,
         skillSections,
         observations,
-      }).concat(conversationMessages);
+      };
+      const rawMessages = promptManager.buildMessages(promptInput).concat(conversationMessages);
       const prepared = await contextWindowManager.prepareMessages({
         messages: rawMessages,
         toolUseContext,
       });
       const messages = prepared.messages;
+      const promptMetadata = buildPromptVersionMetadata({
+        promptVersionMetadata: promptManager.getVersionMetadata?.(),
+        tools: activeTools,
+        contextSections,
+        runtimeSections,
+        memorySections,
+        skillSections,
+        rawMessages,
+        preparedMessages: messages,
+      });
 
       await appendTranscript({
         turn,
         kind: "model_request",
         messages,
+        metadata: {
+          prompt: promptMetadata,
+        },
       });
       yield emitEvent({
         type: "model_request",
@@ -952,25 +978,6 @@ function createDuplicateToolObservation(
   };
 }
 
-function stableStringify(value: unknown): string {
-  return JSON.stringify(sortForStableStringify(value));
-}
-
-function sortForStableStringify(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortForStableStringify);
-  }
-  if (!value || typeof value !== "object") {
-    return value;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, child]) => [key, sortForStableStringify(child)])
-  );
-}
-
 function formatAbortReason(reason: unknown): string {
   if (typeof reason === "string" && reason.trim()) {
     return `Agent loop aborted: ${reason}`;
@@ -1049,6 +1056,7 @@ async function createToolStep(
     reason?: string;
   }
 ): Promise<string> {
+  const { db, taskSteps } = await getTaskStepDependencies();
   const [step] = await db
     .insert(taskSteps)
     .values({
@@ -1070,6 +1078,7 @@ async function createToolStep(
 }
 
 async function markToolStepRunning(stepId: string): Promise<void> {
+  const { db, eq, taskSteps } = await getTaskStepDependencies();
   await db
     .update(taskSteps)
     .set({
@@ -1080,6 +1089,7 @@ async function markToolStepRunning(stepId: string): Promise<void> {
 }
 
 async function markToolStepCompleted(stepId: string, observation: ToolObservation): Promise<void> {
+  const { db, eq, taskSteps } = await getTaskStepDependencies();
   await db
     .update(taskSteps)
     .set({
@@ -1089,6 +1099,20 @@ async function markToolStepCompleted(stepId: string, observation: ToolObservatio
       completedAt: new Date(),
     })
     .where(eq(taskSteps.id, stepId));
+}
+
+async function getTaskStepDependencies() {
+  taskStepDependenciesPromise ??= loadTaskStepDependencies();
+  return taskStepDependenciesPromise;
+}
+
+async function loadTaskStepDependencies() {
+  const [{ db }, { taskSteps }, { eq }] = await Promise.all([
+    import("../../config/database.js"),
+    import("../../db/schema.js"),
+    import("drizzle-orm"),
+  ]);
+  return { db, taskSteps, eq };
 }
 
 async function buildMaxTurnsAnswer(options: {

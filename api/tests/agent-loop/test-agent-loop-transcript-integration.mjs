@@ -106,6 +106,13 @@ try {
   const firstRequest = entries[0];
   assert(Array.isArray(firstRequest.messages));
   assert(firstRequest.messages.some((message) => message.role === "user" && message.content === query));
+  assert(firstRequest.metadata);
+  assert(firstRequest.metadata.prompt);
+  assert.equal(firstRequest.metadata.prompt.promptVersion, "agent-loop-prompt-v1");
+  assert.equal(firstRequest.metadata.prompt.toolCatalog.count, 2);
+  assert.deepEqual(firstRequest.metadata.prompt.toolCatalog.names, ["DemoLookup", "Skill"]);
+  assert.match(firstRequest.metadata.prompt.toolCatalog.hash, /^sha256:[a-f0-9]{16}$/);
+  assert.match(firstRequest.metadata.prompt.messages.preparedHash, /^sha256:[a-f0-9]{16}$/);
 
   const toolAssistant = entries[1].message;
   assert.equal(toolAssistant.role, "assistant");

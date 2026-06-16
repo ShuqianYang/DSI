@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { defaultPromptManager } from "../../src/modules/agent-loop/promptManager.ts";
+import {
+  DEFAULT_PROMPT_COMPONENT_VERSIONS,
+  DEFAULT_PROMPT_VERSION,
+  defaultPromptManager,
+  metadataValue,
+} from "../../src/modules/agent-loop/promptManager.ts";
 
 function makeTool(name, description, extra = {}) {
   return {
@@ -56,6 +61,28 @@ function buildInput(overrides = {}) {
     ...overrides,
   };
 }
+
+assert.equal(DEFAULT_PROMPT_VERSION, "agent-loop-prompt-v1");
+assert.deepEqual(DEFAULT_PROMPT_COMPONENT_VERSIONS, {
+  baseSystem: "base-system-v1",
+  toolUseRules: "tool-use-rules-v1",
+  gisRoutingRules: "gis-routing-rules-v2",
+  disasterSatelliteRules: "disaster-satellite-rules-v1",
+  contextPriorityRules: "context-priority-rules-v1",
+  toolCatalogRenderer: "tool-catalog-renderer-v1",
+  promptSectionRenderer: "prompt-section-renderer-v1",
+});
+
+const versionMetadata = defaultPromptManager.getVersionMetadata();
+assert.equal(versionMetadata.promptVersion, DEFAULT_PROMPT_VERSION);
+assert.deepEqual(versionMetadata.componentVersions, DEFAULT_PROMPT_COMPONENT_VERSIONS);
+assert.notEqual(versionMetadata.componentVersions, DEFAULT_PROMPT_COMPONENT_VERSIONS);
+
+assert.equal(metadataValue(() => true), "dynamic");
+assert.equal(metadataValue("low"), "low");
+assert.equal(metadataValue(18000), 18000);
+assert.equal(metadataValue(false), false);
+assert.equal(metadataValue(""), undefined);
 
 const result = defaultPromptManager.buildMessages(buildInput());
 
