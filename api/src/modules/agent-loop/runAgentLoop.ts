@@ -721,12 +721,54 @@ function publishAgentLoopEvent(event: AgentLoopEvent): void {
     case "tool_observation":
     case "assistant_message":
     case "loop_stop":
+      console.log(`[AgentLoop][SSE] ${formatAgentLoopEventForLog(event)}`);
       notifyTaskUpdate(event.taskId, event);
       break;
     case "model_request":
     case "tool_message":
       break;
   }
+}
+
+function formatAgentLoopEventForLog(event: AgentLoopEvent): string {
+  const prefix = `[${event.taskId}] ${event.type}`;
+
+  switch (event.type) {
+    case "agent_turn":
+      return `${prefix} turn=${event.turn}/${event.maxTurns}`;
+    case "assistant_message": {
+      const toolCalls = event.message.toolCalls || [];
+      if (toolCalls.length > 0) {
+        const tools = toolCalls.map((call) => call.toolName || call.id).join(", ");
+        return `${prefix} toolCalls=[${tools}]`;
+      }
+      return `${prefix} content="${previewLog(event.message.content)}"`;
+    }
+    case "tool_calls":
+      return `${prefix} count=${event.count} tools=[${event.tools.join(", ")}]`;
+    case "tool_batch":
+      return `${prefix} mode=${event.mode} tools=[${event.tools.join(", ")}]`;
+    case "tool_call":
+      return `${prefix} tool=${event.toolName} id=${event.toolCallId}`;
+    case "tool_progress": {
+      const stage = event.stage ? ` stage=${event.stage}` : "";
+      const percent = typeof event.percent === "number" ? ` ${event.percent}%` : "";
+      return `${prefix} tool=${event.toolName}${stage}${percent} ${previewLog(String(event.message || ""))}`;
+    }
+    case "tool_observation":
+      return `${prefix} tool=${event.toolName} ok=${event.ok}`;
+    case "loop_stop": {
+      const result = event.result;
+      return `${prefix} stoppedBy=${result.stoppedBy} turns=${result.turns} final="${previewLog(result.finalAnswer)}"`;
+    }
+    default:
+      return prefix;
+  }
+}
+
+function previewLog(text: string, max = 120): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > max ? `${compact.slice(0, max)}...` : compact;
 }
 
 type ToolCallBatch =
