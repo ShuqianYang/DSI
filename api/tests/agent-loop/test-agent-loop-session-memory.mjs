@@ -28,6 +28,17 @@ const memoryManager = {
     filteredSectionCount = sections.length;
     return sections;
   },
+  getDiagnostics() {
+    return {
+      enabled: true,
+      status: "loaded",
+      currentUserId: "user-1",
+      recalledTaskCount: 1,
+      sectionCount: 1,
+      skippedReason: null,
+      warningCount: 0,
+    };
+  },
 };
 
 const modelClient = {
@@ -82,5 +93,9 @@ assert.equal(modelRequests.length, 1);
 assert.equal(filteredSectionCount, 1);
 assert(modelRequests[0][0].content.includes("## memory.session_summary.prior-task"));
 assert(modelRequests[0][0].content.includes("Taiwan Strait wind field was fetched."));
+assert(modelRequests[0][0].content.includes("## memory.recall_decision"));
+assert(modelRequests[0][0].content.includes('"decision":"answer_from_memory"'));
+assert(modelRequests[0][0].content.includes("## memory.diagnostics"));
+assert(modelRequests[0][0].content.includes('"status":"loaded"'));
 
 console.log("agent loop session memory test passed");

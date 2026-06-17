@@ -1,6 +1,6 @@
 import { and, desc, eq, ne } from "drizzle-orm";
 import { tasks } from "../../db/schema.js";
-import type { MemoryManager } from "./memoryManager.js";
+import type { MemoryDiagnostics, MemoryManager } from "./memoryManager.js";
 import type { AgentTranscriptStore } from "./transcriptStore.js";
 import { summarizeTranscriptForContext } from "./transcriptStore.js";
 import { truncateText } from "./tools/_shared/serialization.js";
@@ -52,11 +52,32 @@ export function createSessionSummaryMemoryManager(
     200,
     positiveIntegerOrDefault(input.maxSectionChars, DEFAULT_SECTION_MAX_CHARS)
   );
+  const diagnostics: MemoryDiagnostics = {
+    enabled: input.enabled,
+    status: input.enabled ? "empty" : "disabled",
+    currentUserId: input.currentUserId ?? null,
+    recalledTaskCount: 0,
+    sectionCount: 0,
+    skippedReason: input.enabled ? null : "disabled",
+    warningCount: 0,
+  };
 
   return {
     transcriptStore: input.transcriptStore,
     startRelevantMemoryPrefetch(): AgentLoopPrefetch | undefined {
-      if (!input.enabled || input.currentUserId == null) return undefined;
+      if (!input.enabled) {
+        diagnostics.status = "disabled";
+        diagnostics.skippedReason = "disabled";
+        return undefined;
+      }
+      if (input.currentUserId == null) {
+        diagnostics.status = "no_user";
+        diagnostics.skippedReason = "no_user";
+        return undefined;
+      }
+
+      diagnostics.status = "pending";
+      diagnostics.skippedReason = null;
 
       const prefetch: AgentLoopPrefetch = {
         settledAt: null,
@@ -68,6 +89,7 @@ export function createSessionSummaryMemoryManager(
               excludeTaskId: input.currentTaskId,
               limit: recentTaskLimit,
             });
+            diagnostics.recalledTaskCount = recentTasks.length;
             const sections: PromptSection[] = [];
             for (const task of recentTasks) {
               try {
@@ -86,6 +108,7 @@ export function createSessionSummaryMemoryManager(
                   })
                 );
               } catch (error) {
+                diagnostics.warningCount += 1;
                 logger.warn(
                   "[Memory] session summary candidate failed:",
                   task.id,
@@ -93,8 +116,14 @@ export function createSessionSummaryMemoryManager(
                 );
               }
             }
+            diagnostics.sectionCount = sections.length;
+            diagnostics.status = sections.length > 0 ? "loaded" : "empty";
+            diagnostics.skippedReason = sections.length > 0 ? null : "empty";
             return sections;
           } catch (error) {
+            diagnostics.status = "failed";
+            diagnostics.skippedReason = "failed";
+            diagnostics.warningCount += 1;
             logger.warn(
               "[Memory] session summary recall failed:",
               error instanceof Error ? error.message : String(error)
@@ -106,6 +135,9 @@ export function createSessionSummaryMemoryManager(
         }),
       };
       return prefetch;
+    },
+    getDiagnostics() {
+      return { ...diagnostics };
     },
     filterDuplicateMemorySections(sections) {
       const seen = new Set<string>();

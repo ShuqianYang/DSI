@@ -1,5 +1,6 @@
 // API 客户端 - 对接后端展示数据接口
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+export const AGENT_LOOP_FIXED_USER_ID = "agent-loop-local-user";
 
 async function fetchJson<T>(path: string, options?: RequestInit, retries = 1): Promise<T> {
   const separator = path.includes("?") ? "&" : "?";
@@ -168,7 +169,7 @@ export async function createAgentTask(query: string): Promise<{
 }> {
   return fetchJson("/tasks", {
     method: "POST",
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, userId: AGENT_LOOP_FIXED_USER_ID }),
   });
 }
 

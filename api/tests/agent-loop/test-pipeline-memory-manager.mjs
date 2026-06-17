@@ -61,7 +61,25 @@ const enabledPrefetch = enabledManager.startRelevantMemoryPrefetch([], {
   taskId: currentTaskId,
 });
 assert(enabledPrefetch);
+assert.deepEqual(enabledManager.getDiagnostics?.(), {
+  enabled: true,
+  status: "pending",
+  currentUserId: "user-1",
+  recalledTaskCount: 0,
+  sectionCount: 0,
+  skippedReason: null,
+  warningCount: 0,
+});
 const sections = await enabledPrefetch.promise;
+assert.deepEqual(enabledManager.getDiagnostics?.(), {
+  enabled: true,
+  status: "loaded",
+  currentUserId: "user-1",
+  recalledTaskCount: 1,
+  sectionCount: 1,
+  skippedReason: null,
+  warningCount: 0,
+});
 assert.deepEqual(listInput, {
   userId: "user-1",
   excludeTaskId: currentTaskId,
@@ -85,6 +103,15 @@ const disabledManager = createPipelineMemoryManager({
 
 assert.equal(disabledManager.startRelevantMemoryPrefetch([], { taskId: currentTaskId }), undefined);
 assert.equal(disabledListCalled, false);
+assert.deepEqual(disabledManager.getDiagnostics?.(), {
+  enabled: false,
+  status: "disabled",
+  currentUserId: "user-1",
+  recalledTaskCount: 0,
+  sectionCount: 0,
+  skippedReason: "disabled",
+  warningCount: 0,
+});
 
 const missingUserManager = createPipelineMemoryManager({
   currentTaskId,
@@ -97,5 +124,14 @@ const missingUserManager = createPipelineMemoryManager({
 });
 
 assert.equal(missingUserManager.startRelevantMemoryPrefetch([], { taskId: currentTaskId }), undefined);
+assert.deepEqual(missingUserManager.getDiagnostics?.(), {
+  enabled: true,
+  status: "no_user",
+  currentUserId: null,
+  recalledTaskCount: 0,
+  sectionCount: 0,
+  skippedReason: "no_user",
+  warningCount: 0,
+});
 
 console.log("pipeline memory manager test passed");

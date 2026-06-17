@@ -20,6 +20,7 @@ export type StepStatus = z.infer<typeof StepStatus>;
 
 export const CreateTaskRequest = z.object({
   query: z.string().min(1),
+  userId: z.string().min(1).optional(),
   context: z.record(z.string(), z.any()).optional(),
 });
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;

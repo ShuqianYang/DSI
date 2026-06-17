@@ -13,6 +13,7 @@ import { noopMemoryManager, type MemoryManager } from "./memoryManager.js";
 import { createModelClient, type ModelClient } from "./modelClient.js";
 import { defaultPromptManager, type PromptManager } from "./promptManager.js";
 import { buildPromptVersionMetadata } from "./promptVersioning.js";
+import { buildMemoryRecallDecisionSection } from "./memoryRecallDecision.js";
 import {
   safeJsonStringify,
   sanitizeForJson,
@@ -269,6 +270,16 @@ export async function* runAgentLoopEvents(
       if (prePromptMemorySections.length > 0) {
         memorySections = [...memorySections, ...prePromptMemorySections];
       }
+      const memoryRecallDecisionSection = buildMemoryRecallDecisionSection({
+        query: options.query,
+        memorySections,
+      });
+      const memoryDiagnosticsSection = buildMemoryDiagnosticsSection(memoryManager);
+      const promptMemorySections = [
+        ...memorySections,
+        ...(memoryRecallDecisionSection ? [memoryRecallDecisionSection] : []),
+        ...(memoryDiagnosticsSection ? [memoryDiagnosticsSection] : []),
+      ];
       const promptInput = {
         query: options.query,
         tools: activeTools,
@@ -276,7 +287,7 @@ export async function* runAgentLoopEvents(
         systemContext,
         contextSections,
         runtimeSections,
-        memorySections,
+        memorySections: promptMemorySections,
         skillSections,
         observations,
       };
@@ -291,7 +302,7 @@ export async function* runAgentLoopEvents(
         tools: activeTools,
         contextSections,
         runtimeSections,
-        memorySections,
+        memorySections: promptInput.memorySections,
         skillSections,
         rawMessages,
         preparedMessages: messages,
@@ -658,6 +669,15 @@ function filterToolsForActiveSkill(
 ): ReturnType<ToolRegistry["list"]> {
   if (!allowedToolNames || allowedToolNames.size === 0) return tools;
   return tools.filter((tool) => allowedToolNames.has(tool.name) || tool.aliases?.some((alias) => allowedToolNames.has(alias)));
+}
+
+function buildMemoryDiagnosticsSection(memoryManager: MemoryManager): PromptSection | undefined {
+  const diagnostics = memoryManager.getDiagnostics?.();
+  if (!diagnostics) return undefined;
+  return {
+    id: "memory.diagnostics",
+    content: JSON.stringify(diagnostics),
+  };
 }
 
 function clearExpiredSkillToolRestriction(

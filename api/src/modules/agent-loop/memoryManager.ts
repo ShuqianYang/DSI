@@ -22,6 +22,24 @@ export interface RememberInput {
   toolUseContext: AgentLoopToolUseContext;
 }
 
+export type MemoryDiagnosticsStatus =
+  | "disabled"
+  | "no_user"
+  | "pending"
+  | "empty"
+  | "loaded"
+  | "failed";
+
+export interface MemoryDiagnostics {
+  enabled: boolean;
+  status: MemoryDiagnosticsStatus;
+  currentUserId: string | null;
+  recalledTaskCount: number;
+  sectionCount: number;
+  skippedReason: "disabled" | "no_user" | "empty" | "failed" | null;
+  warningCount: number;
+}
+
 export interface MemoryManager {
   /**
    * Start relevant-memory retrieval once for the user turn, matching Claude Code's
@@ -49,6 +67,12 @@ export interface MemoryManager {
     sections: PromptSection[],
     toolUseContext: AgentLoopToolUseContext
   ): PromptSection[];
+
+  /**
+   * Small, model/log-visible diagnostics for memory recall state.
+   * This is observational only; it must not trigger additional recall work.
+   */
+  getDiagnostics?(): MemoryDiagnostics;
 
   /**
    * Post-run/session-memory hook. Use this for session summaries, durable memories,

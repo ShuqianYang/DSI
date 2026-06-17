@@ -68,6 +68,7 @@ assert.deepEqual(DEFAULT_PROMPT_COMPONENT_VERSIONS, {
   toolUseRules: "tool-use-rules-v1",
   gisRoutingRules: "gis-routing-rules-v2",
   disasterSatelliteRules: "disaster-satellite-rules-v1",
+  memoryRecallRules: "memory-recall-rules-v1",
   contextPriorityRules: "context-priority-rules-v1",
   toolCatalogRenderer: "tool-catalog-renderer-v1",
   promptSectionRenderer: "prompt-section-renderer-v1",
@@ -93,6 +94,8 @@ assert.equal(result[1].content, "请查看项目状态并给出下一步建议")
 
 const system = result[0].content;
 assert.match(system, /# Agent Role/);
+assert.match(system, /# Memory Recall Decision Rules/);
+assert.match(system, /decision=answer_from_memory/);
 assert.match(system, /# Operating Rules/);
 assert.match(system, /# Tool Use Rules/);
 assert.match(system, /complete answer in a single final_answer/);
