@@ -34,7 +34,16 @@ v2 目标：
   - 空数据、编码转名称规则。
 - 修正 package.json 脚本说明（默认 fake 路径不再错误地标为 `--mock-api`）。
 
-### 1.3 新增与修改文件
+### 1.3 数据源说明归属调整
+
+经确认，`xjzhdd_bj` / `border-defense` MySQL 数据库是 `border-defense-qa` Skill 的私有数据源，不应在全局 `database-description.md` 中展开详细表结构。
+
+调整方式：
+
+- `skills/border-defense-qa/SKILL.md`：保留完整表结构、字段含义、SQL 规则、few-shot 示例，作为 Skill 的权威数据源说明；
+- `api/src/instructions/database-description.md`：将 `border-defense` 章节压缩为极简索引，仅说明用途并指向 `skills/border-defense-qa/SKILL.md`。
+
+### 1.4 新增与修改文件
 
 #### 新增文件
 
@@ -50,11 +59,11 @@ v2 目标：
 |------|----------|
 | `api/src/modules/agent-loop/tools/domain/index.ts` | 注册 `buildMysqlQuerySchemaTool()` 和 `buildMysqlQueryTool()` |
 | `skills/border-defense-qa/SKILL.md` | 重写为声明式 Skill，补充自我介绍/无关问题拦截、日期提示、表结构、SQL 规则、few-shot、空数据处理 |
-| `api/src/instructions/database-description.md` | 已有 `border-defense` / `xjzhdd_bj` catalog，无需变更 |
+| `api/src/instructions/database-description.md` | 将 `border-defense` 章节压缩为极简索引，指向 `skills/border-defense-qa/SKILL.md` |
 | `api/scripts/agent-loop/agent-loop-smoke.ts` | 引入 smoke helper，加入 `knownScenarios`、tool defaults、fake model、mock fetch、validation 分支 |
 | `api/package.json` | 添加 `agent:smoke:border-defense-qa`、`agent:smoke:border-defense-qa:real`、`agent:test:border-defense-qa` 脚本 |
 
-### 1.4 关键问题与修复
+### 1.5 关键问题与修复
 
 #### 问题 1：ESM 环境下无法 mock `mysql2/promise`
 
@@ -72,7 +81,7 @@ v2 目标：
 
 **修复**：在本机 Postgres 创建 `datasource` 数据库并执行 `pnpm db:migrate` 完成表结构初始化。
 
-### 1.5 验证结果
+### 1.6 验证结果
 
 ```bash
 cd api
@@ -97,7 +106,7 @@ pnpm agent:smoke:border-defense-qa# ✅ 通过
 [border-defense-qa-smoke] schemaCalled=true queryCalled=true finalAnswer=true
 ```
 
-### 1.6 遗留与待确认事项
+### 1.7 遗留与待确认事项
 
 - 图表生成、明细/时空数据查询能力 v2 尚未实现，后续可按设计文档新增 `ChartGenerate`、`DetailQuery` 等域工具。
 - 真实 MySQL 路径（`pnpm agent:smoke:border-defense-qa:real`）需要目标数据库可达且 `BORDER_DEFENSE_DB_*` 环境变量正确配置，本次未验证。

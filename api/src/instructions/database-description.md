@@ -109,31 +109,5 @@ names — choose the right table based on question intent.
 
 ## `border-defense` / `xjzhdd_bj`
 
-Border defense operational data stored in MySQL. Use `MysqlQuerySchema` to confirm exact column names before writing `MysqlQuery`.
-
-**Workflow:** identify intent → `MysqlQuerySchema` (if needed) → `MysqlQuery`.
-
-Use `MysqlQuerySchema` with the optional `table` parameter when the target table is known:
-
-```json
-{"database":"border-defense","table":"alarm_event"}
-```
-
-| Table | Purpose | Key Columns |
-|-------|---------|-------------|
-| `alarm_event` | Warning/alarm events | `event_id`, `warning_classification_name`, `event_level_name`, `event_time`, `device_id`, `device_name`, `longitude`, `latitude`, `owner_dept_id`, `owner_dept_name`, `handle_result`, `handle_user_name`, `handle_time`, `dispose_status`, `is_deleted`, `is_mock_data` |
-| `buckle_access_record` | Checkpoint access logs | `id`, `object_id`, `object_category`, `entry_buckle_id`, `entry_buckle_name`, `entry_time`, `leave_buckle_id`, `leave_buckle_name`, `leave_time`, `alarm_level`, `match_result`, `alarm_time`, `is_deleted`, `is_mock_data` |
-| `buckle_info` | Checkpoint metadata | `id`, `buckle_code`, `buckle_name`, `dept_id`, `longitude`, `latitude` |
-| `buckle_access_list` | Person/vehicle registry | `id`, `object_name`, `object_category`, `object_type`, `license_number`, `alarm_level` |
-| `buckle_access_stay_time` | Overstay duration config | `object_category`, `object_type`, `permit_stay_duration` |
-| `sys_dept` | Department hierarchy | `dept_id`, `parent_id`, `dept_name`, `dept_level`, `status`, `longitude`, `latitude` |
-| `tb_device` | Device/sensor inventory | `dev_id`, `dev_index_code`, `dev_name`, `dev_category`, `dev_type_code`, `manufacturer`, `longitude`, `latitude`, `install_place` |
-| `make_rounds_record` | Patrol records | `id`, `rounds_time`, `user_name`, `dept_id`, `longitude`, `latitude` |
-
-**Filtering conventions:**
-
-- Always exclude logically deleted rows with `is_deleted = 0` unless asked otherwise.
-- Default time window is the current month when the user does not specify one.
-- Use `event_level_name` (not numeric `event_level`) for alarm-level grouping/labeling.
-- For department-based queries, join `sys_dept` on `dept_id` or `owner_dept_id`.
-- For device-based queries, join `tb_device` on `dev_id`/`device_id`.
+Border defense operational data (MySQL). Used exclusively by the `border-defense-qa` Skill.
+For the full schema, SQL conventions, and few-shot examples, see `skills/border-defense-qa/SKILL.md`.
