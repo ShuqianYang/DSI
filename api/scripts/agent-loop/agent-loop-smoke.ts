@@ -9,6 +9,14 @@ import {
   installMockOpenMeteoFetch,
   validateGisToolchainSmoke,
 } from "./agent-loop-smoke-gis.js";
+import {
+  createDailyReportSmokeModelClient,
+  DAILY_REPORT_QUERY,
+  DAILY_REPORT_SCENARIO,
+  DAILY_REPORT_TOOLS,
+  installMockDailyReportFetch,
+  validateDailyReportSmoke,
+} from "./agent-loop-smoke-daily-report.js";
 import { buildDefaultToolRegistry, ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
@@ -23,7 +31,13 @@ const PREVIEW_CHARS = Number.parseInt(process.env.AGENT_LOOP_SMOKE_PREVIEW_CHARS
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const query = options.query || (options.scenario === GIS_TOOLCHAIN_SCENARIO ? GIS_TOOLCHAIN_QUERY : DEFAULT_QUERY);
+  const query =
+    options.query ||
+    (options.scenario === GIS_TOOLCHAIN_SCENARIO
+      ? GIS_TOOLCHAIN_QUERY
+      : options.scenario === DAILY_REPORT_SCENARIO
+        ? DAILY_REPORT_QUERY
+        : DEFAULT_QUERY);
 
   if (options.refreshOpenSky) {
     process.env.AGENT_SQL_ALLOWED_SCHEMAS ||= JSON.stringify({ default: ["public"] });
@@ -43,21 +57,32 @@ async function main() {
   const permissionHandler = createCliPermissionHandler();
   const rawEvents: AgentLoopEvent[] = [];
   const modelClient =
-    options.scenario === GIS_TOOLCHAIN_SCENARIO && !options.realModel
+    !options.realModel && options.scenario === GIS_TOOLCHAIN_SCENARIO
       ? createGisToolchainSmokeModelClient()
-      : undefined;
+      : !options.realModel && options.scenario === DAILY_REPORT_SCENARIO
+        ? createDailyReportSmokeModelClient()
+        : undefined;
   const restoreWeatherMock =
     options.mockWeather && options.scenario === GIS_TOOLCHAIN_SCENARIO
       ? installMockOpenMeteoFetch()
+      : undefined;
+  const restoreDailyReportMock =
+    options.mockApi && options.scenario === DAILY_REPORT_SCENARIO
+      ? installMockDailyReportFetch({ reportContent: options.mockReportContent })
       : undefined;
 
   console.log(`[smoke] taskId=${taskId}`);
   console.log(`[smoke] query=${query}`);
   console.log(`[smoke] tools=${registry.list().map((tool) => tool.name).join(", ")}`);
   if (options.scenario) console.log(`[smoke] scenario=${options.scenario}`);
-  if (modelClient) console.log("[smoke] model=fake-gis-toolchain");
+  if (modelClient) {
+    console.log(
+      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : "unknown"}`
+    );
+  }
   if (options.realModel) console.log("[smoke] model=real");
   if (restoreWeatherMock) console.log("[smoke] weather=mock-open-meteo");
+  if (restoreDailyReportMock) console.log("[smoke] daily-report=mock-api");
   console.log("");
 
   let finalSeen = false;
@@ -85,7 +110,7 @@ async function main() {
         finalSeen = true;
         loopResult = event.result;
         const result =
-          options.scenario === GIS_TOOLCHAIN_SCENARIO
+          options.scenario === GIS_TOOLCHAIN_SCENARIO || options.scenario === DAILY_REPORT_SCENARIO
             ? buildAgentLoopTaskResult(event.result)
             : event.result;
         await smokeDb.db
@@ -108,6 +133,7 @@ async function main() {
     }
   } finally {
     restoreWeatherMock?.();
+    restoreDailyReportMock?.();
     if (!finalSeen) {
       await smokeDb.db
         .update(smokeDb.tasks)
@@ -130,6 +156,19 @@ async function main() {
     console.log(`[gis-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
     console.log(
       `[gis-smoke] task.result projection: region=${report.projectedRegionGisData} wind-field=${report.projectedWindFieldGisData}`,
+    );
+  }
+
+  if (options.scenario === DAILY_REPORT_SCENARIO && loopResult) {
+    const report = validateDailyReportSmoke({
+      rawEvents,
+      projectedResult: buildAgentLoopTaskResult(loopResult),
+    });
+    console.log("");
+    console.log("[daily-report-smoke] validation passed");
+    console.log(`[daily-report-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
+    console.log(
+      `[daily-report-smoke] date=${report.date} reportType=${report.reportType} contentLength=${report.contentLength}`,
     );
   }
 }
@@ -276,6 +315,8 @@ interface SmokeOptions {
   scenario?: string;
   realModel: boolean;
   mockWeather: boolean;
+  mockApi: boolean;
+  mockReportContent: string;
 }
 
 function parseArgs(args: string[]): SmokeOptions {
@@ -287,6 +328,8 @@ function parseArgs(args: string[]): SmokeOptions {
   let scenario: string | undefined;
   let realModel = false;
   let mockWeather: boolean | undefined;
+  let mockApi = false;
+  let mockReportContent = "昨日边境态势总体平稳，设备运行正常，未发生重大预警事态。";
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -318,6 +361,11 @@ function parseArgs(args: string[]): SmokeOptions {
       mockWeather = true;
     } else if (arg === "--no-mock-weather") {
       mockWeather = false;
+    } else if (arg === "--mock-api") {
+      mockApi = true;
+    } else if (arg === "--mock-report-content") {
+      mockReportContent = requireValue(arg, next);
+      index += 1;
     } else if (arg === "--verbose-tool-messages") {
       verboseToolMessages = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -331,12 +379,17 @@ function parseArgs(args: string[]): SmokeOptions {
     throw new Error("--max-turns must be a positive integer");
   }
 
-  if (scenario && scenario !== GIS_TOOLCHAIN_SCENARIO) {
+  const knownScenarios = new Set([GIS_TOOLCHAIN_SCENARIO, DAILY_REPORT_SCENARIO]);
+  if (scenario && !knownScenarios.has(scenario)) {
     throw new Error(`Unknown smoke scenario: ${scenario}`);
   }
 
   if (scenario === GIS_TOOLCHAIN_SCENARIO && (!tools || tools.length === 0)) {
     tools = [...GIS_TOOLCHAIN_TOOLS];
+  }
+
+  if (scenario === DAILY_REPORT_SCENARIO && (!tools || tools.length === 0)) {
+    tools = [...DAILY_REPORT_TOOLS];
   }
 
   return {
@@ -349,6 +402,8 @@ function parseArgs(args: string[]): SmokeOptions {
     scenario,
     realModel,
     mockWeather: mockWeather ?? scenario === GIS_TOOLCHAIN_SCENARIO,
+    mockApi,
+    mockReportContent,
   };
 }
 
@@ -362,17 +417,19 @@ function printHelpAndExit(): never {
   tsx scripts/agent-loop-smoke.ts [options]
 
 Options:
-  -q, --query <text>       User query to run.
-  --scenario <name>        Scenario assertions. Supported: gis-toolchain.
-  --max-turns <n>          Max loop turns. Default: 6.
-  --tools <a,b,c>          Comma-separated tools from the default registry.
-  --with-webfetch          Add WebFetch to the selected tools.
-  --with-websearch         Add WebSearch to the selected tools.
-  --refresh-opensky        Fetch OpenSky now before running the agent.
-  --real-model             Use the configured model instead of the scenario fake model.
-  --mock-weather           Mock Open-Meteo weather responses.
-  --no-mock-weather        Use real Open-Meteo weather responses.
-  --verbose-tool-messages  Also print serialized tool messages.
+  -q, --query <text>            User query to run.
+  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report.
+  --max-turns <n>              Max loop turns. Default: 6.
+  --tools <a,b,c>              Comma-separated tools from the default registry.
+  --with-webfetch              Add WebFetch to the selected tools.
+  --with-websearch             Add WebSearch to the selected tools.
+  --refresh-opensky            Fetch OpenSky now before running the agent.
+  --real-model                 Use the configured model instead of the scenario fake model.
+  --mock-weather               Mock Open-Meteo weather responses (gis-toolchain only).
+  --no-mock-weather            Use real Open-Meteo weather responses (gis-toolchain only).
+  --mock-api                   Mock the daily-report API (daily-report only).
+  --mock-report-content <t>   Content returned by the mock daily-report API.
+  --verbose-tool-messages      Also print serialized tool messages.
 
 GIS toolchain fake example:
   tsx scripts/agent-loop-smoke.ts --scenario gis-toolchain --max-turns 6
@@ -380,8 +437,11 @@ GIS toolchain fake example:
 GIS toolchain real-model example:
   tsx scripts/agent-loop-smoke.ts --scenario gis-toolchain --real-model --query "圈选东海并查询这个区域的风场。" --max-turns 8
 
-Aircraft example:
-  tsx scripts/agent-loop-smoke.ts --refresh-opensky --query "查询台湾海峡附近当前有哪些飞机，列出 callsign、国家、经纬度和高度。" --max-turns 10
+Daily report fake example:
+  tsx scripts/agent-loop-smoke.ts --scenario daily-report --mock-api --max-turns 4
+
+Daily report real-model example:
+  tsx scripts/agent-loop-smoke.ts --scenario daily-report --real-model --query "生成昨天的边防日报" --max-turns 4
 `);
   process.exit(0);
 }

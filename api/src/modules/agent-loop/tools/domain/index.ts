@@ -7,6 +7,7 @@ import { buildSatelliteImageSearchTool } from "./satellite/satellite.js";
 import { buildImageAnalysisTool } from "./satellite/imageAnalysis.js";
 import { buildRegionResolveTool } from "./gis/regionResolve.js";
 import { buildRegionMarkTool } from "./gis/regionMark.js";
+import { buildDailyReportTool } from "./dailyReport/dailyReport.js";
 
 export function registerDomainTools(registry: ToolRegistry): void {
   for (const tool of buildDomainTools()) {
@@ -24,5 +25,6 @@ export function buildDomainTools(): ReturnType<typeof buildSqlQueryTool>[] {
     buildImageAnalysisTool(),
     buildRegionResolveTool(),
     buildRegionMarkTool(),
+    buildDailyReportTool(),
   ];
 }
