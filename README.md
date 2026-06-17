@@ -350,7 +350,7 @@ pnpm dev
 cd api && pnpm dev
 
 # 终端3: Worker 进程
-cd api && pnpm worker
+cd api && pnpm exec tsx src/worker.ts
 ```
 
 ### 生产部署
