@@ -3,7 +3,7 @@ import type { AgentLoopEvent, GisData, ToolObservation } from '@datasourceintell
 export type AgentLoopGisPushSource =
   | 'agent-loop-event'
   | 'agent-loop-result'
-  | 'legacy-result';
+  | 'dashboard-result';
 
 export interface AgentLoopGisPush {
   key: string;
@@ -77,7 +77,7 @@ export function extractGisPushesFromTaskResult(
     if (!gisData) continue;
     addUniquePush(pushes, seenKeys, {
       key: buildGisPushKey(taskId, actionId),
-      source: 'legacy-result',
+      source: 'dashboard-result',
       toolCallId: stringValue(asRecord(record.metadata).toolCallId) || actionId,
       toolName: stringValue(asRecord(record.metadata).toolName),
       gisData,

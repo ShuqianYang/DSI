@@ -27,7 +27,7 @@ export interface ThinkingStep {
   status: 'pending' | 'running' | 'completed' | 'failed';
   detail?: string;
   duration?: number; // ms
-  category?: 'agent' | 'tool' | 'gis' | 'result' | 'legacy';
+  category?: 'agent' | 'tool' | 'gis' | 'result';
   eventType?: AgentLoopEventType;
   toolName?: string;
   toolCallId?: string;

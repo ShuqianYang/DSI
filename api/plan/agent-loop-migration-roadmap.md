@@ -1,26 +1,28 @@
 # Agent Loop Migration Roadmap
 
-> 目标：长期记录从旧 Planner/Router/Executor/Capability 体系迁移到 Agent Loop 体系的真实进度、保留边界和下一步优先级。
+> Long-term status record for moving from the old Planner / Router / Executor / Capability stack to the native Agent Loop stack.
 
-## 当前结论
+## Current Conclusion
 
-Agent Loop 已经成为前端提问和后端工具执行的主路径。当前阶段不再是“让 Agent Loop 能跑起来”，而是进入：
+Agent Loop is now the main runtime path for frontend questions and backend tool execution.
+
+The migration is no longer about "making Agent Loop run". The current work is structural cleanup and next-layer capability:
 
 ```text
-native Agent Loop 稳定化
--> 结构化可观测性
--> transcript persistence
+native Agent Loop stability
+-> observability and transcript persistence
 -> prompt versioning
--> resume / context recovery / memory
+-> context recovery and memory
+-> deeper E2E smoke coverage and next-layer memory
 ```
 
-Legacy SSE adapter 和前端 legacy fallback 已删除。仍然保留的旧形状主要是 Dashboard 展示 API 的兼容投影，例如 `/jobs`、`/events` 和 `task.result[toolCallId]`，这些不再视为运行时 legacy fallback，而是前端展示层的 projection contract。
+Legacy SSE adapter and frontend legacy fallback have been removed. The old-shaped surfaces that remain are compatibility projections for dashboard/display APIs, such as `/jobs`, `/events`, and `task.result[toolCallId]`. These should be treated as projection contracts, not old runtime fallback.
 
-## 已完成
+## Completed
 
-### 1. Dashboard 兼容路由
+### 1. Dashboard Compatibility Routes
 
-已保留旧前端依赖的展示路由：
+Retained routes:
 
 - `/jobs`
 - `/events`
@@ -31,7 +33,14 @@ Legacy SSE adapter 和前端 legacy fallback 已删除。仍然保留的旧形�
 - `/ais/data`
 - `/ads/data`
 
-核心文件：
+Current meaning:
+
+- `/jobs` projects `tasks` / `task_steps`.
+- `/events` projects completed or failed tool observations.
+- `/ads/data` reads `aircraft_current_states`.
+- `/ais/data` remains an empty compatibility endpoint until a real AIS source is confirmed.
+
+Core files:
 
 - `api/src/modules/dashboard/projection.ts`
 - `api/src/modules/dashboard/service.ts`
@@ -39,24 +48,11 @@ Legacy SSE adapter 和前端 legacy fallback 已删除。仍然保留的旧形�
 - `api/src/modules/dashboard/routes.ts`
 - `api/src/index.ts`
 
-当前定位：
-
-- `/jobs` 动态投影 `tasks` / `task_steps`。
-- `/events` 动态投影已完成或失败的 tool observations。
-- `/ads/data` 读取 `aircraft_current_states`。
-- `/ais/data` 暂时保留为空结果兼容接口。
-
 ### 2. Native Agent Loop SSE
 
-已完成，且已经成为唯一主路径。
+Completed and now the only primary stream path.
 
-核心文件：
-
-- `api/src/modules/agent-loop/runAgentLoop.ts`
-- `api/src/modules/tasks/routes.ts`
-- `api/src/modules/tasks/agentLoopSseMode.ts`
-
-原生事件：
+Native events:
 
 - `agent_turn`
 - `assistant_message`
@@ -65,38 +61,47 @@ Legacy SSE adapter 和前端 legacy fallback 已删除。仍然保留的旧形�
 - `tool_observation`
 - `loop_stop`
 
-说明：
+Notes:
 
-- `runAgentLoop` 直接通过 `notifyTaskUpdate` 推送 native events。
-- `/tasks/:taskId/stream` 对已结束任务只 replay `loop_stop`。
-- `model_request` 和 `tool_message` 仍可进入 transcript/log，但不作为前端主 SSE 展示事件。
+- `runAgentLoop` publishes native events through `notifyTaskUpdate`.
+- `/tasks/:taskId/stream` can replay `loop_stop` for completed tasks.
+- `model_request` and `tool_message` may still be logged to transcript / JSONL, but they are not primary frontend display events.
 
-### 3. Legacy SSE Adapter 和前端 fallback 删除
+Core files:
 
-已完成删除。
+- `api/src/modules/agent-loop/runAgentLoop.ts`
+- `api/src/modules/tasks/routes.ts`
+- `api/src/modules/tasks/agentLoopSseMode.ts`
 
-删除内容：
+### 3. Legacy Runtime Fallback Removal
+
+Removed:
 
 - `api/src/modules/tasks/agentLoopEventAdapter.ts`
 - `src/lib/legacyTaskStreamFallback.ts`
-- legacy SSE adapter 相关测试
-- 前端 `legacy-fallback` 处理分支
+- legacy SSE adapter tests
+- frontend legacy fallback handling branch
 
-保留内容：
+Still retained intentionally:
 
-- `src/lib/agentLoopEvents.ts` 仍能识别旧事件类型，但只用于分类后忽略。
-- `src/lib/taskStreamRouter.ts` 对旧事件统一返回 `ignored-legacy`。
+- `src/lib/agentLoopEvents.ts` still recognizes old event types and classifies them as legacy.
+- `src/lib/taskStreamRouter.ts` returns `ignored-legacy` for old event types.
 
-设计含义：
+This retained recognition is defensive: if the backend accidentally emits an old event, the frontend ignores it instead of driving UI from it.
 
-- 前端不再从 `planning` / `routing_done` / `step_update` 推导 UI。
-- 若后端误发旧事件，前端不会被它驱动。
+### 4. Frontend Native Agent Loop Support
 
-### 4. 前端原生 Agent Loop 支持
+Completed for the main interaction path.
 
-已完成主链路。
+Capabilities:
 
-核心文件：
+- ChatPanel displays native tool steps.
+- RightPanel reads native Agent Loop task results.
+- Map links from `tool_observation.output.gisData` and `loop_stop.result.observations`.
+- Frontend in-memory trace and Copy Trace are available.
+- Each Agent Loop run writes a JSONL file under `projects_new/logs`.
+
+Core files:
 
 - `src/lib/agentLoopEvents.ts`
 - `src/lib/taskStreamRouter.ts`
@@ -109,24 +114,11 @@ Legacy SSE adapter 和前端 legacy fallback 已删除。仍然保留的旧形�
 - `src/components/right-panel/TaskSection.tsx`
 - `src/components/info-center/TaskTrace.tsx`
 
-能力：
+### 5. Task Result Projection
 
-- ChatPanel 展示 native tool step。
-- RightPanel 从 native task result 提取 Agent Loop GIS outputs。
-- 地图从 `tool_observation.output.gisData` 和 `loop_stop.result.observations` 联动。
-- 前端内存 trace 和 Copy Trace 已支持排查。
-- 每次 Agent Loop 运行会写入 `projects_new/logs` 的 JSONL 文件。
+Completed and retained as a display / dashboard projection contract.
 
-### 5. task.result projection
-
-已完成，并暂时保留。
-
-核心文件：
-
-- `api/src/modules/tasks/agentLoopResultProjection.ts`
-- `api/src/modules/tasks/pipeline.ts`
-
-当前结构：
+Current shape:
 
 ```ts
 {
@@ -145,41 +137,52 @@ Legacy SSE adapter 和前端 legacy fallback 已删除。仍然保留的旧形�
 }
 ```
 
-当前定位：
+Current meaning:
 
-- `observations` 是 native 结果主结构。
-- `[toolCallId]` 是 Dashboard / RightPanel 恢复 GIS 输出的展示投影。
-- 后续可以把内部函数名从 `LegacyActionResult` 改成 `DashboardActionProjection`，但不急于删除该投影。
+- `observations` is the native result structure.
+- `[toolCallId]` is the dashboard / RightPanel recovery projection for GIS outputs.
+- The projection should stay for now, but internal code now names it as a dashboard projection rather than legacy runtime fallback.
 
-### 6. OpenSky 真实数据链路
+Core files:
 
-已完成主要闭环。
+- `api/src/modules/tasks/agentLoopResultProjection.ts`
+- `api/src/modules/tasks/pipeline.ts`
+- `src/lib/agentLoopGisBridge.ts`
 
-能力：
+### 6. OpenSky Real Data Path
 
-- OpenSky fetch。
-- 当前快照落库。
-- worker 定时写入。
-- 空 states 不替换当前表。
-- 无效 `icao24` / `last_contact` 计数。
-- worker shutdown 超时保护。
-- `agent:smoke -- --refresh-opensky --query ...` 可触发真实写入后测试。
+Completed for the main loop:
 
-核心计划参考：
+- OpenSky fetch.
+- current snapshot persistence.
+- scheduled worker write.
+- empty `states` does not replace current table.
+- invalid `icao24` / `last_contact` counting.
+- worker shutdown timeout protection.
+- smoke command can refresh OpenSky and then query aircraft data.
+
+Reference plans:
 
 - `api/plan/opensky-hourly-ingestion-plan.md`
 - `api/plan/opensky-agent-tool-plan.md`
 - `api/plan/ais-hourly-ingestion-and-query-plan.md`
 
-### 7. GIS 工具链
+### 7. GIS Toolchain
 
-已完成第一条稳定真实/半真实纵切：
+Completed first stable real / semi-real vertical slice:
 
 ```text
 RegionResolve -> RegionMark -> WeatherFetch
 ```
 
-核心文件：
+Current routing rule:
+
+- Named regions go through `RegionResolve`.
+- `RegionMark` accepts explicit `geometryRef`, `bbox`, or `polygon`; it does not resolve names.
+- Downstream weather / aircraft / maritime / disaster tools reuse `RegionResolve.selected.bbox`.
+- If `RegionResolve` fails, the model must not invent a bbox.
+
+Core files:
 
 - `api/src/modules/agent-loop/tools/domain/gis/regionResolve.ts`
 - `api/src/modules/agent-loop/tools/domain/gis/regionMark.ts`
@@ -187,18 +190,11 @@ RegionResolve -> RegionMark -> WeatherFetch
 - `api/scripts/agent-loop/agent-loop-smoke-gis.ts`
 - `api/tests/agent-loop/test-agent-loop-smoke-gis-helpers.mjs`
 
-当前策略：
+### 8. RegionResolve PostGIS
 
-- 命名区域先 `RegionResolve`。
-- `RegionMark` 只接受明确 geometryRef / bbox / polygon，不负责地名解析。
-- 下游 weather / aircraft / maritime / disaster 复用 `RegionResolve.selected.bbox`。
-- 不能解析时不猜 bbox。
+Completed to usable MVP.
 
-### 8. RegionResolve PostGIS 化
-
-已完成到可用阶段。
-
-当前 PostGIS 表：
+Current PostGIS tables include:
 
 ```text
 amazon
@@ -217,21 +213,28 @@ sea_geom
 taiwan
 ```
 
-已补 curated region：
+Curated region added:
 
 - `region_cn='台湾海峡'`
 - `region_en='Taiwan Strait'`
 - `level='strait'`
 
-参考计划：
+Reference plan:
 
 - `api/plan/region-resolve-global-geojson.md`
 
-### 9. Disaster / Satellite 工具链
+### 9. Disaster / Satellite Tools
 
-已不再只是计划，已有第一版工具和 prompt 规则。
+First tool and prompt-rule version is implemented.
 
-核心文件：
+Current behavior:
+
+- Disaster, earthquake, flood, typhoon, fire, satellite imagery, and remote-sensing questions start with `RegionResolve`.
+- The same bbox is reused for `DisasterQuery` / `SatelliteImageSearch`.
+- `ImageAnalysis` is called only when image URLs exist and the user asks for assessment / interpretation.
+- If there are no events or images, the model should say so and not fabricate facts.
+
+Core files:
 
 - `api/src/modules/agent-loop/tools/domain/disaster/disaster.ts`
 - `api/src/modules/agent-loop/tools/domain/satellite/satellite.ts`
@@ -242,18 +245,18 @@ taiwan
 - `api/tests/gis/test-image-analysis-tool.mjs`
 - `api/tests/agent-loop/test-prompt-manager-disaster-satellite-routing.mjs`
 
-当前策略：
-
-- 灾害、遥感、卫星影像、震洪台火等问题先 `RegionResolve`。
-- 复用同一个 bbox 调用 `DisasterQuery` / `SatelliteImageSearch`。
-- 有影像 URL 且用户要求评估时再调用 `ImageAnalysis`。
-- 无事件或无影像时明确说明，不编造灾情、损失、伤亡或来源链接。
-
 ### 10. Transcript Persistence / Resume Context
 
-已完成 MVP，并通过 Postgres 运行时验收。
+Completed MVP and verified against Postgres.
 
-核心文件：
+Capabilities:
+
+- `agent_transcript_entries` stores `model_request`, `assistant_message`, `tool_message`, and `loop_stop`.
+- `runAgentPipeline` injects a DB-backed transcript store through a best-effort wrapper.
+- `summarizeTranscriptForContext` generates bounded, JSON-safe `transcript.resume_context`.
+- ContextProvider reads the current task transcript summary and diagnostics distinguish `loaded` / `empty` / `failed`.
+
+Core files:
 
 - `api/src/db/schema.ts`
 - `api/src/modules/agent-loop/transcriptStore.ts`
@@ -264,154 +267,55 @@ taiwan
 - `api/tests/agent-loop/test-transcript-read-model.mjs`
 - `api/tests/agent-loop/test-context-provider-transcript-context.mjs`
 
-能力：
+### 11. Prompt Versioning
 
-- `agent_transcript_entries` append-only 存储 `model_request`、`assistant_message`、`tool_message`、`loop_stop`。
-- `runAgentPipeline` 默认注入 DB-backed transcript store，并用 best-effort wrapper 防止审计写入影响用户任务。
-- `summarizeTranscriptForContext` 生成 bounded、JSON-safe 的 `transcript.resume_context`。
-- `ContextProvider` 已读取当前 `taskId` 的 transcript summary，并在 diagnostics 中区分 `loaded` / `empty` / `failed`。
-- `drizzle-kit.CMD push --force` 已在 Postgres 启动后通过，`agent_transcript_entries` 表可见且已有运行时 rows。
-- GIS smoke 已验证 JSONL 日志和 Agent Loop 工具链仍正常。
+Completed MVP.
 
-## 当前保留边界
+Capabilities:
 
-### 1. Dashboard projection 保留
+- PromptManager exposes stable prompt/component version metadata.
+- `DEFAULT_PROMPT_COMPONENT_VERSIONS` documents the bump requirement.
+- Each `model_request` transcript entry records `metadata.prompt`.
+- Metadata includes prompt version, component versions, tool catalog hash, context/runtime/memory/skill section hashes, and raw/prepared message hashes.
+- DB transcript store can persist and reload `metadata.prompt`.
+- Stable JSON canonicalization is shared.
 
-`/jobs`、`/events`、`task.result[toolCallId]` 仍保留旧前端展示形状。它们现在的定位是 projection contract，不是旧 Planner/Router 运行时。
+Core files:
 
-下一步可做轻量命名清理：
+- `api/src/modules/agent-loop/promptManager.ts`
+- `api/src/modules/agent-loop/promptVersioning.ts`
+- `api/src/modules/agent-loop/runAgentLoop.ts`
+- `api/tests/agent-loop/test-prompt-versioning.mjs`
+- `api/tests/agent-loop/test-agent-loop-prompt-versioning.mjs`
 
-- `projectObservationsToLegacyActionResults` -> `projectObservationsToDashboardActionResults`
-- `legacy-result` -> `dashboard-result`
+### 12. ContextProvider Phase 3 MVP
 
-### 2. `agentLoopEvents.ts` 仍识别 legacy event type
+Completed for current scope.
 
-这是为了防御后端误发旧事件，前端统一 ignored。该识别逻辑可以保留一段时间，等日志确认不会再出现旧事件后再删除。
+Capabilities:
 
-### 3. `/ais/data` 仍为空实现
+- `transcript.resume_context` is injected by `defaultContextProvider.getContextSections()`.
+- Only the current `taskId` transcript is read.
+- The injected summary is bounded and does not replay full `model_request.messages`.
+- Missing transcript table or DB failure fails closed and is visible in diagnostics.
 
-AIS 真实数据源还未确认，不建议迁移 MaritimeSituation 直到数据源真实可用。
-
-### 4. ContextProvider Phase 2 已完成
-
-参考：
-
-- `api/plan/context-provider-phase2-plan.md`
-- `api/src/modules/agent-loop/contextProvider.ts`
-- `api/tests/agent-loop/test-context-provider.mjs`
-
-Phase 2 已完成：
-
-- 项目 instruction 默认关闭，环境变量开启。
-- `CONTEXT.md` 作为 `project.domain`。
-- `docs/adr` 作为 `project.adr_index`。
-- task requirements / progress sections。
-- diagnostics section。
-
-## 下一阶段优先级
-
-### 已完成前置. Transcript Persistence
-
-已完成并通过运行时验收。
-
-完成内容：
-
-- `agent_transcript_entries` 已加入 `api/src/db/schema.ts`。
-- `createDbTranscriptStore` / `createBestEffortTranscriptStore` 已实现。
-- `runAgentPipeline` 默认使用 DB-backed transcript store，同时保留 JSONL file logger。
-- `runAgentLoop` 已持久化 `model_request`、`assistant_message`、`tool_message`、`loop_stop`。
-- `entriesToConversationMessages` 和 `summarizeTranscriptForContext` 已提供 bounded read helper。
-- `ContextProvider` 已接入 fail-closed 的 `transcript.resume_context`。
-- `drizzle-kit.CMD push --force` 在 Postgres 可用后返回 `No changes detected`。
-- `agent_transcript_entries` 在 Postgres 中可见，并已有运行时 transcript rows。
-
-参考：
-
-- `api/plan/transcript-persistence-plan.md`
-- `api/src/modules/agent-loop/transcriptStore.ts`
-- `api/src/modules/agent-loop/contextProvider.ts`
-- `api/tests/agent-loop/test-agent-loop-transcript-integration.mjs`
-- `api/tests/agent-loop/test-context-provider-transcript-context.mjs`
-
-### P0. Prompt Versioning
-
-已完成 MVP。
-
-完成内容：
-
-- `PromptManager` 暴露稳定的 prompt/component version metadata。
-- `DEFAULT_PROMPT_COMPONENT_VERSIONS` 增加维护注释：编辑对应 prompt 规则后必须同步 bump 版本号。
-- 每个 `model_request` transcript entry 记录 `metadata.prompt`。
-- metadata 包含 prompt version、component versions、tool catalog hash、context/runtime/memory/skill section hash、raw/prepared message hash。
-- DB transcript store 已验证能持久化并 reload `metadata.prompt`，不需要新增 schema。
-- 复用了共享 stable JSON canonicalization，避免 run loop 和 prompt versioning 各自维护一份。
-
-下一阶段：
-
-- Prompt Versioning 已具备 memory 前的审计基础。
-- 可以进入 Memory MVP，但仍建议先从只读 session summary memory 开始，避免直接做自动写入型长期记忆。
-
-### P1. ContextProvider Phase 3
-
-Transcript resume context 的第一版已完成。
-
-收口文档：
+Closeout:
 
 - `api/plan/context-provider-phase3-closeout.md`
 
-已完成：
+### 13. Memory MVP
 
-- `transcript.resume_context` section 已接入 `defaultContextProvider.getContextSections()`。
-- 只读取当前 `taskId` 的 transcript entries。
-- 只注入 bounded summary，不回放完整 `model_request.messages`。
-- 表缺失或 DB 失败时 fail-closed，并在 diagnostics 中区分 `loaded` / `empty` / `failed`。
+Completed and verified with a DB-backed end-to-end smoke.
 
-仍暂缓：
+Capabilities:
 
-- 完整 runtime resume。
-- user preference loading。
-- include expansion。
-- project-context caching。
-- 大 transcript 的模型摘要压缩策略。
-
-### P2. Disaster / Satellite E2E Smoke
-
-类似 GIS toolchain smoke，补一条：
-
-```text
-RegionResolve -> RegionMark -> DisasterQuery -> SatelliteImageSearch -> ImageAnalysis
-```
-
-目标：
-
-- fake model 固定工具顺序。
-- mock 或真实 CDSE/satellite API。
-- 校验 `gisData`、image overlays、final answer 和 `task.result.observations`。
-
-### P3. Projection 命名清理
-
-将仍带 legacy 命名但实际承担 dashboard projection 的代码重命名，降低后续理解成本。
-
-候选：
-
-- `api/src/modules/tasks/agentLoopResultProjection.ts`
-- `src/lib/agentLoopGisBridge.ts`
-- `src/types/prd.ts`
-
-### P4. Memory
-
-MVP in progress / completed:
-
-- Read-only session summary memory is env-gated by `AGENT_MEMORY_SESSION_SUMMARY=1`.
+- Read-only session summary memory is gated by `AGENT_MEMORY_SESSION_SUMMARY=1`.
 - It recalls bounded summaries from recent completed tasks with the same `userId`.
-- It excludes the current task and does not duplicate `transcript.resume_context`; current-task transcript resume remains owned by ContextProvider.
+- It excludes the current task.
+- It does not duplicate `transcript.resume_context`.
 - It does not write long-term memory.
 
-MVP reference:
-
-- `api/plan/memory-mvp-plan.md`
-
-Implemented surface:
+Core files:
 
 - `api/src/modules/agent-loop/memoryManager.ts`
 - `api/src/modules/agent-loop/sessionSummaryMemoryManager.ts`
@@ -421,15 +325,99 @@ Implemented surface:
 - `api/tests/agent-loop/test-agent-loop-session-memory.mjs`
 - `api/tests/agent-loop/test-pipeline-memory-manager.mjs`
 
-Next memory steps:
+Reference plan:
 
-1. File-based project/user memory with explicit human-maintained or reviewed content.
-2. Query-relevant recall over small memory sections.
-3. Write-capable memory only after confirmation/review UX is designed.
+- `api/plan/memory-mvp-plan.md`
 
-## 验证命令
+### 14. Projection Naming Cleanup
 
-常用回归：
+Completed for the current scope.
+
+Renamed:
+
+- backend projection helpers now use dashboard projection naming
+- frontend GIS task-result source now uses `dashboard-result`
+- `ThinkingStep.category` no longer includes an unused `legacy` category
+
+Intentionally kept:
+
+- `ParsedTaskStreamEvent.kind: 'legacy'`
+- `RoutedTaskStreamEvent.kind: 'ignored-legacy'`
+
+Those retained names describe defensive old SSE recognition only. They are not task result projection names.
+
+Reference plan:
+
+- `api/plan/projection-naming-cleanup-plan.md`
+
+## Retained Boundaries
+
+### 1. Dashboard Projection Contract
+
+`/jobs`, `/events`, and `task.result[toolCallId]` remain old-shaped display contracts. They are not Planner / Router runtime fallback.
+
+Current cleanup status:
+
+- Legacy-flavored projection symbols have been renamed to dashboard projection names.
+- The external JSON shape is preserved.
+
+### 2. Defensive Legacy Event Recognition
+
+`agentLoopEvents.ts` still recognizes old event types only so the frontend can ignore them deterministically.
+
+This may stay until logs confirm no old events are emitted.
+
+### 3. `/ais/data` Empty Implementation
+
+AIS remains a compatibility endpoint. Do not migrate MaritimeSituation until a real AIS source is available.
+
+## Next Priorities
+
+### P0. Disaster / Satellite E2E Smoke
+
+Add a smoke comparable to GIS toolchain:
+
+```text
+RegionResolve -> RegionMark -> DisasterQuery -> SatelliteImageSearch -> ImageAnalysis
+```
+
+Goals:
+
+- fake model with fixed tool order
+- mock or real CDSE/satellite API path
+- validate `gisData`, image overlays, final answer, and `task.result.observations`
+
+### P1. File-Based Project/User Memory
+
+Next after read-only session memory.
+
+Principles:
+
+- explicit human-maintained or reviewed content
+- no automatic write pollution
+- small model-visible sections
+- clear user/project scope
+
+### P2. Query-Relevant Memory Recall
+
+After file-based memory exists, add relevant recall over small sections.
+
+Do not start with vector search unless the data model and inspection UX are clear.
+
+### P3. Write-Capable Memory
+
+Defer until confirmation / review UX is designed.
+
+Open questions:
+
+- What is the durable user identity source?
+- Should project memory be file-based, DB-backed, or both?
+- Who can inspect/delete memories?
+- What confirmation flow is required before writes?
+
+## Verification Commands
+
+Common regression:
 
 ```powershell
 cd api
@@ -439,46 +427,27 @@ cd api
 ..\node_modules\.bin\tsx.CMD tests\agent-loop\test-agent-loop-smoke-gis-helpers.mjs
 ..\node_modules\.bin\tsx.CMD tests\agent-loop\test-prompt-manager-gis-routing.mjs
 ..\node_modules\.bin\tsx.CMD tests\agent-loop\test-prompt-manager-disaster-satellite-routing.mjs
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-session-summary-memory-manager.mjs
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-agent-loop-session-memory.mjs
+..\node_modules\.bin\tsx.CMD tests\agent-loop\test-pipeline-memory-manager.mjs
 ..\node_modules\.bin\tsc.CMD -p tsconfig.json --noEmit --pretty false
 ```
 
-GIS smoke：
+GIS smoke:
 
 ```powershell
 cd api
 pnpm agent:smoke -- --scenario gis-toolchain
 ```
 
-真实 OpenSky smoke：
+Real OpenSky smoke:
 
 ```powershell
 cd api
 pnpm agent:smoke -- --refresh-opensky --query "查询台湾海峡附近当前有哪些飞机，列出 callsign、国家、经纬度和高度。" --max-turns 10
 ```
 
-前端 trace：
+Frontend trace:
 
-- URL 加 `?agentLoopTrace=1`
-- 或设置 `localStorage["agent-loop-trace"]="true"`
-
-## 当前判断
-
-下一刀应做：
-
-```text
-File-based project/user memory design, then query-relevant recall
-```
-
-当前判断：
-
-- Transcript Persistence 已完成。
-- `transcript.resume_context` 已接入 ContextProvider。
-- Prompt Versioning MVP 已完成，`model_request.metadata.prompt` 可审计 prompt/context/tool surface。
-- Read-only session summary Memory MVP 已完成，并通过 `AGENT_MEMORY_SESSION_SUMMARY=1` env flag 接入 pipeline。
-- 当前 memory 只读取同 userId 的 recent completed task transcript summaries，不写入长期记忆。
-
-建议 Memory 后续顺序：
-
-```text
-file-based project/user memory -> query-relevant recall -> write-capable memory
-```
+- add `?agentLoopTrace=1`
+- or set `localStorage["agent-loop-trace"]="true"`

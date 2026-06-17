@@ -16,19 +16,19 @@ export function buildAgentLoopTaskResult(loopResult: AgentLoopResult): AgentLoop
     stoppedBy: loopResult.stoppedBy,
     ...(loopResult.logFilePath ? { logFilePath: loopResult.logFilePath } : {}),
     observations: loopResult.observations,
-    ...projectObservationsToLegacyActionResults(loopResult.observations),
+    ...projectObservationsToDashboardActionResults(loopResult.observations),
   };
 }
 
-function projectObservationsToLegacyActionResults(observations: ToolObservation[]): Record<string, unknown> {
+function projectObservationsToDashboardActionResults(observations: ToolObservation[]): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const observation of observations) {
-    result[observation.toolCallId] = projectObservationToLegacyActionResult(observation);
+    result[observation.toolCallId] = projectObservationToDashboardActionResult(observation);
   }
   return result;
 }
 
-function projectObservationToLegacyActionResult(observation: ToolObservation): Record<string, unknown> {
+function projectObservationToDashboardActionResult(observation: ToolObservation): Record<string, unknown> {
   const output = isRecord(observation.output) ? observation.output : undefined;
   if (observation.ok) {
     return {
