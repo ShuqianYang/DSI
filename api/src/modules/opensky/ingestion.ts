@@ -58,8 +58,8 @@ export async function ingestOpenSkySnapshotOnce(
 }
 
 async function getDefaultReplaceAll(): Promise<(states: NewAircraftCurrentState[]) => Promise<ReplaceResult>> {
-  const module = await import("./repository.js");
-  return module.replaceAll;
+  const repositoryModule = await import("./repository.js");
+  return repositoryModule.replaceAll;
 }
 
 export function normalizeOpenSkyStates(data: OpenSkyStatesResponse): NewAircraftCurrentState[] {

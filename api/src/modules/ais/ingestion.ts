@@ -56,8 +56,8 @@ export async function ingestAisSnapshotOnce(
 }
 
 async function getDefaultReplaceAll(): Promise<(states: NewAisCurrentState[]) => Promise<ReplaceResult>> {
-  const module = await import("./repository.js");
-  return module.replaceAll;
+  const repositoryModule = await import("./repository.js");
+  return repositoryModule.replaceAll;
 }
 
 export interface AisNormalizeStats {

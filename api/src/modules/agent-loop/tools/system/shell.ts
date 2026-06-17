@@ -1,4 +1,5 @@
 import { exec as execCallback } from "node:child_process";
+import path from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 import type { ToolDefinition } from "../_shared/types.js";
@@ -241,9 +242,9 @@ function getOutsideWorkspacePathReason(command: string): string | undefined {
     if (!value.startsWith("/") || value.startsWith("//")) continue;
     if (/^https?:\/\//i.test(value)) continue;
 
-    const normalized = require("node:path").resolve(value);
-    const relative = require("node:path").relative(root, normalized);
-    if (relative.startsWith("..") || require("node:path").isAbsolute(relative)) {
+    const normalized = path.resolve(value);
+    const relative = path.relative(root, normalized);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
       return `absolute path outside workspace is not allowed: ${value}`;
     }
   }
@@ -260,7 +261,7 @@ function extractBashCommandNames(command: string): string[] {
     .map((segment) => {
       const token = tokenizeShellLike(segment).find((part) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(part));
       if (!token) return "";
-      return require("node:path").basename(token.replace(/^["']|["']$/g, ""));
+      return path.basename(token.replace(/^["']|["']$/g, ""));
     })
     .filter(Boolean);
 }
