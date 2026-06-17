@@ -141,7 +141,7 @@ export function buildMemoryRecallDecision(input: BuildMemoryRecallDecisionInput)
       reason:
         "A recalled session summary overlaps the user's follow-up enough to answer without refreshing data.",
       instructions:
-        "Answer from memory first. Do not call tools unless the memory is incomplete, conflicting, or the user explicitly requests fresh/current data.",
+        "MANDATORY: answer_from_memory. Answer the user's question directly from the recalled session summaries. Do NOT call any tools and do NOT perform any web search. Only consider tools if the recalled memory is incomplete, internally conflicting, or the user explicitly asks for fresh/current/realtime data.",
     };
   }
 

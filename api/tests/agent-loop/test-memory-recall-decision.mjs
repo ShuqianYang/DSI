@@ -28,7 +28,7 @@ const answerFromMemory = buildMemoryRecallDecision({
 assert.equal(answerFromMemory.decision, "answer_from_memory");
 assert.equal(answerFromMemory.coveredBy[0], "prior-weather");
 assert(answerFromMemory.confidence >= 0.6);
-assert.match(answerFromMemory.instructions, /answer from memory/i);
+assert.match(answerFromMemory.instructions, /answer_from_memory|directly from the recalled session summaries/i);
 
 const refreshRequired = buildMemoryRecallDecision({
   query: "现在北京实时天气如何？",
