@@ -24,6 +24,9 @@
     "agent:capability-probe": "tsx tests/agent-loop/test-agent-loop-capability-probe.mjs",
     "agent:smoke:daily-report": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario daily-report --mock-api",
     "agent:smoke:daily-report:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario daily-report",
+    "agent:smoke:border-defense-qa": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario border-defense-qa",
+    "agent:smoke:border-defense-qa:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario border-defense-qa --no-mock-fetch",
+    "agent:test:border-defense-qa": "tsx tests/agent-loop/test-border-defense-qa-tool.mjs",
     "lint": "eslint src/"
   },
   "dependencies": {
@@ -35,6 +38,7 @@
     "drizzle-zod": "^0.8.3",
     "express": "^5.1.0",
     "ioredis": "^5.6.1",
+    "mysql2": "^3.22.5",
     "node-cron": "^4.2.1",
     "pg": "^8.16.3",
     "sharp": "^0.34.5",

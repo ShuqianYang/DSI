@@ -17,6 +17,14 @@ import {
   installMockDailyReportFetch,
   validateDailyReportSmoke,
 } from "./agent-loop-smoke-daily-report.js";
+import {
+  createBorderDefenseQaSmokeModelClient,
+  BORDER_DEFENSE_QA_QUERY,
+  BORDER_DEFENSE_QA_SCENARIO,
+  BORDER_DEFENSE_QA_TOOLS,
+  installMockBorderDefenseQaFetch,
+  validateBorderDefenseQaSmoke,
+} from "./agent-loop-smoke-border-defense-qa.js";
 import { buildDefaultToolRegistry, ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
@@ -37,7 +45,9 @@ async function main() {
       ? GIS_TOOLCHAIN_QUERY
       : options.scenario === DAILY_REPORT_SCENARIO
         ? DAILY_REPORT_QUERY
-        : DEFAULT_QUERY);
+        : options.scenario === BORDER_DEFENSE_QA_SCENARIO
+          ? BORDER_DEFENSE_QA_QUERY
+          : DEFAULT_QUERY);
 
   if (options.refreshOpenSky) {
     process.env.AGENT_SQL_ALLOWED_SCHEMAS ||= JSON.stringify({ default: ["public"] });
@@ -61,7 +71,9 @@ async function main() {
       ? createGisToolchainSmokeModelClient()
       : !options.realModel && options.scenario === DAILY_REPORT_SCENARIO
         ? createDailyReportSmokeModelClient()
-        : undefined;
+        : !options.realModel && options.scenario === BORDER_DEFENSE_QA_SCENARIO
+          ? createBorderDefenseQaSmokeModelClient()
+          : undefined;
   const restoreWeatherMock =
     options.mockWeather && options.scenario === GIS_TOOLCHAIN_SCENARIO
       ? installMockOpenMeteoFetch()
@@ -70,6 +82,10 @@ async function main() {
     options.mockApi && options.scenario === DAILY_REPORT_SCENARIO
       ? installMockDailyReportFetch({ reportContent: options.mockReportContent })
       : undefined;
+  const restoreBorderDefenseQaMock =
+    options.mockFetch && options.scenario === BORDER_DEFENSE_QA_SCENARIO
+      ? installMockBorderDefenseQaFetch()
+      : undefined;
 
   console.log(`[smoke] taskId=${taskId}`);
   console.log(`[smoke] query=${query}`);
@@ -77,12 +93,13 @@ async function main() {
   if (options.scenario) console.log(`[smoke] scenario=${options.scenario}`);
   if (modelClient) {
     console.log(
-      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : "unknown"}`
+      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : "unknown"}`
     );
   }
   if (options.realModel) console.log("[smoke] model=real");
   if (restoreWeatherMock) console.log("[smoke] weather=mock-open-meteo");
   if (restoreDailyReportMock) console.log("[smoke] daily-report=mock-api");
+  if (restoreBorderDefenseQaMock) console.log("[smoke] border-defense-qa=mock-mysql");
   console.log("");
 
   let finalSeen = false;
@@ -110,7 +127,9 @@ async function main() {
         finalSeen = true;
         loopResult = event.result;
         const result =
-          options.scenario === GIS_TOOLCHAIN_SCENARIO || options.scenario === DAILY_REPORT_SCENARIO
+          options.scenario === GIS_TOOLCHAIN_SCENARIO ||
+          options.scenario === DAILY_REPORT_SCENARIO ||
+          options.scenario === BORDER_DEFENSE_QA_SCENARIO
             ? buildAgentLoopTaskResult(event.result)
             : event.result;
         await smokeDb.db
@@ -134,6 +153,7 @@ async function main() {
   } finally {
     restoreWeatherMock?.();
     restoreDailyReportMock?.();
+    restoreBorderDefenseQaMock?.();
     if (!finalSeen) {
       await smokeDb.db
         .update(smokeDb.tasks)
@@ -169,6 +189,19 @@ async function main() {
     console.log(`[daily-report-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
     console.log(
       `[daily-report-smoke] date=${report.date} reportType=${report.reportType} contentLength=${report.contentLength}`,
+    );
+  }
+
+  if (options.scenario === BORDER_DEFENSE_QA_SCENARIO && loopResult) {
+    const report = validateBorderDefenseQaSmoke({
+      rawEvents,
+      projectedResult: buildAgentLoopTaskResult(loopResult),
+    });
+    console.log("");
+    console.log("[border-defense-qa-smoke] validation passed");
+    console.log(`[border-defense-qa-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
+    console.log(
+      `[border-defense-qa-smoke] schemaCalled=${report.schemaCalled} queryCalled=${report.queryCalled} finalAnswer=${report.finalAnswerReceived}`,
     );
   }
 }
@@ -305,6 +338,7 @@ function preview(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n...[truncated ${text.length - maxChars} chars]`;
 }
 
+
 interface SmokeOptions {
   query: string;
   maxTurns: number;
@@ -317,6 +351,7 @@ interface SmokeOptions {
   mockWeather: boolean;
   mockApi: boolean;
   mockReportContent: string;
+  mockFetch: boolean;
 }
 
 function parseArgs(args: string[]): SmokeOptions {
@@ -330,6 +365,7 @@ function parseArgs(args: string[]): SmokeOptions {
   let mockWeather: boolean | undefined;
   let mockApi = false;
   let mockReportContent = "昨日边境态势总体平稳，设备运行正常，未发生重大预警事态。";
+  let mockFetch: boolean | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -366,6 +402,10 @@ function parseArgs(args: string[]): SmokeOptions {
     } else if (arg === "--mock-report-content") {
       mockReportContent = requireValue(arg, next);
       index += 1;
+    } else if (arg === "--mock-fetch") {
+      mockFetch = true;
+    } else if (arg === "--no-mock-fetch") {
+      mockFetch = false;
     } else if (arg === "--verbose-tool-messages") {
       verboseToolMessages = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -379,7 +419,11 @@ function parseArgs(args: string[]): SmokeOptions {
     throw new Error("--max-turns must be a positive integer");
   }
 
-  const knownScenarios = new Set([GIS_TOOLCHAIN_SCENARIO, DAILY_REPORT_SCENARIO]);
+  const knownScenarios = new Set([
+    GIS_TOOLCHAIN_SCENARIO,
+    DAILY_REPORT_SCENARIO,
+    BORDER_DEFENSE_QA_SCENARIO,
+  ]);
   if (scenario && !knownScenarios.has(scenario)) {
     throw new Error(`Unknown smoke scenario: ${scenario}`);
   }
@@ -390,6 +434,10 @@ function parseArgs(args: string[]): SmokeOptions {
 
   if (scenario === DAILY_REPORT_SCENARIO && (!tools || tools.length === 0)) {
     tools = [...DAILY_REPORT_TOOLS];
+  }
+
+  if (scenario === BORDER_DEFENSE_QA_SCENARIO && (!tools || tools.length === 0)) {
+    tools = [...BORDER_DEFENSE_QA_TOOLS];
   }
 
   return {
@@ -404,6 +452,7 @@ function parseArgs(args: string[]): SmokeOptions {
     mockWeather: mockWeather ?? scenario === GIS_TOOLCHAIN_SCENARIO,
     mockApi,
     mockReportContent,
+    mockFetch: mockFetch ?? scenario === BORDER_DEFENSE_QA_SCENARIO,
   };
 }
 
@@ -418,7 +467,7 @@ function printHelpAndExit(): never {
 
 Options:
   -q, --query <text>            User query to run.
-  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report.
+  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa.
   --max-turns <n>              Max loop turns. Default: 6.
   --tools <a,b,c>              Comma-separated tools from the default registry.
   --with-webfetch              Add WebFetch to the selected tools.
@@ -429,6 +478,8 @@ Options:
   --no-mock-weather            Use real Open-Meteo weather responses (gis-toolchain only).
   --mock-api                   Mock the daily-report API (daily-report only).
   --mock-report-content <t>   Content returned by the mock daily-report API.
+  --mock-fetch                 Mock MySQL responses (border-defense-qa only).
+  --no-mock-fetch              Use real MySQL responses (border-defense-qa only).
   --verbose-tool-messages      Also print serialized tool messages.
 
 GIS toolchain fake example:
@@ -442,6 +493,12 @@ Daily report fake example:
 
 Daily report real-model example:
   tsx scripts/agent-loop-smoke.ts --scenario daily-report --real-model --query "生成昨天的边防日报" --max-turns 4
+
+Border defense QA fake example:
+  tsx scripts/agent-loop-smoke.ts --scenario border-defense-qa --max-turns 6
+
+Border defense QA real-model example:
+  tsx scripts/agent-loop-smoke.ts --scenario border-defense-qa --real-model --no-mock-fetch --query "统计本月各级预警数量" --max-turns 8
 `);
   process.exit(0);
 }
