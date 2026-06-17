@@ -384,6 +384,9 @@ export function buildMysqlQueryTool(): ToolDefinition {
       const timeoutMs = Math.min(parsed.timeout_ms || DEFAULT_MYSQL_TIMEOUT_MS, MAX_MYSQL_TIMEOUT_MS);
       const sql = buildLimitedSql(parsed.sql, limit, offset);
 
+      console.log(`[MysqlQuery][${database}] original SQL:\n${parsed.sql}`);
+      console.log(`[MysqlQuery][${database}] executed SQL:\n${sql}`);
+
       context.onProgress?.({
         stage: "start",
         message: `Executing read-only MySQL query on ${database}`,
