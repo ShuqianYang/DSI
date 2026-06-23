@@ -9,7 +9,6 @@ import { buildRegionResolveTool } from "./gis/regionResolve.js";
 import { buildRegionMarkTool } from "./gis/regionMark.js";
 import { buildDailyReportTool } from "./dailyReport/dailyReport.js";
 import type { ToolDefinition } from "../_shared/types.js";
-import { buildOilSpillMockTools } from "./oilSpillMock/index.js";
 import {
   buildMysqlQuerySchemaTool,
   buildMysqlQueryTool,
@@ -34,6 +33,5 @@ export function buildDomainTools(): ToolDefinition[] {
     buildDailyReportTool(),
     buildMysqlQuerySchemaTool(),
     buildMysqlQueryTool(),
-    ...buildOilSpillMockTools(),
   ];
 }

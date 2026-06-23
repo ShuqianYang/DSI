@@ -5,6 +5,7 @@ import { z } from "zod";
 import { escapeRegExp, matchesGlobPattern, normalizeGlobPath } from "./tools/_shared/globUtils.js";
 import { callTool } from "./tools/_shared/toolGateway.js";
 import type { ToolRegistry } from "./tools/_shared/toolRegistry.js";
+import { buildOilSpillMockTools } from "./tools/domain/oilSpillMock/index.js";
 import type {
   AgentLoopPrefetch,
   AgentLoopToolUseContext,
@@ -412,6 +413,7 @@ function buildSkillTool(registry: ToolRegistry, skillManager: SkillManager): Too
         registry,
       });
       injectSkillContent(toolUseContext, skill, content);
+      applySkillScopedTools(toolUseContext, skill, registry);
       applySkillAllowedTools(toolUseContext, skill);
 
       return {
@@ -470,7 +472,20 @@ function applySkillAllowedTools(toolUseContext: AgentLoopToolUseContext, skill: 
     if (normalized) allowedToolNames.add(normalized);
   }
   toolUseContext.skillAllowedToolNames = allowedToolNames;
-  toolUseContext.skillAllowedToolsExpiresOnTurn = inferCurrentTurn(toolUseContext) + 1;
+  toolUseContext.skillAllowedToolsExpiresOnTurn = inferCurrentTurn(toolUseContext) + 2;
+}
+
+function applySkillScopedTools(
+  toolUseContext: AgentLoopToolUseContext,
+  skill: SkillDefinition,
+  registry: ToolRegistry
+): void {
+  if (skill.name !== "oil-spill-tracing") return;
+
+  for (const tool of buildOilSpillMockTools()) {
+    registry.register(tool, { override: Boolean(registry.get(tool.name)), visible: false });
+  }
+  toolUseContext.options.refreshTools = () => registry.list({ includeHidden: true });
 }
 
 function normalizeAllowedToolName(value: string): string {

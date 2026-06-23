@@ -23,10 +23,29 @@ assert.equal(wind.u.length, 100);
 assert.equal(wind.v.length, 100);
 assert.equal(wind.speed.every((value) => value === 3.2), true);
 
-const { buildDefaultToolRegistry } = await import("../../src/modules/agent-loop/tools/_shared/toolRegistry.js");
+const { ToolRegistry, buildDefaultToolRegistry } = await import("../../src/modules/agent-loop/tools/_shared/toolRegistry.js");
+const { buildOilSpillMockTools } = await import("../../src/modules/agent-loop/tools/domain/oilSpillMock/index.js");
 const { callTool } = await import("../../src/modules/agent-loop/tools/_shared/toolGateway.js");
 
-const registry = buildDefaultToolRegistry();
+const MOCK_TOOL_NAMES = [
+  "OilSpillDetectMock",
+  "WeatherFetchMock",
+  "OilDriftTraceMock",
+  "AisFetchMock",
+  "AisMatchSuspectsMock",
+  "AisSuspectRankingMock",
+];
+
+const defaultRegistry = buildDefaultToolRegistry();
+const defaultToolNames = new Set(defaultRegistry.list().map((tool) => tool.name));
+for (const toolName of MOCK_TOOL_NAMES) {
+  assert.equal(defaultToolNames.has(toolName), false, `${toolName} should be hidden from default tools`);
+}
+
+const registry = new ToolRegistry();
+for (const tool of buildOilSpillMockTools()) {
+  registry.register(tool);
+}
 
 assert.ok(registry.get("OilSpillDetectMock"), "OilSpillDetectMock should be registered");
 assert.ok(registry.get("WeatherFetchMock"), "WeatherFetchMock should be registered");
@@ -41,7 +60,7 @@ assert.ok(registry.get("ais-fetch"), "ais-fetch alias should resolve");
 assert.ok(registry.get("ais-match-suspects"), "ais-match-suspects alias should resolve");
 assert.ok(registry.get("ais-suspect-ranking"), "ais-suspect-ranking alias should resolve");
 assert.equal(
-  registry.get("weather-fetch")?.name,
+  defaultRegistry.get("weather-fetch")?.name,
   "WeatherFetch",
   "weather-fetch alias remains owned by real WeatherFetch",
 );

@@ -5,8 +5,9 @@ import { registerDomainTools } from "../domain/index.js";
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
   private readonly aliases = new Map<string, string>();
+  private readonly hiddenTools = new Set<string>();
 
-  register(tool: ToolDefinition, options: { override?: boolean } = {}): void {
+  register(tool: ToolDefinition, options: { override?: boolean; visible?: boolean } = {}): void {
     if (!options.override && this.tools.has(tool.name)) {
       throw new Error(`Tool already registered: ${tool.name}`);
     }
@@ -25,14 +26,21 @@ export class ToolRegistry {
       }
       this.aliases.set(alias, tool.name);
     }
+    if (options.visible === false) {
+      this.hiddenTools.add(tool.name);
+    } else {
+      this.hiddenTools.delete(tool.name);
+    }
   }
 
   get(name: string): ToolDefinition | undefined {
     return this.tools.get(name) ?? this.tools.get(this.aliases.get(name) ?? "");
   }
 
-  list(): ToolDefinition[] {
-    return Array.from(this.tools.values());
+  list(options: { includeHidden?: boolean } = {}): ToolDefinition[] {
+    const tools = Array.from(this.tools.values());
+    if (options.includeHidden) return tools;
+    return tools.filter((tool) => !this.hiddenTools.has(tool.name));
   }
 }
 

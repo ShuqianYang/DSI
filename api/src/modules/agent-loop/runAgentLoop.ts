@@ -617,8 +617,11 @@ function updateAgentLoopToolUseContext(
     signal?: AbortSignal;
   }
 ): AgentLoopToolUseContext {
+  const toolSource = context.skillAllowedToolNames
+    ? context.options.refreshTools?.() ?? input.tools
+    : input.tools;
   const refreshedTools = filterToolsForActiveSkill(
-    context.options.refreshTools?.() ?? input.tools,
+    toolSource,
     context.skillAllowedToolNames,
   );
   return {
