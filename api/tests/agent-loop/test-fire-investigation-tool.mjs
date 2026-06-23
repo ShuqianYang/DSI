@@ -9,6 +9,9 @@ const {
   buildFireInvestigationMockTools,
 } = await import("../../src/modules/agent-loop/tools/domain/fireInvestigation/index.js");
 const {
+  buildBorderPushMockTool,
+} = await import("../../src/modules/agent-loop/tools/domain/fireInvestigation/borderPush.js");
+const {
   buildFireDetectMockTool,
 } = await import("../../src/modules/agent-loop/tools/domain/fireInvestigation/fireDetect.js");
 const {
@@ -29,6 +32,7 @@ const MOCK_TOOL_NAMES = [
   "FireSatelliteMock",
   "FireAssessmentMock",
   "FireReportMock",
+  "BorderPushMock",
 ];
 
 function createContext() {
@@ -48,7 +52,7 @@ function createContext() {
   }
 
   const domainRegistry = buildFireInvestigationMockTools();
-  assert.equal(domainRegistry.length, 4);
+  assert.equal(domainRegistry.length, 5);
   for (const tool of domainRegistry) {
     assert.equal(defaultRegistry.get(tool.name)?.name, tool.name);
   }
@@ -61,6 +65,7 @@ function createContext() {
     buildFireSatelliteMockTool,
     buildFireAssessmentMockTool,
     buildFireReportMockTool,
+    buildBorderPushMockTool,
   ]) {
     const tool = buildTool();
 
@@ -83,6 +88,7 @@ function createContext() {
     buildFireSatelliteMockTool,
     buildFireAssessmentMockTool,
     buildFireReportMockTool,
+    buildBorderPushMockTool,
   ]) {
     const tool = buildTool();
     const output = await tool.execute({ region: "Kensai" }, createContext());
@@ -108,9 +114,17 @@ function createContext() {
   const report = await buildFireReportMockTool().execute({ region: "Kensai" }, createContext());
   assert.equal(report.report.detection.burnedAreaHectares, 1200);
   assert.equal(report.report.assessment.riskLevel, "high");
+
+  const restore = installMockFireInvestigationFetch();
+  const borderPush = await buildBorderPushMockTool().execute({ region: "Kensai" }, createContext());
+  restore();
+  assert.equal(borderPush.pushed, true);
+  assert.equal(borderPush.fallback, false, "Mock fetch should return 200 so fallback is not used in default test");
+  assert.ok(borderPush.payload.emergencyPayload, "BorderPushMock should return emergency payload");
+  assert.ok(borderPush.gisData, "BorderPushMock should return top-level gisData");
 }
 
-// Mock fetch helper is a no-op but returns a callable restore function
+// Mock fetch helper intercepts the emergency/border push endpoint and returns a callable restore function
 {
   const restore = installMockFireInvestigationFetch();
   assert.equal(typeof restore, "function");
@@ -168,6 +182,7 @@ function createContext() {
     { toolCallId: "fire-satellite-1", toolName: "FireSatelliteMock", ok: true, output: { gisData: {} } },
     { toolCallId: "fire-assessment-1", toolName: "FireAssessmentMock", ok: true, output: { gisData: {} } },
     { toolCallId: "fire-report-1", toolName: "FireReportMock", ok: true, output: { gisData: {} } },
+    { toolCallId: "fire-border-push-1", toolName: "BorderPushMock", ok: true, output: { gisData: {} } },
   ];
 
   const finalDecision = await client.decide({
@@ -175,7 +190,7 @@ function createContext() {
     tools: [],
     query: "/演示:火情研判",
     observations,
-    callId: "call-8",
+    callId: "call-9",
   });
 
   assert.equal(finalDecision.type, "final_answer");
@@ -193,19 +208,20 @@ function createContext() {
       { type: "tool_observation", taskId: "task", turn: 5, toolCallId: "fs1", toolName: "FireSatelliteMock", ok: true, observation: { ok: true, output: { gisData: { imageOverlays: [{ id: "fire-post-image", alpha: 1 }] } } } },
       { type: "tool_observation", taskId: "task", turn: 6, toolCallId: "fa1", toolName: "FireAssessmentMock", ok: true, observation: { ok: true, output: { gisData: {} } } },
       { type: "tool_observation", taskId: "task", turn: 7, toolCallId: "fr1", toolName: "FireReportMock", ok: true, observation: { ok: true, output: { gisData: {} } } },
-      { type: "loop_stop", taskId: "task", turn: 8, result: { stoppedBy: "final_answer", turns: 8, finalAnswer: "done" } },
+      { type: "tool_observation", taskId: "task", turn: 8, toolCallId: "fbp1", toolName: "BorderPushMock", ok: true, observation: { ok: true, output: { pushed: true, fallback: false, gisData: {} } } },
+      { type: "loop_stop", taskId: "task", turn: 9, result: { stoppedBy: "final_answer", turns: 9, finalAnswer: "done" } },
     ],
     projectedResult: {
       message: "ok",
       mode: "agent_loop",
-      turns: 8,
+      turns: 9,
       stoppedBy: "final_answer",
       observations: [],
     },
   });
 
-  assert.deepEqual(report.toolOrder, ["Skill", "RegionResolve", "RegionMark", "FireDetectMock", "FireSatelliteMock", "FireAssessmentMock", "FireReportMock"]);
-  assert.equal(report.gisOutputs, 5);
+  assert.deepEqual(report.toolOrder, ["Skill", "RegionResolve", "RegionMark", "FireDetectMock", "FireSatelliteMock", "FireAssessmentMock", "FireReportMock", "BorderPushMock"]);
+  assert.equal(report.gisOutputs, 6);
   assert.equal(report.burnedAreaHectares, 1200);
   assert.equal(report.finalAnswerReceived, true);
 }

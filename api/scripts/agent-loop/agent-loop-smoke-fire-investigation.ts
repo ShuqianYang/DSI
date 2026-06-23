@@ -12,6 +12,7 @@ export const FIRE_INVESTIGATION_TOOLS = [
   "FireSatelliteMock",
   "FireAssessmentMock",
   "FireReportMock",
+  "BorderPushMock",
 ] as const;
 export const FIRE_INVESTIGATION_QUERY = "/演示:火情研判";
 
@@ -58,6 +59,12 @@ const MOCK_TOOL_SEQUENCE = [
     toolName: "FireReportMock",
     input: { region: "Kensai" },
     reason: "Produce the final structured fire investigation report.",
+  },
+  {
+    id: "fire-border-push-1",
+    toolName: "BorderPushMock",
+    input: { region: "Kensai" },
+    reason: "Push the fire investigation event to the emergency/border platform.",
   },
 ] as const;
 
@@ -114,18 +121,42 @@ export function createFireInvestigationSmokeModelClient(): ModelClient {
 
       return {
         type: "final_answer",
-        content: "Kensai 火情研判确定性回放完成。烧毁面积约 1200 公顷，风险等级高，建议持续监测并部署边境巡查。",
+        content:
+          "Kensai 火情研判确定性回放完成。烧毁面积约 1200 公顷，风险等级高，研判结果已推送至应急系统（如网络不可达则按 fallback 通过处理），建议持续监测并部署边境巡查。",
       };
     },
   };
 }
 
-export function installMockFireInvestigationFetch(_options: {
+export function installMockFireInvestigationFetch(options: {
   httpStatus?: number;
   networkError?: boolean;
 } = {}): () => void {
-  // Fire investigation mock tools do not perform external HTTP calls.
-  return () => {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.includes("/system/emergencyEvent/receiveDataInfo")) {
+      if (!originalFetch) {
+        throw new Error(`Unexpected fetch in fire investigation smoke: ${url}`);
+      }
+      return originalFetch(input, init);
+    }
+
+    if (options.networkError) {
+      throw new Error("ECONNREFUSED");
+    }
+    if (options.httpStatus && options.httpStatus >= 400) {
+      return new Response(null, { status: options.httpStatus, statusText: "Internal Server Error" });
+    }
+    return new Response(JSON.stringify({ code: 200, msg: "应急数据同步成功" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
 }
 
 export function validateFireInvestigationSmoke(

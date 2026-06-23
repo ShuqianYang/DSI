@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../../_shared/types.js";
+import { buildBorderPushMockTool } from "./borderPush.js";
 import { buildFireAssessmentMockTool } from "./fireAssessment.js";
 import { buildFireDetectMockTool } from "./fireDetect.js";
 import { buildFireReportMockTool } from "./fireReport.js";
@@ -10,5 +11,6 @@ export function buildFireInvestigationMockTools(): ToolDefinition[] {
     buildFireSatelliteMockTool(),
     buildFireAssessmentMockTool(),
     buildFireReportMockTool(),
+    buildBorderPushMockTool(),
   ];
 }

@@ -2,7 +2,7 @@
 name: fire-investigation
 description: Use only when the user explicitly invokes the fire investigation demo via /演示:火情研判; deterministic mock replay for the Kensai fire scenario.
 argument-hint: "[/演示:火情研判]"
-allowed-tools: RegionResolve, RegionMark, FireDetectMock, FireSatelliteMock, FireAssessmentMock, FireReportMock
+allowed-tools: RegionResolve, RegionMark, FireDetectMock, FireSatelliteMock, FireAssessmentMock, FireReportMock, BorderPushMock
 ---
 
 # Fire Investigation
@@ -31,12 +31,14 @@ Run the tools in this exact order for multi-step GIS replay:
 4. `FireSatelliteMock` with `{"region":"Kensai"}` to overlay post-fire imagery.
 5. `FireAssessmentMock` with `{"region":"Kensai"}` for fire intensity, spread direction, and wind field.
 6. `FireReportMock` with `{"region":"Kensai"}` to produce the final structured investigation report.
+7. `BorderPushMock` with `{"region":"Kensai"}` to push the investigation event to the emergency/border platform. If the push fails (e.g., network unreachable), treat it as a non-blocking fallback success so the demo flow completes.
 
 Each tool returns top-level `gisData`. Preserve the sequence because the frontend uses tool observations for step-by-step map replay.
 
 ## Rules
 
 - Do **not** call real `SatelliteImageSearch`, `DisasterQuery`, weather services, or live remote-sensing APIs for this demo.
+- After `FireReportMock`, call `BorderPushMock` once to simulate pushing the fire investigation event downstream. A failed push must not stop the demo; continue to the final answer.
 - Do **not** use this skill for general fire queries such as "哪里着火了" or "火灾新闻"; those should use the regular disaster-satellite-query skill or live tools.
 - Use `RegionResolve`/`RegionMark` only for the initial map focus. Do not use their bbox to change the deterministic Kensai coordinates or overlay rectangle.
 - Do not fabricate extra fire points, burned areas, or assessment values.
@@ -50,6 +52,7 @@ Summarize:
 - fire detection result and center coordinates,
 - post-fire satellite overlay,
 - fire intensity, spread direction, and wind field,
-- final assessment and recommendations.
+- final assessment and recommendations,
+- border/emergency platform push status (note fallback success if the platform is unreachable).
 
 Mention that the result is a deterministic mock replay, not live operational evidence.
