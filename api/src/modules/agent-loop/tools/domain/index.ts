@@ -8,6 +8,8 @@ import { buildImageAnalysisTool } from "./satellite/imageAnalysis.js";
 import { buildRegionResolveTool } from "./gis/regionResolve.js";
 import { buildRegionMarkTool } from "./gis/regionMark.js";
 import { buildDailyReportTool } from "./dailyReport/dailyReport.js";
+import type { ToolDefinition } from "../_shared/types.js";
+import { buildOilSpillMockTools } from "./oilSpillMock/index.js";
 import {
   buildMysqlQuerySchemaTool,
   buildMysqlQueryTool,
@@ -19,7 +21,7 @@ export function registerDomainTools(registry: ToolRegistry): void {
   }
 }
 
-export function buildDomainTools(): ReturnType<typeof buildSqlQueryTool>[] {
+export function buildDomainTools(): ToolDefinition[] {
   return [
     buildSqlQuerySchemaTool(),
     buildSqlQueryTool(),
@@ -32,5 +34,6 @@ export function buildDomainTools(): ReturnType<typeof buildSqlQueryTool>[] {
     buildDailyReportTool(),
     buildMysqlQuerySchemaTool(),
     buildMysqlQueryTool(),
+    ...buildOilSpillMockTools(),
   ];
 }
