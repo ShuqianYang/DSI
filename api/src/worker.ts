@@ -1,7 +1,8 @@
 import "dotenv/config";
 import { openskyWorker } from "./modules/opensky/worker.js";
+import { aisWorker } from "./modules/ais/worker.js";
 
-console.log("[Worker] OpenSky worker starting...");
+console.log("[Worker] OpenSky + AIS workers starting...");
 
 const SHUTDOWN_TIMEOUT_MS = 5_000;
 let shuttingDown = false;
@@ -12,9 +13,9 @@ async function shutdown(signal: "SIGINT" | "SIGTERM") {
   console.log(`[Worker] ${signal} received, shutting down...`);
   try {
     await Promise.race([
-      openskyWorker.close(),
+      Promise.all([openskyWorker.close(), aisWorker.close()]),
       new Promise<never>((_resolve, reject) => {
-        setTimeout(() => reject(new Error("OpenSky worker shutdown timed out.")), SHUTDOWN_TIMEOUT_MS);
+        setTimeout(() => reject(new Error("Worker shutdown timed out.")), SHUTDOWN_TIMEOUT_MS);
       }),
     ]);
     process.exit(0);
