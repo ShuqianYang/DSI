@@ -20,11 +20,13 @@ const systemMessage = messages.find((message) => message.role === "system");
 assert.ok(systemMessage, "expected a system message");
 assert.match(systemMessage.content, /# Oil Spill Mock Routing Rules/);
 assert.match(systemMessage.content, /Skill.*oil-spill-tracing/);
+assert.match(systemMessage.content, /RegionResolve/);
+assert.match(systemMessage.content, /RegionMark/);
 assert.match(systemMessage.content, /OilSpillDetectMock/);
 assert.match(systemMessage.content, /WeatherFetchMock/);
 assert.match(systemMessage.content, /queryData/);
 assert.match(systemMessage.content, /shouldContinue:false/);
 assert.match(systemMessage.content, /do not use real WeatherFetch/i);
-assert.equal(DEFAULT_PROMPT_COMPONENT_VERSIONS.oilSpillMockRules, "oil-spill-mock-rules-v1");
+assert.equal(DEFAULT_PROMPT_COMPONENT_VERSIONS.oilSpillMockRules, "oil-spill-mock-rules-v2");
 
 console.log("prompt manager oil spill routing test passed");

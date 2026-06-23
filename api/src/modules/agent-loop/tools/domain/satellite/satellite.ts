@@ -1,15 +1,30 @@
 import { z } from "zod";
 import type { ToolDefinition, ToolExecutionContext } from "../../_shared/types.js";
+import {
+  cleanupSatelliteSliceCallback,
+  registerSatelliteSliceCallback,
+  type SatelliteSliceCallbackPayload,
+} from "./satelliteCallbackStore.js";
 
 const CDSE_TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token";
 const CDSE_STAC_URL = "https://stac.dataspace.copernicus.eu/v1/search";
 const CDSE_BROWSER_URL = "https://browser.dataspace.copernicus.eu";
+const LEGACY_DEMAND_URL = process.env.SATELLITE_DEMAND_URL || "http://192.168.0.129:5000/agent/zh/demand";
 
 const DEFAULT_MAX_CLOUD = 30;
 const DEFAULT_TOP = 10;
 const MAX_TOP = 50;
 const MAX_RESULT_SIZE_CHARS = 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const KM_PER_LATITUDE_DEGREE = 111.32;
+const LEGACY_DEMAND_CALLBACK_TIMEOUT_MS = parsePositiveInt(
+  process.env.SATELLITE_DEMAND_CALLBACK_TIMEOUT_MS,
+  300_000
+);
+const LEGACY_DEMAND_SUBMIT_TIMEOUT_MS = parsePositiveInt(
+  process.env.SATELLITE_DEMAND_SUBMIT_TIMEOUT_MS,
+  8_000
+);
 
 // ─── CDSE OAuth ───
 
@@ -73,15 +88,24 @@ const BboxSchema = z
   .refine((bbox) => bbox.west < bbox.east, "bbox.west must be less than bbox.east")
   .refine((bbox) => bbox.south < bbox.north, "bbox.south must be less than bbox.north");
 
-const SatelliteImageSearchInputSchema = z.strictObject({
-  regionName: z.string().trim().min(1).optional().describe("Named region for display only."),
-  bbox: BboxSchema.describe("Bounding box to search within."),
-  startDate: z.string().trim().min(1).optional().describe("Start date in ISO format (e.g. '2024-05-01'). Defaults to 30 days before endDate."),
-  endDate: z.string().trim().min(1).optional().describe("End date in ISO format (e.g. '2024-05-10'). Defaults to today."),
-  maxCloudCoverage: z.number().min(0).max(100).default(DEFAULT_MAX_CLOUD).describe("Maximum cloud coverage percentage."),
-  source: z.enum(["sentinel-2", "landsat-8", "any"]).default("any").describe("Satellite source preference."),
-  maxResults: z.number().int().min(1).max(MAX_TOP).default(DEFAULT_TOP).describe("Maximum number of results to return."),
+const TargetPointSchema = z.strictObject({
+  lon: z.number().min(-180).max(180),
+  lat: z.number().min(-90).max(90),
 });
+
+const SatelliteImageSearchInputSchema = z
+  .strictObject({
+    regionName: z.string().trim().min(1).optional().describe("Named region for display only."),
+    bbox: BboxSchema.optional().describe("Bounding box to search within. Required unless targetPoint is provided. When targetPoint is present, bbox is used as a clipping boundary."),
+    targetPoint: TargetPointSchema.optional().describe("Event center point. Used with searchRadiusKm to compute a focused bbox."),
+    searchRadiusKm: z.number().min(1).max(500).default(30).describe("Radius around targetPoint for focused search."),
+    startDate: z.string().trim().min(1).optional().describe("Start date in ISO format (e.g. '2024-05-01'). Defaults to 30 days before endDate."),
+    endDate: z.string().trim().min(1).optional().describe("End date in ISO format (e.g. '2024-05-10'). Defaults to today."),
+    maxCloudCoverage: z.number().min(0).max(100).default(DEFAULT_MAX_CLOUD).describe("Maximum cloud coverage percentage."),
+    source: z.enum(["sentinel-2", "landsat-8", "any"]).default("any").describe("Satellite source preference."),
+    maxResults: z.number().int().min(1).max(MAX_TOP).default(DEFAULT_TOP).describe("Maximum number of results to return."),
+  })
+  .refine((input) => Boolean(input.bbox || input.targetPoint), "SatelliteImageSearch requires either bbox or targetPoint.");
 
 type SatelliteImageSearchInput = z.infer<typeof SatelliteImageSearchInputSchema>;
 
@@ -101,6 +125,8 @@ interface SatelliteImage {
 
 interface SatelliteImageSearchOutput {
   summary: string;
+  provider: "legacy-demand" | "open-stac";
+  fallbackReason?: string;
   query: {
     regionName?: string;
     bbox: { west: number; east: number; south: number; north: number };
@@ -151,7 +177,7 @@ export function buildSatelliteImageSearchTool(): ToolDefinition {
     name: "SatelliteImageSearch",
     aliases: ["satellite-image-search"],
     description:
-      'Search satellite imagery metadata from Copernicus Data Space (Sentinel-2, Landsat) by bounding box and date range. Input: {"bbox":{"west":117,"east":122.5,"south":22,"north":26.5},"startDate":"2024-05-01","endDate":"2024-05-10","maxCloudCoverage":20}. Returns image metadata with acquisition date, cloud coverage, thumbnail links, and browser links. Actual image download requires separate authentication. For named regions, call RegionResolve first to get bbox.',
+      'Search satellite imagery metadata from legacy satellite demand first, then Copernicus Data Space (Sentinel-2, Landsat) by bounding box/date range. Input: {"bbox":{"west":117,"east":122.5,"south":22,"north":26.5},"startDate":"2024-05-01","endDate":"2024-05-10","maxCloudCoverage":20}. For disaster events, prefer {"targetPoint":{"lon":123,"lat":30.25},"searchRadiusKm":30,"bbox":{...region bbox...}} so the tool computes a focused bbox clipped to the region. Returns image metadata with acquisition date, cloud coverage, thumbnail links, and browser links.',
     kind: "domain",
     inputSchema: SatelliteImageSearchInputSchema,
     isReadOnly: () => true,
@@ -170,7 +196,8 @@ async function executeSatelliteImageSearch(
   input: SatelliteImageSearchInput,
   context: ToolExecutionContext
 ): Promise<SatelliteImageSearchOutput> {
-  const { regionName, bbox, startDate, endDate, maxCloudCoverage, source, maxResults } = input;
+  const { regionName, startDate, endDate, maxCloudCoverage, source, maxResults } = input;
+  const bbox = computeSearchBbox(input);
 
   const effectiveEnd = endDate ? new Date(endDate) : new Date();
   const effectiveStart = startDate
@@ -184,6 +211,45 @@ async function executeSatelliteImageSearch(
     stage: "start",
     message: `Searching satellite imagery for ${regionName ?? "specified bbox"} (${startIso.slice(0, 10)} to ${endIso.slice(0, 10)})`,
   });
+
+  const legacyResult = await searchLegacyDemand(
+    input,
+    bbox,
+    startIso,
+    endIso,
+    context
+  );
+  if (legacyResult.image) {
+    const legacyImages = [legacyResult.image];
+    context.onProgress?.({
+      stage: "complete",
+      message: "Received satellite image from legacy demand callback",
+      data: { provider: "legacy-demand", requirementId: legacyResult.requirementId },
+    });
+
+    return {
+      summary: buildLegacySummary(legacyResult.image, regionName),
+      provider: "legacy-demand",
+      query: {
+        regionName,
+        bbox,
+        startDate: startIso,
+        endDate: endIso,
+        maxCloudCoverage,
+        source,
+      },
+      images: legacyImages,
+      totalCount: legacyImages.length,
+      gisData: buildGisData(legacyImages, regionName, bbox),
+    };
+  }
+
+  if (legacyResult.fallbackReason) {
+    context.onProgress?.({
+      stage: "warning",
+      message: `Legacy satellite demand unavailable; falling back to open STAC: ${legacyResult.fallbackReason}`,
+    });
+  }
 
   const images: SatelliteImage[] = [];
 
@@ -242,6 +308,8 @@ async function executeSatelliteImageSearch(
 
   return {
     summary: buildSummary(limited, regionName, startIso, endIso),
+    provider: "open-stac",
+    fallbackReason: legacyResult.fallbackReason,
     query: {
       regionName,
       bbox,
@@ -254,6 +322,325 @@ async function executeSatelliteImageSearch(
     totalCount: limited.length,
     gisData: buildGisData(limited, regionName, bbox),
   };
+}
+
+interface LegacyDemandResult {
+  image?: SatelliteImage;
+  requirementId?: string;
+  fallbackReason?: string;
+}
+
+function computeSearchBbox(input: SatelliteImageSearchInput): { west: number; east: number; south: number; north: number } {
+  if (!input.targetPoint) {
+    if (!input.bbox) {
+      throw new Error("SatelliteImageSearch requires either bbox or targetPoint.");
+    }
+    return { ...input.bbox };
+  }
+
+  const focused = bboxAroundPoint(input.targetPoint, input.searchRadiusKm);
+  if (!input.bbox) return focused;
+
+  return intersectBbox(focused, input.bbox) ?? { ...input.bbox };
+}
+
+function bboxAroundPoint(
+  point: { lon: number; lat: number },
+  radiusKm: number
+): { west: number; east: number; south: number; north: number } {
+  const latDelta = radiusKm / KM_PER_LATITUDE_DEGREE;
+  const latRadians = point.lat * Math.PI / 180;
+  const longitudeKmPerDegree = Math.max(KM_PER_LATITUDE_DEGREE * Math.cos(latRadians), 0.01);
+  const lonDelta = radiusKm / longitudeKmPerDegree;
+
+  return {
+    west: clamp(point.lon - lonDelta, -180, 180),
+    east: clamp(point.lon + lonDelta, -180, 180),
+    south: clamp(point.lat - latDelta, -90, 90),
+    north: clamp(point.lat + latDelta, -90, 90),
+  };
+}
+
+function intersectBbox(
+  a: { west: number; east: number; south: number; north: number },
+  b: { west: number; east: number; south: number; north: number }
+): { west: number; east: number; south: number; north: number } | null {
+  const intersection = {
+    west: Math.max(a.west, b.west),
+    east: Math.min(a.east, b.east),
+    south: Math.max(a.south, b.south),
+    north: Math.min(a.north, b.north),
+  };
+
+  if (intersection.west >= intersection.east || intersection.south >= intersection.north) {
+    return null;
+  }
+
+  return intersection;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+async function searchLegacyDemand(
+  input: SatelliteImageSearchInput,
+  searchBbox: { west: number; east: number; south: number; north: number },
+  startIso: string,
+  endIso: string,
+  context: ToolExecutionContext
+): Promise<LegacyDemandResult> {
+  const requirementId = `REQ-SAT-${Date.now()}`;
+  const callBackUrl = buildCallbackUrl();
+  const payload = buildLegacyDemandPayload(input, searchBbox, startIso, endIso, requirementId, callBackUrl);
+
+  context.onProgress?.({
+    stage: "start",
+    message: `Submitting legacy satellite demand for ${input.regionName ?? "specified bbox"}`,
+    data: { requirementId },
+  });
+
+  let actualRequirementId = requirementId;
+  try {
+    const response = await fetchWithTimeout(
+      LEGACY_DEMAND_URL,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      },
+      LEGACY_DEMAND_SUBMIT_TIMEOUT_MS,
+      context.signal
+    );
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      return { fallbackReason: `legacy demand HTTP ${response.status}: ${responseText.slice(0, 200)}` };
+    }
+
+    const returnedRequirementId = readRequirementId(parseJsonObject(responseText));
+    if (!returnedRequirementId) {
+      return { fallbackReason: "legacy demand returned no requirementId/value" };
+    }
+    actualRequirementId = returnedRequirementId;
+  } catch (error) {
+    return { fallbackReason: `legacy demand request failed: ${formatErrorMessage(error)}` };
+  }
+
+  const callbackPayload = await waitForLegacyCallback(
+    actualRequirementId,
+    LEGACY_DEMAND_CALLBACK_TIMEOUT_MS,
+    context.signal
+  );
+
+  if (!callbackPayload) {
+    return {
+      requirementId: actualRequirementId,
+      fallbackReason: `legacy demand callback timeout after ${LEGACY_DEMAND_CALLBACK_TIMEOUT_MS}ms`,
+    };
+  }
+
+  if (!callbackPayload.url) {
+    return {
+      requirementId: actualRequirementId,
+      fallbackReason: "legacy demand callback returned no image url",
+    };
+  }
+
+  return {
+    requirementId: actualRequirementId,
+    image: legacyCallbackToImage(callbackPayload, searchBbox),
+  };
+}
+
+function buildLegacyDemandPayload(
+  input: SatelliteImageSearchInput,
+  searchBbox: { west: number; east: number; south: number; north: number },
+  startIso: string,
+  endIso: string,
+  requirementId: string,
+  callBackUrl: string
+) {
+  const regionName = input.regionName ?? "指定区域";
+  const now = Date.now();
+
+  return {
+    requirementId,
+    requirementName: `${regionName} 卫星影像查询需求`,
+    requirementSource: "天基信息服务系统",
+    startTime: new Date(startIso).getTime(),
+    endTime: new Date(endIso).getTime(),
+    areaBounds: bboxToPolygon(searchBbox),
+    targetType: "卫星影像",
+    targetName: regionName,
+    algorithm: "卫星影像检索",
+    payloadMode: input.source === "landsat-8" ? "光学影像" : "可见光",
+    productType: "目标切片",
+    priority: "normal",
+    resolution: input.source === "landsat-8" ? "30" : "10",
+    trackType: "低",
+    timeConstraints: JSON.stringify({
+      latestStartTime: now,
+      startDate: startIso,
+      endDate: endIso,
+    }),
+    duration: null,
+    timeLimitRequirement: "5分钟内",
+    rawPayload: {
+      mode: 2,
+      bbox: searchBbox,
+      regionBbox: input.bbox,
+      targetPoint: input.targetPoint,
+      searchRadiusKm: input.searchRadiusKm,
+      source: input.source,
+      maxCloudCoverage: input.maxCloudCoverage,
+      maxResults: input.maxResults,
+    },
+    submitTime: now,
+    callBackUrl,
+  };
+}
+
+function bboxToPolygon(bbox: { west: number; east: number; south: number; north: number }) {
+  return {
+    type: "Polygon",
+    coordinates: [[
+      [bbox.west, bbox.south],
+      [bbox.east, bbox.south],
+      [bbox.east, bbox.north],
+      [bbox.west, bbox.north],
+      [bbox.west, bbox.south],
+    ]],
+  };
+}
+
+function buildCallbackUrl(): string {
+  if (process.env.SATELLITE_DEMAND_CALLBACK_URL) {
+    return process.env.SATELLITE_DEMAND_CALLBACK_URL;
+  }
+
+  const callbackHost = process.env.CALLBACK_HOST || "localhost";
+  const callbackPort = process.env.API_PORT || "3001";
+  return `http://${callbackHost}:${callbackPort}/agent/callback/slice`;
+}
+
+async function waitForLegacyCallback(
+  requirementId: string,
+  timeoutMs: number,
+  parentSignal: AbortSignal | undefined
+): Promise<SatelliteSliceCallbackPayload | null> {
+  const callbackPromise = registerSatelliteSliceCallback(requirementId);
+  let timeout: NodeJS.Timeout | undefined;
+  let abortHandler: (() => void) | undefined;
+
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timeout = setTimeout(() => resolve(null), timeoutMs);
+  });
+
+  const abortPromise = new Promise<null>((resolve) => {
+    if (!parentSignal) return;
+    abortHandler = () => resolve(null);
+    if (parentSignal.aborted) {
+      resolve(null);
+    } else {
+      parentSignal.addEventListener("abort", abortHandler, { once: true });
+    }
+  });
+
+  try {
+    return await Promise.race([callbackPromise, timeoutPromise, abortPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (abortHandler) parentSignal?.removeEventListener("abort", abortHandler);
+    cleanupSatelliteSliceCallback(requirementId);
+  }
+}
+
+function legacyCallbackToImage(
+  payload: SatelliteSliceCallbackPayload,
+  fallbackBbox: { west: number; east: number; south: number; north: number }
+): SatelliteImage {
+  const imageBbox = bboxFromCallback(payload, fallbackBbox);
+  const id = payload.source_image_id || payload.id || payload.requirementId || "legacy-satellite-image";
+
+  return {
+    id,
+    name: id,
+    source: "unknown",
+    acquisitionDate: payload.acquisition_time ?? new Date().toISOString(),
+    cloudCoverage: null,
+    resolution: typeof payload.resolution === "number" ? payload.resolution : null,
+    bbox: imageBbox,
+    footprint: "",
+    thumbnailUrl: payload.url ?? null,
+    downloadUrl: payload.url ?? null,
+    browserUrl: payload.url ?? buildBrowserUrl([
+      imageBbox.west,
+      imageBbox.south,
+      imageBbox.east,
+      imageBbox.north,
+    ]),
+  };
+}
+
+function bboxFromCallback(
+  payload: SatelliteSliceCallbackPayload,
+  fallbackBbox: { west: number; east: number; south: number; north: number }
+) {
+  const lonValues = [
+    payload.lon_ul,
+    payload.lon_ur,
+    payload.lon_ll,
+    payload.lon_lr,
+  ].filter((value): value is number => typeof value === "number");
+  const latValues = [
+    payload.lat_ul,
+    payload.lat_ur,
+    payload.lat_ll,
+    payload.lat_lr,
+  ].filter((value): value is number => typeof value === "number");
+
+  if (lonValues.length >= 2 && latValues.length >= 2) {
+    return {
+      west: Math.min(...lonValues),
+      east: Math.max(...lonValues),
+      south: Math.min(...latValues),
+      north: Math.max(...latValues),
+    };
+  }
+
+  return { ...fallbackBbox };
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readRequirementId(payload: Record<string, unknown> | null): string | null {
+  if (!payload) return null;
+  const direct = payload.value ?? payload.requirementId;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  const data = payload.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const nested = (data as Record<string, unknown>).requirementId ?? (data as Record<string, unknown>).value;
+    if (typeof nested === "string" && nested.trim()) return nested.trim();
+  }
+
+  return null;
+}
+
+function buildLegacySummary(image: SatelliteImage, regionName: string | undefined): string {
+  const date = image.acquisitionDate ? image.acquisitionDate.slice(0, 10) : "未知时间";
+  const resolution = image.resolution === null ? "未知分辨率" : `${image.resolution}m`;
+  return `已通过旧天基提报获取 ${regionName ?? "指定区域"} 卫星影像：${image.name}，采集时间 ${date}，分辨率 ${resolution}。`;
 }
 
 // ─── CDSE STAC Search ───
@@ -402,12 +789,17 @@ function buildGisData(
   };
 }
 
-async function fetchJson(
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = value ? Number.parseInt(value, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
   parentSignal: AbortSignal | undefined
-): Promise<unknown> {
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort("request_timeout"), timeoutMs);
   const abortFromParent = () => controller.abort(parentSignal?.reason ?? "aborted");
@@ -415,15 +807,24 @@ async function fetchJson(
   parentSignal?.addEventListener("abort", abortFromParent, { once: true });
 
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-    return await response.json();
+    return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
     parentSignal?.removeEventListener("abort", abortFromParent);
   }
+}
+
+async function fetchJson(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  parentSignal: AbortSignal | undefined
+): Promise<unknown> {
+  const response = await fetchWithTimeout(url, init, timeoutMs, parentSignal);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+  return await response.json();
 }
 
 function formatErrorMessage(error: unknown): string {

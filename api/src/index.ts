@@ -10,6 +10,7 @@ import {
 } from "./sse/sseManager.js";
 import taskRoutes from "./modules/tasks/routes.js";
 import dashboardRoutes from "./modules/dashboard/routes.js";
+import satelliteCallbackRoutes from "./modules/agent-loop/satelliteCallbackRoutes.js";
 import {
   registerOpenSkyJob,
   shouldRegisterOpenSkyJob,
@@ -41,6 +42,7 @@ app.get("/health", (_req, res) => {
 
 // Agent 任务路由（唯一入口）
 app.use("/tasks", taskRoutes);
+app.use("/", satelliteCallbackRoutes);
 app.use("/", dashboardRoutes);
 
 // 全局 SSE 通道

@@ -21,42 +21,8 @@ interface ChatMessageListProps {
 }
 
 const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
-  /* 暂时注释
-  { label: '分析东海近期态势', prompt: '分析东海近期态势' },
-  { label: '查询商船 Voyager 01', prompt: '查询商船 Voyager 01' },
-  { label: '订阅每日日报', prompt: '订阅每日日报' },
-  { label: '生成专项报告', prompt: '生成专项报告' },
-  */
-  /* 暂时注释
-  {
-    label: '排查漏油',
-    prompt:
-      '查询中国东海区域海面疑似油污痕迹，调用天基信息服务系统获取相关影像及油膜信息，结合气象数据反推排污时间，匹配AIS轨迹筛选疑似肇事船舶并完成排序研判。',
-  },
-  // {
-  //   label: '订阅火情',
-  //   prompt: '订阅新疆边境与哈萨克斯坦接壤管段火情智能研判服务',
-  // },
-  {
-    label: '火情研判',
-    prompt: '火情研判·新疆-哈萨克斯坦接壤段',
-  },
-  {
-    label: '地震评估',
-    prompt:
-      '对柳州柳南区 5.2 级地震做灾后评估，先查询中国地震台网中心、广西地震局官网获取地震基础信息，先获取震前最新历史影像，再提交天基信息服务需求获取震后最新影像，自动对比识别损毁情况并完成灾后评估。',
-  },
-  {
-    label: '洪水评估',
-    prompt:
-      '对湖南石门县暴雨洪涝做灾后评估，先查询国家气象信息中心、湖南省气象局、水利部水文信息官网获取暴雨权威信息，先获取暴雨前最新历史影像，再提交天基信息服务需求获取暴雨后最新影像，自动对比识别淹没情况并完成洪涝灾后评估。',
-  },
-  */
-  // {
-  //   label: '定制',
-  //   prompt:
-  //     '定制南海海域船舶追踪智能研判服务，需要接入多源AIS数据、雷达回波和卫星遥感影像，实现异常航行行为自动识别与预警推送。',
-  // },
+  { label: '油污溯源演示', prompt: '/demo:oil-spill-mock' },
+  { label: '火情研判演示', prompt: '/demo:fire-investigation' },
 ];
 
 function SuggestionButtons({ onSuggestion }: { onSuggestion: (text: string) => void }) {

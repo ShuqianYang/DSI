@@ -13,6 +13,7 @@ import {
   buildMysqlQuerySchemaTool,
   buildMysqlQueryTool,
 } from "./borderDefenseQa/borderDefenseQa.js";
+import { buildFireInvestigationMockTools } from "./fireInvestigation/index.js";
 
 export function registerDomainTools(registry: ToolRegistry): void {
   for (const tool of buildDomainTools()) {
@@ -33,5 +34,6 @@ export function buildDomainTools(): ToolDefinition[] {
     buildDailyReportTool(),
     buildMysqlQuerySchemaTool(),
     buildMysqlQueryTool(),
+    ...buildFireInvestigationMockTools(),
   ];
 }

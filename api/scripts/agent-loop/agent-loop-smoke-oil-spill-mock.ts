@@ -15,9 +15,21 @@ export const OIL_SPILL_MOCK_TOOLS = [
   "AisMatchSuspectsMock",
   "AisSuspectRankingMock",
 ] as const;
-export const OIL_SPILL_MOCK_QUERY = "查询东海漏油并匹配疑似肇事船";
+export const OIL_SPILL_MOCK_QUERY = "/demo:oil-spill-mock";
 
 const MOCK_TOOL_SEQUENCE = [
+  {
+    id: "oil-spill-region-resolve-1",
+    toolName: "RegionResolve",
+    input: { regionName: "中国东海" },
+    reason: "Resolve the requested oil-spill demo region before the deterministic replay.",
+  },
+  {
+    id: "oil-spill-region-mark-1",
+    toolName: "RegionMark",
+    input: { name: "中国东海", bbox: { west: 122.5, east: 123.5, south: 29.5, north: 30.8 } },
+    reason: "Mark the resolved region before showing oil-spill overlays.",
+  },
   {
     id: "oil-spill-detect-1",
     toolName: "OilSpillDetectMock",
@@ -97,10 +109,13 @@ export function createOilSpillMockSmokeModelClient(): ModelClient {
 
       for (const toolCall of MOCK_TOOL_SEQUENCE) {
         if (!findObservation(input.observations, toolCall.toolName)) {
+          const nextToolCall = toolCall.toolName === "RegionMark"
+            ? { ...toolCall, input: buildRegionMarkInput(findObservation(input.observations, "RegionResolve")) }
+            : toolCall;
           return {
             type: "tool_calls",
-            content: `Running ${toolCall.toolName} for the deterministic oil-spill replay.`,
-            toolCalls: [{ ...toolCall }],
+            content: `Running ${nextToolCall.toolName} for the deterministic oil-spill replay.`,
+            toolCalls: [{ ...nextToolCall }],
           };
         }
       }
@@ -168,8 +183,10 @@ export function validateOilSpillMockSmoke(
   for (const toolName of MOCK_TOOL_SEQUENCE.map((tool) => tool.toolName)) {
     const event = requireObservation(observations, toolName);
     assertCondition(event.ok, `${toolName} observation failed.`);
-    assertCondition(objectRecord(event.observation.output).gisData, `${toolName} did not return top-level gisData.`);
-    gisOutputs += 1;
+    if (toolName !== "RegionResolve") {
+      assertCondition(objectRecord(event.observation.output).gisData, `${toolName} did not return top-level gisData.`);
+      gisOutputs += 1;
+    }
   }
 
   const ranking = requireObservation(observations, "AisSuspectRankingMock");
@@ -209,6 +226,21 @@ function assertToolOrder(toolOrder: string[]): void {
     assertCondition(index > previousIndex, `Unexpected oil-spill mock tool order: ${toolOrder.join(" -> ")}`);
     previousIndex = index;
   }
+}
+
+function buildRegionMarkInput(regionResolve: ToolObservation | undefined): Record<string, unknown> {
+  const selected = objectRecord(objectRecord(regionResolve?.output).selected);
+  const name = readString(selected.name) ?? "中国东海";
+  const bbox = objectRecord(selected.bbox);
+  const geometryRef = objectRecord(selected.geometryRef);
+
+  return {
+    name,
+    ...(Object.keys(geometryRef).length > 0 ? { geometryRef } : {}),
+    ...(Object.keys(bbox).length > 0
+      ? { bbox }
+      : { bbox: { west: 122.5, east: 123.5, south: 29.5, north: 30.8 } }),
+  };
 }
 
 function findObservation(observations: ToolObservation[], toolName: string): ToolObservation | undefined {

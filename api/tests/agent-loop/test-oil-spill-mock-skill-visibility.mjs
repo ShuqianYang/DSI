@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 const MOCK_TOOL_NAMES = [
+  "RegionResolve",
+  "RegionMark",
   "OilSpillDetectMock",
   "WeatherFetchMock",
   "OilDriftTraceMock",
@@ -41,7 +43,8 @@ registerSkillTool(registry, defaultSkillManager);
 
 const initialVisibleNames = new Set(registry.list().map((tool) => tool.name));
 for (const toolName of MOCK_TOOL_NAMES) {
-  assert.equal(initialVisibleNames.has(toolName), false, `${toolName} should not be visible before skill load`);
+  const expectedVisible = toolName === "RegionResolve" || toolName === "RegionMark";
+  assert.equal(initialVisibleNames.has(toolName), expectedVisible, `${toolName} initial visibility mismatch`);
 }
 
 const toolUseContext = {

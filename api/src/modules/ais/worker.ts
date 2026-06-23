@@ -34,7 +34,7 @@ export const aisWorker = new Worker(
   },
   {
     connection: redisConnection,
-    lockDuration: 120000,
+    lockDuration: 300_000,
     maxStalledCount: 2,
   }
 );

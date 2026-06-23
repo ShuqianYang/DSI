@@ -25,7 +25,12 @@ export async function ingestAisSnapshotOnce(
   const connectFn = deps.connectAisStream ?? connectAisStream;
   const replaceAllFn = deps.replaceAll ?? (await getDefaultReplaceAll());
 
+  console.log("[AisIngestion] Starting snapshot ingestion...");
+  const t0 = Date.now();
   const data = await connectFn();
+  const connectMs = Date.now() - t0;
+  console.log(`[AisIngestion] connectAisStream completed in ${connectMs}ms, ships=${data.ships.length}`);
+
   if (data.ships.length === 0) {
     console.warn("[AisIngestion] Empty AIS stream response; keeping existing ais_current_states.");
     return {
@@ -39,13 +44,23 @@ export async function ingestAisSnapshotOnce(
     };
   }
 
+  const t1 = Date.now();
   const normalized = normalizeAisShips(data);
+  const normalizeMs = Date.now() - t1;
+  console.log(`[AisIngestion] normalizeAisShips completed in ${normalizeMs}ms, normalized=${normalized.states.length}`);
+
   const states = normalized.states;
   if (states.length === 0) {
     throw new Error("Refusing to replace ais_current_states because no valid AIS ships were normalized.");
   }
 
+  const t2 = Date.now();
   const result = await replaceAllFn(states);
+  const replaceMs = Date.now() - t2;
+  console.log(`[AisIngestion] replaceAll completed in ${replaceMs}ms, deleted=${result.deleted}, inserted=${result.inserted}`);
+
+  const totalMs = Date.now() - t0;
+  console.log(`[AisIngestion] Snapshot ingestion finished in ${totalMs}ms`);
 
   return {
     ...result,

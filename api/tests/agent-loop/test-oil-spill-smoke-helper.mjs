@@ -11,6 +11,8 @@ const {
 
 const MOCK_TOOL_ORDER = [
   "Skill",
+  "RegionResolve",
+  "RegionMark",
   "OilSpillDetectMock",
   "WeatherFetchMock",
   "OilDriftTraceMock",
@@ -20,8 +22,8 @@ const MOCK_TOOL_ORDER = [
 ];
 
 assert.equal(OIL_SPILL_MOCK_SCENARIO, "oil-spill-mock");
-assert.equal(OIL_SPILL_MOCK_QUERY, "查询东海漏油并匹配疑似肇事船");
-assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(1));
+assert.equal(OIL_SPILL_MOCK_QUERY, "/demo:oil-spill-mock");
+assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(3));
 
 {
   const client = createOilSpillMockSmokeModelClient();
@@ -49,8 +51,8 @@ assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(1));
   });
 
   assert.equal(secondDecision.type, "tool_calls");
-  assert.equal(secondDecision.toolCalls[0].toolName, "OilSpillDetectMock");
-  assert.equal(secondDecision.toolCalls[0].input.region, "中国东海");
+  assert.equal(secondDecision.toolCalls[0].toolName, "RegionResolve");
+  assert.equal(secondDecision.toolCalls[0].input.regionName, "中国东海");
 }
 
 {
@@ -61,6 +63,14 @@ assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(1));
     query: OIL_SPILL_MOCK_QUERY,
     observations: [
       observation("Skill", { success: true }),
+      observation("RegionResolve", {
+        resolved: true,
+        selected: {
+          name: "中国东海",
+          bbox: { west: 122.5, east: 123.5, south: 29.5, north: 30.8 },
+        },
+      }),
+      observation("RegionMark", { gisData: {} }),
       observation("OilSpillDetectMock", { shouldContinue: true, gisData: {} }),
       observation("WeatherFetchMock", { gisData: {} }),
     ],
@@ -86,6 +96,14 @@ assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(1));
   const report = validateOilSpillMockSmoke({
     rawEvents: [
       toolObservationEvent("Skill", { success: true }),
+      toolObservationEvent("RegionResolve", {
+        resolved: true,
+        selected: {
+          name: "中国东海",
+          bbox: { west: 122.5, east: 123.5, south: 29.5, north: 30.8 },
+        },
+      }),
+      toolObservationEvent("RegionMark", { gisData: { type: "region" } }),
       toolObservationEvent("OilSpillDetectMock", {
         shouldContinue: true,
         imageSource: "local-fallback",
@@ -102,10 +120,10 @@ assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(1));
       {
         type: "loop_stop",
         taskId: "task",
-        turn: 8,
+        turn: 10,
         result: {
           stoppedBy: "final_answer",
-          turns: 8,
+          turns: 10,
           finalAnswer: "ok",
           observations: [],
         },
@@ -114,14 +132,14 @@ assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(1));
     projectedResult: {
       message: "ok",
       mode: "agent_loop",
-      turns: 8,
+      turns: 10,
       stoppedBy: "final_answer",
       observations: [],
     },
   });
 
   assert.deepEqual(report.toolOrder, MOCK_TOOL_ORDER);
-  assert.equal(report.gisOutputs, 6);
+  assert.equal(report.gisOutputs, 7);
   assert.equal(report.primarySuspectMmsi, "413567890");
   assert.equal(report.finalAnswerReceived, true);
 }
@@ -142,7 +160,7 @@ assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(1));
           observations: [],
         },
       }),
-    /Missing OilSpillDetectMock/,
+    /Missing RegionResolve/,
   );
 }
 

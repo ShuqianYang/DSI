@@ -32,6 +32,14 @@ import {
   OIL_SPILL_MOCK_SCENARIO,
   validateOilSpillMockSmoke,
 } from "./agent-loop-smoke-oil-spill-mock.js";
+import {
+  createFireInvestigationSmokeModelClient,
+  FIRE_INVESTIGATION_QUERY,
+  FIRE_INVESTIGATION_SCENARIO,
+  FIRE_INVESTIGATION_TOOLS,
+  installMockFireInvestigationFetch,
+  validateFireInvestigationSmoke,
+} from "./agent-loop-smoke-fire-investigation.js";
 import { buildDefaultToolRegistry, ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
@@ -55,7 +63,9 @@ async function main() {
         : options.scenario === BORDER_DEFENSE_QA_SCENARIO
           ? BORDER_DEFENSE_QA_QUERY
           : options.scenario === OIL_SPILL_MOCK_SCENARIO
-            ? OIL_SPILL_MOCK_QUERY
+          ? OIL_SPILL_MOCK_QUERY
+          : options.scenario === FIRE_INVESTIGATION_SCENARIO
+            ? FIRE_INVESTIGATION_QUERY
           : DEFAULT_QUERY);
 
   if (options.refreshOpenSky) {
@@ -84,6 +94,8 @@ async function main() {
           ? createBorderDefenseQaSmokeModelClient()
           : !options.realModel && options.scenario === OIL_SPILL_MOCK_SCENARIO
             ? createOilSpillMockSmokeModelClient()
+            : !options.realModel && options.scenario === FIRE_INVESTIGATION_SCENARIO
+              ? createFireInvestigationSmokeModelClient()
           : undefined;
   const restoreWeatherMock =
     options.mockWeather && options.scenario === GIS_TOOLCHAIN_SCENARIO
@@ -101,6 +113,10 @@ async function main() {
     options.mockApi && options.scenario === OIL_SPILL_MOCK_SCENARIO
       ? installMockOilSpillMockFetch()
       : undefined;
+  const restoreFireInvestigationMock =
+    options.mockApi && options.scenario === FIRE_INVESTIGATION_SCENARIO
+      ? installMockFireInvestigationFetch()
+      : undefined;
 
   console.log(`[smoke] taskId=${taskId}`);
   console.log(`[smoke] query=${query}`);
@@ -108,7 +124,7 @@ async function main() {
   if (options.scenario) console.log(`[smoke] scenario=${options.scenario}`);
   if (modelClient) {
     console.log(
-      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : options.scenario === OIL_SPILL_MOCK_SCENARIO ? "oil-spill-mock" : "unknown"}`
+      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : options.scenario === OIL_SPILL_MOCK_SCENARIO ? "oil-spill-mock" : options.scenario === FIRE_INVESTIGATION_SCENARIO ? "fire-investigation" : "unknown"}`
     );
   }
   if (options.realModel) console.log("[smoke] model=real");
@@ -116,6 +132,7 @@ async function main() {
   if (restoreDailyReportMock) console.log("[smoke] daily-report=mock-api");
   if (restoreBorderDefenseQaMock) console.log("[smoke] border-defense-qa=mock-mysql");
   if (restoreOilSpillMock) console.log("[smoke] oil-spill=queryData-mock");
+  if (restoreFireInvestigationMock) console.log("[smoke] fire-investigation=mock");
   console.log("");
 
   let finalSeen = false;
@@ -146,7 +163,8 @@ async function main() {
           options.scenario === GIS_TOOLCHAIN_SCENARIO ||
           options.scenario === DAILY_REPORT_SCENARIO ||
           options.scenario === BORDER_DEFENSE_QA_SCENARIO ||
-          options.scenario === OIL_SPILL_MOCK_SCENARIO
+          options.scenario === OIL_SPILL_MOCK_SCENARIO ||
+          options.scenario === FIRE_INVESTIGATION_SCENARIO
             ? buildAgentLoopTaskResult(event.result)
             : event.result;
         await smokeDb.db
@@ -172,6 +190,7 @@ async function main() {
     restoreDailyReportMock?.();
     restoreBorderDefenseQaMock?.();
     restoreOilSpillMock?.();
+    restoreFireInvestigationMock?.();
     if (!finalSeen) {
       await smokeDb.db
         .update(smokeDb.tasks)
@@ -233,6 +252,19 @@ async function main() {
     console.log(`[oil-spill-mock-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
     console.log(
       `[oil-spill-mock-smoke] gisOutputs=${report.gisOutputs} primarySuspect=${report.primarySuspectMmsi}`,
+    );
+  }
+
+  if (options.scenario === FIRE_INVESTIGATION_SCENARIO && loopResult) {
+    const report = validateFireInvestigationSmoke({
+      rawEvents,
+      projectedResult: buildAgentLoopTaskResult(loopResult),
+    });
+    console.log("");
+    console.log("[fire-investigation-smoke] validation passed");
+    console.log(`[fire-investigation-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
+    console.log(
+      `[fire-investigation-smoke] gisOutputs=${report.gisOutputs} burnedAreaHectares=${report.burnedAreaHectares}`,
     );
   }
 }
@@ -455,6 +487,7 @@ function parseArgs(args: string[]): SmokeOptions {
     DAILY_REPORT_SCENARIO,
     BORDER_DEFENSE_QA_SCENARIO,
     OIL_SPILL_MOCK_SCENARIO,
+    FIRE_INVESTIGATION_SCENARIO,
   ]);
   if (scenario && !knownScenarios.has(scenario)) {
     throw new Error(`Unknown smoke scenario: ${scenario}`);
@@ -470,6 +503,10 @@ function parseArgs(args: string[]): SmokeOptions {
 
   if (scenario === BORDER_DEFENSE_QA_SCENARIO && (!tools || tools.length === 0)) {
     tools = [...BORDER_DEFENSE_QA_TOOLS];
+  }
+
+  if (scenario === FIRE_INVESTIGATION_SCENARIO && (!tools || tools.length === 0)) {
+    tools = ["RegionResolve", "RegionMark", ...FIRE_INVESTIGATION_TOOLS];
   }
 
   return {
@@ -499,7 +536,7 @@ function printHelpAndExit(): never {
 
 Options:
   -q, --query <text>            User query to run.
-  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa, oil-spill-mock.
+  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa, oil-spill-mock, fire-investigation.
   --max-turns <n>              Max loop turns. Default: 6.
   --tools <a,b,c>              Comma-separated tools from the default registry.
   --with-webfetch              Add WebFetch to the selected tools.
@@ -533,10 +570,16 @@ Border defense QA real-model example:
   tsx scripts/agent-loop-smoke.ts --scenario border-defense-qa --real-model --no-mock-fetch --query "统计本月各级预警数量" --max-turns 8
 
 Oil spill mock fake example:
-  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --mock-api --max-turns 8
+  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --mock-api --max-turns 10
 
 Oil spill mock real-model example:
-  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --real-model --query "查询东海漏油并匹配疑似肇事船" --max-turns 8
+  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --real-model --query "查询东海漏油并匹配疑似肇事船" --max-turns 10
+
+Fire investigation fake example:
+  tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --mock-api --max-turns 10
+
+Fire investigation real-model example:
+  tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --real-model --query "/demo:fire-investigation" --max-turns 10
 `);
   process.exit(0);
 }

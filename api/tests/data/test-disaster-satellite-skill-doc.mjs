@@ -24,6 +24,11 @@ assert.match(
 
 assert.match(skill, /RegionResolve\.selected\.bbox/);
 assert.match(skill, /RegionResolve\.selected\.geometryRef/);
+assert.match(skill, /Event-Focused Satellite Search/);
+assert.match(skill, /event\.affectedArea/);
+assert.match(skill, /event\.location/);
+assert.match(skill, /targetPoint/);
+assert.match(skill, /searchRadiusKm/);
 assert.match(skill, /\bDisasterQuery\b/);
 assert.match(skill, /\bSatelliteImageSearch\b/);
 assert.match(skill, /\bRegionMark\b/);
