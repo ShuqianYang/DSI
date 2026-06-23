@@ -109,7 +109,7 @@ Skill 工具的运行时行为：
 **通用规则**：
 - 未加载 Skill 时，Agent 可使用所有系统工具和域工具；
 - 加载 Skill 后，下一回合只能使用 Skill 白名单中的工具（加上 `Skill` 工具本身）；
-- `skills_ysq/` 下的 Python Agent 服务**不经过** Agent Loop 的 Skill 工具调用，而是独立运行，直接操作 MySQL 与 Matplotlib。
+- `skills/_archive/skills_ysq/` 下的 Python Agent 服务**不经过** Agent Loop 的 Skill 工具调用，而是独立运行，直接操作 MySQL 与 Matplotlib。
 
 ---
 

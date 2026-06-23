@@ -136,7 +136,7 @@ api/src/modules/agent-loop/tools/domain/
 | `skills/border-defense-qa/scripts/prompts.py` | v2 验证通过后删除 | Schema 迁移到 `SKILL.md` 和 `database-description.md` |
 | `skills/border-defense-qa/scripts/openai_formatter_thinking.py` | v2 验证通过后删除 | 不再使用 AgentScope |
 | `skills/border-defense-qa/output/` | 保留 | 后续如需图表工具，仍可用于保存 PNG |
-| `skills_ysq/` | 保留作为参考 | 包含 v1 完整 prompt、示例、拦截逻辑；迁移完成后可归档 |
+| `skills/_archive/skills_ysq/` | 保留作为参考 | 包含 v1 完整 prompt、示例、拦截逻辑；迁移完成后可归档 |
 
 ---
 
@@ -178,7 +178,7 @@ allowed-tools: Read, MysqlQuerySchema, MysqlQuery
 
 ### 从 v1 迁移的核心 prompt 资产
 
-`skills_ysq/qa/system_prompt_qa.py` 和 `skills_ysq/qa/agent_qa.py` 中积累了大量可复用内容，v2 `SKILL.md` 应吸收：
+`skills/_archive/skills_ysq/qa/system_prompt_qa.py` 和 `skills/_archive/skills_ysq/qa/agent_qa.py` 中积累了大量可复用内容，v2 `SKILL.md` 应吸收：
 
 - 当前日期提示（解决模型不知道“今天”的问题）；
 - 时间词统一解释（今天、本周、本月、上周、最近 7 天/24 小时）；

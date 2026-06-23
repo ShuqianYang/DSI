@@ -257,9 +257,9 @@ if (content.includes("!`") || content.includes("```!")) {
   - 卫星结果只是元数据或链接，不可当作可直接下载的图片；
   - 不能从元数据声称视觉损伤。
 
-## 2.10 `skills_ysq` 独立 Agent 服务
+## 2.10 `skills/_archive/skills_ysq` 独立 Agent 服务
 
-`skills_ysq/` 不是 `skillManager` 扫描的标准 Skill 目录，而是一个独立的 Python FastAPI Agent 服务，主要面向“边防智能问答”业务。
+`skills/_archive/skills_ysq/` 不是 `skillManager` 扫描的标准 Skill 目录，而是一个独立的 Python FastAPI Agent 服务，主要面向“边防智能问答”业务。
 
 ### 2.10.1 整体架构
 
@@ -322,9 +322,9 @@ if (content.includes("!`") || content.includes("```!")) {
 
 继承 `OpenAIChatFormatter`，在格式化消息前过滤掉 `thinking` content block，避免 AgentScope 原实现因 OpenAI API 不支持 `reasoning_content` 而报警告。
 
-## 2.11 标准 Skills 与 `skills_ysq` 对比
+## 2.11 标准 Skills 与 `skills/_archive/skills_ysq` 对比
 
-| 维度 | `skills/` 标准 Skills | `skills_ysq/` |
+| 维度 | `skills/` 标准 Skills | `skills/_archive/skills_ysq/` |
 |------|----------------------|---------------|
 | 注册方式 | `skillManager.ts` 自动扫描 `SKILL.md` | 独立 Python 服务，不注册到 Agent Loop |
 | 主要形态 | Markdown + 少量脚本 | Python 代码 + Prompt + 配置 |
@@ -337,7 +337,7 @@ if (content.includes("!`") || content.includes("```!")) {
 
 ## 2.12 维护建议
 
-1. **`skills_ysq` 与 Agent Loop 的关系**：`skills_ysq` 不会被 Kimi Code CLI 的 `Skill` 工具自动加载；如需让 Agent Loop 使用，应额外封装为 MCP 工具或 HTTP 工具。
-2. **Schema 管理**：`skills_ysq` 的数据库表结构硬编码在 `system_prompt_qa.py` 中，后续建议引入动态 schema 发现或版本同步机制。
+1. **`skills/_archive/skills_ysq` 与 Agent Loop 的关系**：`skills/_archive/skills_ysq` 不会被 Kimi Code CLI 的 `Skill` 工具自动加载；如需让 Agent Loop 使用，应额外封装为 MCP 工具或 HTTP 工具。
+2. **Schema 管理**：`skills/_archive/skills_ysq` 的数据库表结构硬编码在 `system_prompt_qa.py` 中，后续建议引入动态 schema 发现或版本同步机制。
 3. **配置清理**：`config.py` 中残留多组被注释的模型/数据库配置，建议清理或迁移到独立配置文件/环境变量。
 4. **标准 Skill 扩展**：新增标准 Skill 时，优先复用现有域工具（如 `SqlQuery`、`RegionResolve`），保持声明式、低代码的风格。

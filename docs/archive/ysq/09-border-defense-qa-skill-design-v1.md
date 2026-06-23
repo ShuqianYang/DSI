@@ -2,7 +2,7 @@
 
 ## 9.1 背景与目标
 
-将 `skills_ysq` 中的边防智能问答能力改造为一个符合项目规范的 Skill，使其能够被 Agent Loop 的 `Skill` 工具自动发现和调用。
+将 `skills/_archive/skills_ysq` 中的边防智能问答能力改造为一个符合项目规范的 Skill，使其能够被 Agent Loop 的 `Skill` 工具自动发现和调用。
 
 - **目标目录**：`skills/border-defense-qa/`
 - **参考模式**：`csv-profile`（脚本型 Skill）
@@ -36,7 +36,7 @@
 **优点**：
 - 最接近现有 Skill 规范，与 `csv-profile` 同构；
 - 对 Agent Loop 侵入最小；
-- 可最大程度复用 `skills_ysq` 的 Python 代码。
+- 可最大程度复用 `skills/_archive/skills_ysq` 的 Python 代码。
 
 **缺点**：
 - 依赖 Bash 工具（风险等级 high）；
@@ -64,19 +64,19 @@
 ### 方案 C：HTTP 后端型 Skill
 
 **实现方式**：
-- 保留 `skills_ysq/app.py` 作为后台服务；
+- 保留 `skills/_archive/skills_ysq/app.py` 作为后台服务；
 - 新增域工具 `BorderDefenseQaQuery` 调用 `/intelligent-QA-direct` 接口；
 - `SKILL.md` 仅负责调用该工具。
 
 **允许工具**：`BorderDefenseQaQuery`
 
 **优点**：
-- 对 `skills_ysq` 代码改动最小；
+- 对 `skills/_archive/skills_ysq` 代码改动最小；
 - 可完整复用现有功能。
 
 **缺点**：
 - Skill 依赖外部服务运行，不够自包含；
-- 需要单独启动 `skills_ysq` 服务；
+- 需要单独启动 `skills/_archive/skills_ysq` 服务；
 - 与“标准 Skill”理念偏离较大。
 
 ### 选择理由
@@ -148,7 +148,7 @@ figure_report_agent（画图与回答撰写智能体）
 
 ### 9.4.5 依赖包
 
-脚本依赖以下 Python 包（与 `skills_ysq` 一致）：
+脚本依赖以下 Python 包（与 `skills/_archive/skills_ysq` 一致）：
 
 - `agentscope==1.0.16`（⚠️ 必须使用 1.x 版本，2.x API 不兼容）
 - `pymysql`

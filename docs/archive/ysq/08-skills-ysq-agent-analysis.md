@@ -1,8 +1,8 @@
-# 八、`skills_ysq` Agent 实现逻辑分析
+# 八、`skills/_archive/skills_ysq` Agent 实现逻辑分析
 
 ## 8.1 总体架构
 
-`skills_ysq` 是一个**独立的 Python FastAPI Agent 服务**，专门面向“边防智能问答”业务。它不遵循项目根 `skills/` 目录的 `SKILL.md` 规范，也不被 Agent Loop 的 `skillManager` 自动加载。
+`skills/_archive/skills_ysq` 是一个**独立的 Python FastAPI Agent 服务**，专门面向“边防智能问答”业务。它不遵循项目根 `skills/` 目录的 `SKILL.md` 规范，也不被 Agent Loop 的 `skillManager` 自动加载。
 
 核心文件：
 
@@ -14,7 +14,7 @@
 | `qa/system_prompt_qa.py` | 多个系统提示词，注入数据库 schema 与业务规则 |
 | `utils/openai_formatter_thinking.py` | 过滤 thinking block 的 OpenAI 消息格式化器 |
 
-> 注：`agent_qa.py` 还依赖 `utils.stream_output`、`utils.md_to_docx`、`utils.streaming_hook_thinking_merge`、`utils.util` 等模块，这些文件不在 `skills_ysq/` 内，而是部署时通过 Python 路径引入。
+> 注：`agent_qa.py` 还依赖 `utils.stream_output`、`utils.md_to_docx`、`utils.streaming_hook_thinking_merge`、`utils.util` 等模块，这些文件不在 `skills/_archive/skills_ysq/` 内，而是部署时通过 Python 路径引入。
 
 ---
 
@@ -80,7 +80,7 @@ DB_CONFIG = {
 
 ## 8.4 `qa/agent_qa.py` —— 多 Agent 核心实现
 
-这是整个 `skills_ysq` 最复杂的文件（约 2250 行），基于 **AgentScope** 框架构建。
+这是整个 `skills/_archive/skills_ysq` 最复杂的文件（约 2250 行），基于 **AgentScope** 框架构建。
 
 ### 8.4.1 多 Agent 协作流程
 
@@ -278,7 +278,7 @@ def get_current_date_hint() -> str:
 
 ### 8.7.1 架构层面
 
-- **与 Agent Loop 割裂**：`skills_ysq` 是独立服务，无法被项目主 Agent Loop 通过 `Skill` 工具调用。如需集成，应封装为 HTTP/MCP 工具。
+- **与 Agent Loop 割裂**：`skills/_archive/skills_ysq` 是独立服务，无法被项目主 Agent Loop 通过 `Skill` 工具调用。如需集成，应封装为 HTTP/MCP 工具。
 - **代码高度集中**：`agent_qa.py` 长达 2250 行，职责过重，建议拆分为多个模块。
 
 ### 8.7.2 安全层面

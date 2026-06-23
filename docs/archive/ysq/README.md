@@ -1,6 +1,6 @@
-# 智能体项目文档（doc_ysq）
+# 智能体项目文档（ysq 归档）
 
-本文档整理了 `D:/0 ysq文件/DSI-agent-loop` 项目的代码逻辑、架构设计、Skills 机制以及 Harness 现状。
+本文档整理了本仓库 `projects_new` 项目的代码逻辑、架构设计、Skills 机制以及 Harness 现状。原位于 `docs_ysq/`，现已归档至 `docs/archive/ysq/`。
 
 ## 文档目录
 

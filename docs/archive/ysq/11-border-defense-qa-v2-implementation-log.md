@@ -10,7 +10,7 @@
 
 ### 1.1 背景与目标
 
-v1 方案（`skills_ysq/qa/`）通过 Bash 调用 Python + AgentScope 实现，存在高风险工具依赖、上下文隔离、Python 运行时强依赖、安全审计困难等问题。
+v1 方案（`skills/_archive/skills_ysq/qa/`）通过 Bash 调用 Python + AgentScope 实现，存在高风险工具依赖、上下文隔离、Python 运行时强依赖、安全审计困难等问题。
 
 v2 目标：
 
@@ -21,7 +21,7 @@ v2 目标：
 
 ### 1.2 设计文档更新
 
-已根据 `skills_ysq/`（v1 Python 实现）和 `new_skill.md` 完善 `docs_ysq/09-border-defense-qa-skill-design-v2.md`：
+已根据 `skills/_archive/skills_ysq/`（v1 Python 实现）和 `new_skill.md` 完善 `docs/archive/ysq/09-border-defense-qa-skill-design-v2.md`：
 
 - 补充 v1 → v2 的明细/时空数据、图表能力对比；
 - 明确 `MysqlQuery` 输出为内联 JSON 截断，非写入文件；
@@ -154,9 +154,9 @@ pnpm lint
 
 ## 参考文档
 
-- `docs_ysq/09-border-defense-qa-skill-design-v2.md`
-- `docs_ysq/10-border-defense-qa-test-plan.md`
+- `docs/archive/ysq/09-border-defense-qa-skill-design-v2.md`
+- `docs/archive/ysq/10-border-defense-qa-test-plan.md`
 - `skills/border-defense-qa/SKILL.md`
-- `skills_ysq/qa/system_prompt_qa.py`
-- `skills_ysq/qa/agent_qa.py`
+- `skills/_archive/skills_ysq/qa/system_prompt_qa.py`
+- `skills/_archive/skills_ysq/qa/agent_qa.py`
 - `new_skill.md`
