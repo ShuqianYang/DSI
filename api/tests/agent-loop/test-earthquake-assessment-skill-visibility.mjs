@@ -6,28 +6,25 @@ import path from "node:path";
 const MOCK_TOOL_NAMES = [
   "RegionResolve",
   "RegionMark",
-  "OilSpillDetectMock",
-  "WeatherFetchMock",
-  "OilDriftTraceMock",
-  "AisFetchMock",
-  "AisMatchSuspectsMock",
-  "AisSuspectRankingMock",
+  "EarthquakePreImageMock",
+  "EarthquakePostImageMock",
+  "EarthquakeAssessmentMock",
 ];
 
-const root = await mkdtemp(path.join(tmpdir(), "dsi-oil-spill-skill-"));
+const root = await mkdtemp(path.join(tmpdir(), "dsi-earthquake-skill-"));
 process.env.AGENT_WORKSPACE_ROOT = root;
 
-await mkdir(path.join(root, "skills", "oil-spill-tracing"), { recursive: true });
+await mkdir(path.join(root, "skills", "earthquake-assessment"), { recursive: true });
 await writeFile(
-  path.join(root, "skills", "oil-spill-tracing", "SKILL.md"),
+  path.join(root, "skills", "earthquake-assessment", "SKILL.md"),
   [
     "---",
-    "name: oil-spill-tracing",
-    "description: Deterministic oil-spill tracing replay.",
-    "argument-hint: [user oil-spill query]",
+    "name: earthquake-assessment",
+    "description: Deterministic earthquake assessment replay.",
+    "argument-hint: [/演示:地震灾后评估]",
     `allowed-tools: ${MOCK_TOOL_NAMES.join(", ")}`,
     "---",
-    "# Oil Spill Tracing",
+    "# Earthquake Assessment",
     "Use only the deterministic mock tools for this replay.",
     "",
   ].join("\n"),
@@ -46,10 +43,13 @@ for (const toolName of MOCK_TOOL_NAMES) {
   const expectedVisible = toolName === "RegionResolve" || toolName === "RegionMark";
   assert.equal(initialVisibleNames.has(toolName), expectedVisible, `${toolName} initial visibility mismatch`);
 }
+for (const toolName of ["EarthquakePreImageMock", "EarthquakePostImageMock", "EarthquakeAssessmentMock"]) {
+  assert.equal(registry.get(toolName), undefined, `${toolName} should not be registered before skill load`);
+}
 
 const toolUseContext = {
-  taskId: "oil-spill-skill-visibility",
-  query: "查询东海漏油",
+  taskId: "earthquake-skill-visibility",
+  query: "/演示:地震灾后评估",
   messages: [],
   observations: [],
   options: { tools: registry.list() },
@@ -67,13 +67,13 @@ await defaultSkillManager.getSkillListingSections(toolUseContext);
 const skillObservation = await callTool(
   registry,
   {
-    id: "skill-oil-spill",
+    id: "skill-earthquake",
     toolName: "Skill",
-    input: { skill: "oil-spill-tracing", args: "查询东海漏油" },
+    input: { skill: "earthquake-assessment", args: "/演示:地震灾后评估" },
   },
   {
-    taskId: "oil-spill-skill-visibility",
-    query: "查询东海漏油",
+    taskId: "earthquake-skill-visibility",
+    query: "/演示:地震灾后评估",
     observations: [],
     toolUseContext,
   },
@@ -98,4 +98,4 @@ for (const toolName of MOCK_TOOL_NAMES) {
   assert.equal(registry.get(toolName)?.name, toolName, `${toolName} should be executable after skill load`);
 }
 
-console.log("oil spill mock skill visibility assertions passed");
+console.log("earthquake assessment skill visibility assertions passed");

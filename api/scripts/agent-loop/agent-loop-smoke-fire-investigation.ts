@@ -13,7 +13,7 @@ export const FIRE_INVESTIGATION_TOOLS = [
   "FireAssessmentMock",
   "FireReportMock",
 ] as const;
-export const FIRE_INVESTIGATION_QUERY = "/demo:fire-investigation";
+export const FIRE_INVESTIGATION_QUERY = "/演示:火情研判";
 
 const FIRE_REGION_BBOX = {
   west: 76.967,
@@ -45,7 +45,7 @@ const MOCK_TOOL_SEQUENCE = [
     id: "fire-satellite-1",
     toolName: "FireSatelliteMock",
     input: { region: "Kensai" },
-    reason: "Overlay deterministic post-fire imagery and burn mask.",
+    reason: "Overlay deterministic post-fire imagery.",
   },
   {
     id: "fire-assessment-1",
@@ -153,6 +153,15 @@ export function validateFireInvestigationSmoke(
   assertCondition(detectOutput.fireDetected === true, "FireDetectMock did not detect fire.");
   const burnedAreaHectares = Number(detectOutput.burnedAreaHectares);
   assertCondition(Number.isFinite(burnedAreaHectares) && burnedAreaHectares > 0, "Unexpected burned area.");
+
+  const satellite = requireObservation(observations, "FireSatelliteMock");
+  const satelliteGisData = objectRecord(objectRecord(satellite.observation.output).gisData);
+  const overlays = Array.isArray(satelliteGisData.imageOverlays)
+    ? satelliteGisData.imageOverlays.map(objectRecord)
+    : [];
+  assertCondition(overlays.length === 1, "FireSatelliteMock should only return the post-fire image overlay.");
+  assertCondition(overlays[0]?.id === "fire-post-image", "FireSatelliteMock should not return a burn-mask overlay.");
+  assertCondition(overlays[0]?.alpha === 1, "Fire post image overlay should be fully opaque.");
 
   const finalAnswer = input.rawEvents.find((event) => event.type === "loop_stop");
   const finalAnswerReceived =

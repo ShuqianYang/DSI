@@ -21,8 +21,10 @@ interface ChatMessageListProps {
 }
 
 const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
-  { label: '油污溯源演示', prompt: '/demo:oil-spill-mock' },
-  { label: '火情研判演示', prompt: '/demo:fire-investigation' },
+  { label: '油污溯源演示', prompt: '/演示:油污溯源' },
+  { label: '火情研判演示', prompt: '/演示:火情研判' },
+  { label: '地震灾后评估演示', prompt: '/演示:地震灾后评估' },
+  { label: '洪水灾后评估演示', prompt: '/演示:洪水灾后评估' },
 ];
 
 function SuggestionButtons({ onSuggestion }: { onSuggestion: (text: string) => void }) {

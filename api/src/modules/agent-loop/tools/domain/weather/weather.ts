@@ -100,6 +100,7 @@ interface HourlyResponse {
 export function buildWeatherFetchTool(): ToolDefinition {
   return {
     name: "WeatherFetch",
+    displayName: "天气查询",
     aliases: ["weather-fetch"],
     description:
       'Fetch real Open-Meteo wind and ocean-current data for an explicit center or bbox and return a GIS wind-field layer. Input: {"bbox":{"west":117,"east":122.5,"south":22,"north":26.5},"grid":{"rows":5,"cols":5},"lookbackDays":3}. This tool does not create a visible region outline. For named-region map linkage, use RegionResolve -> RegionMark -> WeatherFetch and pass RegionResolve.selected.bbox unchanged. The tool never guesses a default region and never fabricates mock weather data.',

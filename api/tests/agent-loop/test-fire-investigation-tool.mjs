@@ -34,7 +34,7 @@ const MOCK_TOOL_NAMES = [
 function createContext() {
   return {
     taskId: "fire-investigation-test-task",
-    query: "/demo:fire-investigation",
+    query: "/演示:火情研判",
     observations: [],
   };
 }
@@ -95,6 +95,15 @@ function createContext() {
   assert.equal(detect.confidence, "high");
   assert.equal(detect.burnedAreaHectares, 1200);
   assert.deepEqual(detect.centerCoordinates, [76.998, 43.2635]);
+  assert.equal(detect.overlayMeta.maskImageUrl, undefined);
+
+  const satellite = await buildFireSatelliteMockTool().execute({ region: "Kensai" }, createContext());
+  assert.equal(satellite.imageCount, 1);
+  assert.deepEqual(
+    satellite.gisData.imageOverlays.map((overlay) => overlay.id),
+    ["fire-post-image"],
+  );
+  assert.equal(satellite.gisData.imageOverlays[0].alpha, 1);
 
   const report = await buildFireReportMockTool().execute({ region: "Kensai" }, createContext());
   assert.equal(report.report.detection.burnedAreaHectares, 1200);
@@ -114,7 +123,7 @@ function createContext() {
   const firstDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/demo:fire-investigation",
+    query: "/演示:火情研判",
     observations: [],
     callId: "call-1",
   });
@@ -131,7 +140,7 @@ function createContext() {
   const secondDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/demo:fire-investigation",
+    query: "/演示:火情研判",
     observations: [
       {
         toolCallId: "fire-skill-1",
@@ -164,7 +173,7 @@ function createContext() {
   const finalDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/demo:fire-investigation",
+    query: "/演示:火情研判",
     observations,
     callId: "call-8",
   });
@@ -181,7 +190,7 @@ function createContext() {
       { type: "tool_observation", taskId: "task", turn: 2, toolCallId: "rr1", toolName: "RegionResolve", ok: true, observation: { ok: true, output: {} } },
       { type: "tool_observation", taskId: "task", turn: 3, toolCallId: "rm1", toolName: "RegionMark", ok: true, observation: { ok: true, output: { gisData: { type: "region" } } } },
       { type: "tool_observation", taskId: "task", turn: 4, toolCallId: "fd1", toolName: "FireDetectMock", ok: true, observation: { ok: true, output: { fireDetected: true, burnedAreaHectares: 1200, gisData: {} } } },
-      { type: "tool_observation", taskId: "task", turn: 5, toolCallId: "fs1", toolName: "FireSatelliteMock", ok: true, observation: { ok: true, output: { gisData: {} } } },
+      { type: "tool_observation", taskId: "task", turn: 5, toolCallId: "fs1", toolName: "FireSatelliteMock", ok: true, observation: { ok: true, output: { gisData: { imageOverlays: [{ id: "fire-post-image", alpha: 1 }] } } } },
       { type: "tool_observation", taskId: "task", turn: 6, toolCallId: "fa1", toolName: "FireAssessmentMock", ok: true, observation: { ok: true, output: { gisData: {} } } },
       { type: "tool_observation", taskId: "task", turn: 7, toolCallId: "fr1", toolName: "FireReportMock", ok: true, observation: { ok: true, output: { gisData: {} } } },
       { type: "loop_stop", taskId: "task", turn: 8, result: { stoppedBy: "final_answer", turns: 8, finalAnswer: "done" } },

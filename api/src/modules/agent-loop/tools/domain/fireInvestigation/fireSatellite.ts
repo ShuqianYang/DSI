@@ -13,7 +13,7 @@ export function buildFireSatelliteMockTool(): ToolDefinition {
     name: "FireSatelliteMock",
     aliases: ["fire-satellite"],
     description:
-      "Deterministic mock satellite overlay fetch for the Kensai fire demo. Returns post-fire imagery and burn-mask overlays aligned to the burned rectangle.",
+      "Deterministic mock satellite overlay fetch for the Kensai fire demo. Returns post-fire imagery aligned to the burned rectangle.",
     kind: "domain",
     inputSchema: InputSchema,
     isReadOnly: () => true,
@@ -24,9 +24,9 @@ export function buildFireSatelliteMockTool(): ToolDefinition {
       const parsed = input as FireSatelliteInput;
 
       return {
-        summary: `已获取 ${parsed.region} 灾后卫星影像与烧毁遮罩。`,
+        summary: `已获取 ${parsed.region} 灾后卫星影像。`,
         region: parsed.region,
-        imageCount: 2,
+        imageCount: 1,
         gisData: {
           type: "image-overlay" as const,
           imageOverlays: [
@@ -34,19 +34,10 @@ export function buildFireSatelliteMockTool(): ToolDefinition {
               id: "fire-post-image",
               url: OVERLAY_META.postFireImageUrl,
               rectangle: { ...FIRE_RECT },
-              alpha: 0.9,
+              alpha: 1,
               tileWidth: 660,
               tileHeight: 590,
               outlineColor: "#FF6600",
-            },
-            {
-              id: "fire-burn-mask",
-              url: OVERLAY_META.maskImageUrl,
-              rectangle: { ...FIRE_RECT },
-              alpha: 0.7,
-              tileWidth: 660,
-              tileHeight: 590,
-              outlineColor: "#FF0000",
             },
           ],
           cameraView: {

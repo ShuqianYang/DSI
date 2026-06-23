@@ -149,6 +149,7 @@ async function callDailyReportApi(query: string, reportType: ReportType): Promis
 export function buildDailyReportTool(): ToolDefinition {
   return {
     name: "DailyReport",
+    displayName: "日报生成",
     aliases: ["daily-report", "daily_report"],
     description:
       "Generate a border-defense daily report for a specific date. Input: {\"query\":\"今天\",\"report_type\":\"all\"}. Supports report types: all, 总体, 设备监控, 预警事态. The tool calls the daily-report API and returns the generated report content.",

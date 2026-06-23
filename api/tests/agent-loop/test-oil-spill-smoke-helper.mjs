@@ -22,7 +22,7 @@ const MOCK_TOOL_ORDER = [
 ];
 
 assert.equal(OIL_SPILL_MOCK_SCENARIO, "oil-spill-mock");
-assert.equal(OIL_SPILL_MOCK_QUERY, "/demo:oil-spill-mock");
+assert.equal(OIL_SPILL_MOCK_QUERY, "/演示:油污溯源");
 assert.deepEqual([...OIL_SPILL_MOCK_TOOLS], MOCK_TOOL_ORDER.slice(3));
 
 {

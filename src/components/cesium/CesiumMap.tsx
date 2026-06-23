@@ -14,7 +14,6 @@ import { Entity, Trajectory, Region, GisData } from '@/types/prd';
 import { getStyleById } from './ImageryManager';
 import { createLocalImageryProvider, getLocalConfigById } from './LocalTileProvider';
 import { collectFireGroundSpecs, syncFireGroundPulseRings } from './fireGroundEffect';
-import { collectEpicenterGroundSpecs, syncEpicenterGroundPulseRings } from './earthquakeGroundEffect';
 import {
   collectOilSpillDiffusionSpecs,
   syncOilSpillDiffusionPlumes,
@@ -497,6 +496,49 @@ const BILLBOARD_GLOW_PERIOD_MS = 2000;
 
 /** 随相机距离小幅伸缩：远距倍率压低，避免光圈占地过大 */
 const BILLBOARD_GLOW_SCALE_BY_DISTANCE = new Cesium.NearFarScalar(1.2e4, 0.86, 2.0e7, 1.18);
+
+type GisImageOverlay = SingleTileOverlaySpec;
+
+interface ComparableGisData extends GisData {
+  imageOverlays?: GisImageOverlay[];
+}
+
+function collectEventSingleTileOverlays(gisDataList: GisData[], apiBase: string): SingleTileOverlaySpec[] {
+  const collected = new Map<string, SingleTileOverlaySpec>();
+  for (const gis of gisDataList as ComparableGisData[]) {
+    const overlays = Array.isArray(gis.imageOverlays) ? gis.imageOverlays : [];
+    for (const overlay of overlays) {
+      collected.set(overlay.id, toEventOverlaySpec(overlay, apiBase));
+    }
+  }
+
+  // Ensure pre-event imagery is always rendered beneath post-event imagery,
+  // regardless of the order in which gisData events arrive from the agent loop.
+  return Array.from(collected.values()).sort(
+    (a, b) => imageOverlayPhasePriority(a.id) - imageOverlayPhasePriority(b.id),
+  );
+}
+
+function imageOverlayPhasePriority(id: string): number {
+  const lower = id.toLowerCase();
+  if (lower.includes("post")) return 1;
+  return 0;
+}
+
+function toEventOverlaySpec(
+  overlay: GisImageOverlay,
+  apiBase: string,
+): SingleTileOverlaySpec {
+  return {
+    id: overlay.id,
+    url: overlay.url.startsWith('http') ? overlay.url : `${apiBase}${overlay.url}`,
+    rectangle: overlay.rectangle,
+    alpha: overlay.alpha,
+    tileWidth: overlay.tileWidth,
+    tileHeight: overlay.tileHeight,
+    outlineColor: overlay.outlineColor,
+  };
+}
 
 function builtinBillboardGlowSvgUri(): string {
   return billboardGlowSvgDataUri('rgb(0,224,255)');
@@ -1585,15 +1627,6 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
       syncFireGroundPulseRings(ds.ring.entities, fireGroundSpecs, mapLikePointStyle);
     }
 
-    const epicenterGroundSpecs = collectEpicenterGroundSpecs(
-      Array.from(eventEntityMap.values())
-        .filter(({ entity }) => entity.type === 'earthquake')
-        .map(({ entity }) => ({ id: String(entity.id), coordinates: entity.coordinates }))
-    );
-    if (epicenterGroundSpecs.length > 0) {
-      syncEpicenterGroundPulseRings(ds.ring.entities, epicenterGroundSpecs, mapLikePointStyle);
-    }
-
     const glowRows = [...baseRows, ...eventRows].filter(
       (r) => r.display.type !== 'fire' && r.display.type !== 'earthquake'
     );
@@ -2145,29 +2178,16 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
   const eventImageOverlays = useMemo(() => {
-    const overlays: SingleTileOverlaySpec[] = [];
-    for (const gis of eventGisDataList) {
-      if (gis.imageOverlays) {
-        for (const img of gis.imageOverlays) {
-          const url = img.url.startsWith("http") ? img.url : `${API_BASE}${img.url}`;
-          console.log(`[CesiumMap] imageOverlay: ${img.id} → ${url}`);
-          overlays.push({
-            id: img.id,
-            url,
-            rectangle: img.rectangle,
-            alpha: img.alpha,
-            tileWidth: img.tileWidth,
-            tileHeight: img.tileHeight,
-            outlineColor: img.outlineColor,
-          });
-        }
-      }
-    }
+    const overlays = collectEventSingleTileOverlays(eventGisDataList, API_BASE);
     if (overlays.length === 0) {
       console.log('[CesiumMap] No imageOverlays in eventGisDataList');
+    } else {
+      overlays.forEach((overlay) => {
+        console.log(`[CesiumMap] imageOverlay: ${overlay.id} -> ${overlay.url}`);
+      });
     }
     return overlays;
-  }, [eventGisDataList]);
+  }, [API_BASE, eventGisDataList]);
 
   const singleTileOverlays = useMemo(() => {
     return [...(singleTileOverlaysProp ?? EMPTY_SINGLE_TILE_OVERLAYS), ...eventImageOverlays];

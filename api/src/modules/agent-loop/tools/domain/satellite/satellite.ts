@@ -175,6 +175,7 @@ interface StacResponse {
 export function buildSatelliteImageSearchTool(): ToolDefinition {
   return {
     name: "SatelliteImageSearch",
+    displayName: "卫星影像搜索",
     aliases: ["satellite-image-search"],
     description:
       'Search satellite imagery metadata from legacy satellite demand first, then Copernicus Data Space (Sentinel-2, Landsat) by bounding box/date range. Input: {"bbox":{"west":117,"east":122.5,"south":22,"north":26.5},"startDate":"2024-05-01","endDate":"2024-05-10","maxCloudCoverage":20}. For disaster events, prefer {"targetPoint":{"lon":123,"lat":30.25},"searchRadiusKm":30,"bbox":{...region bbox...}} so the tool computes a focused bbox clipped to the region. Returns image metadata with acquisition date, cloud coverage, thumbnail links, and browser links.',

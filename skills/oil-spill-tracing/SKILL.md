@@ -1,13 +1,13 @@
 ---
 name: oil-spill-tracing
-description: Use only when the user explicitly invokes the oil-spill mock demo via /demo:oil-spill-mock; deterministic East China Sea replay.
-argument-hint: "[/demo:oil-spill-mock]"
+description: Use only when the user explicitly invokes the oil-spill mock demo via /演示:油污溯源; deterministic East China Sea replay.
+argument-hint: "[/演示:油污溯源]"
 allowed-tools: RegionResolve, RegionMark, OilSpillDetectMock, WeatherFetchMock, OilDriftTraceMock, AisFetchMock, AisMatchSuspectsMock, AisSuspectRankingMock
 ---
 
 # Oil Spill Tracing
 
-Use this skill **only** for the deterministic East China Sea oil-spill mock demo. The workflow is triggered by the explicit demo command `/demo:oil-spill-mock`; do not activate this skill for general oil-spill questions or live oil-spill alerts.
+Use this skill **only** for the deterministic East China Sea oil-spill mock demo. The workflow is triggered by the explicit demo command `/演示:油污溯源`; do not activate this skill for general oil-spill questions or live oil-spill alerts.
 
 ## Required Input
 
@@ -16,7 +16,7 @@ Use the user's original query as `$ARGUMENTS`.
 The query must start with exactly:
 
 ```
-/demo:oil-spill-mock
+/演示:油污溯源
 ```
 
 Optional trailing text is allowed and is ignored except for extracting a display region name (default `中国东海`).
@@ -47,7 +47,7 @@ Each tool returns top-level `gisData`. Preserve the sequence because the fronten
 - Do not fabricate extra vessels, weather values, images, or rankings.
 - Keep the demo deterministic even when the user says "现在", "最新", or "实时".
 - For non-East-China-Sea regions, if `OilSpillDetectMock` returns `shouldContinue:false`, treat that as the final answer and stop the workflow.
-- If the user asks about oil spills, oil film, oil pollution, illegal discharge, pollution origin tracing, AIS suspect matching, or suspected responsible vessels without the `/demo:oil-spill-mock` prefix, do not use this skill or its mock tools; use the regular GIS, disaster, weather, or AIS tools instead.
+- If the user asks about oil spills, oil film, oil pollution, illegal discharge, pollution origin tracing, AIS suspect matching, or suspected responsible vessels without the `/演示:油污溯源` prefix, do not use this skill or its mock tools; use the regular GIS, disaster, weather, or AIS tools instead.
 - If the user explicitly asks for real live data, explain that this skill is the deterministic mock oil-spill demo and ask whether to switch to real tools.
 
 ## Response

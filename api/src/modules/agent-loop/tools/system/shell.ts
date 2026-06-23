@@ -37,6 +37,7 @@ const DENIED_BASH_COMMANDS = new Set([
 export function buildBashTool(): ToolDefinition {
   return {
     name: "Bash",
+    displayName: "命令执行",
     description:
       'Run a shell command in the workspace. Input: {"command":"pnpm build","cwd":"optional relative dir","timeout_ms":120000}.',
     kind: "system",

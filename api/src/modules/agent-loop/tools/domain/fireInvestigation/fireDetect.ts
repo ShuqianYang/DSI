@@ -21,7 +21,7 @@ export function buildFireDetectMockTool(): ToolDefinition {
     name: "FireDetectMock",
     aliases: ["fire-detect"],
     description:
-      "Deterministic mock fire detection for the Kensai demo. Returns the fire center point, burned-area polygon, and overlay metadata for post-fire imagery and burn mask.",
+      "Deterministic mock fire detection for the Kensai demo. Returns the fire center point, burned-area polygon, and overlay metadata for post-fire imagery.",
     kind: "domain",
     inputSchema: InputSchema,
     isReadOnly: () => true,

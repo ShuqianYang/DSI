@@ -16,10 +16,12 @@ export async function callTool(
   context: ToolExecutionContext
 ): Promise<ToolObservation> {
   const tool = registry.get(toolCall.toolName);
+  const displayName = tool?.displayName;
   if (!tool) {
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
+      displayName,
       ok: false,
       error: {
         code: "unknown_tool",
@@ -33,6 +35,7 @@ export async function callTool(
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
+      displayName,
       ok: false,
       error: {
         code: "invalid_tool_input",
@@ -50,6 +53,7 @@ export async function callTool(
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
+      displayName,
       ok: false,
       error: {
         code: "tool_input_validation_error",
@@ -62,6 +66,7 @@ export async function callTool(
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
+      displayName,
       ok: false,
       error: {
         code: "tool_aborted",
@@ -82,6 +87,7 @@ export async function callTool(
         input,
         decision,
         context,
+        displayName,
       });
       if (observation) return observation;
       if (decision.behavior === "sandbox") {
@@ -97,6 +103,7 @@ export async function callTool(
         input,
         decision: defaultDecision,
         context,
+        displayName,
       });
       if (defaultObservation) return defaultObservation;
       if (defaultDecision.behavior === "sandbox") {
@@ -118,11 +125,13 @@ export async function callTool(
           ...event,
           toolCallId: event.toolCallId || toolCall.id,
           toolName: event.toolName || toolCall.toolName,
+          displayName: event.displayName || displayName,
         }),
     });
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
+      displayName,
       ok: true,
       output: applyResultBudget(output, tool.maxResultSizeChars),
     };
@@ -131,6 +140,7 @@ export async function callTool(
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
+      displayName,
       ok: false,
       output: applyResultBudget(errorWithOutput.toolOutput, tool.maxResultSizeChars),
       error: {
@@ -146,8 +156,9 @@ async function handlePermissionDecision(input: {
   input: unknown;
   decision: ToolPermissionDecision;
   context: ToolExecutionContext;
+  displayName?: string;
 }): Promise<ToolObservation | undefined> {
-  const { decision, toolCall, context } = input;
+  const { decision, toolCall, context, displayName } = input;
   if (decision.behavior === "allow" || decision.behavior === "sandbox") {
     return undefined;
   }
@@ -165,6 +176,7 @@ async function handlePermissionDecision(input: {
       return {
         toolCallId: toolCall.id,
         toolName: toolCall.toolName,
+        displayName,
         ok: false,
         error: {
           code: "permission_handler_error",
@@ -176,6 +188,7 @@ async function handlePermissionDecision(input: {
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
+      displayName,
       ok: false,
       error: {
         code: "permission_denied",
@@ -187,6 +200,7 @@ async function handlePermissionDecision(input: {
   return {
     toolCallId: toolCall.id,
     toolName: toolCall.toolName,
+    displayName,
     ok: false,
     error: {
       code: decision.behavior === "ask" ? "permission_required" : "permission_denied",

@@ -19,6 +19,7 @@ const execFile = promisify(execFileCallback);
 export function buildGlobTool(): ToolDefinition {
   return {
     name: "Glob",
+    displayName: "文件匹配",
     description:
       'Find files by glob pattern. Input: {"pattern":"**/*.ts","path":"optional relative directory"}. Returns up to 100 files.',
     kind: "system",
@@ -66,6 +67,7 @@ export function buildGlobTool(): ToolDefinition {
 export function buildGrepTool(): ToolDefinition {
   return {
     name: "Grep",
+    displayName: "内容搜索",
     description:
       'Search file contents with ripgrep. Input: {"pattern":"TODO","path":"optional file or dir","glob":"*.ts","output_mode":"content|files_with_matches|count","head_limit":100}.',
     kind: "system",
@@ -151,6 +153,7 @@ export function buildGrepTool(): ToolDefinition {
 export function buildReadTool(): ToolDefinition {
   return {
     name: "Read",
+    displayName: "文件读取",
     description:
       'Read a text file in the workspace. Input: {"file_path":"src/app.ts","offset":1,"limit":200}. Offset and limit are line-based.',
     kind: "system",
@@ -213,6 +216,7 @@ export function buildReadTool(): ToolDefinition {
 export function buildWriteTool(): ToolDefinition {
   return {
     name: "Write",
+    displayName: "文件写入",
     description:
       'Create or overwrite a file in the workspace. Input: {"file_path":"path/to/file.ts","content":"..."}',
     kind: "system",
@@ -243,6 +247,7 @@ export function buildWriteTool(): ToolDefinition {
 export function buildEditTool(): ToolDefinition {
   return {
     name: "Edit",
+    displayName: "文件编辑",
     description:
       'Replace text in an existing workspace file. Input: {"file_path":"path","old_string":"exact text","new_string":"replacement","replace_all":false}.',
     kind: "system",

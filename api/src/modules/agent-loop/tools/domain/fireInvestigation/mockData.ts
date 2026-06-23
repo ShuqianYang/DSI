@@ -24,7 +24,6 @@ export const CONFIDENCE = "high";
 
 export const OVERLAY_META = {
   postFireImageUrl: "/local-tiles/fire.png",
-  maskImageUrl: "/local-tiles/fire_mask_on_truecolor.png",
   rectangle: { ...FIRE_RECT },
 };
 

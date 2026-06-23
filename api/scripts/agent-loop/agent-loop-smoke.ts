@@ -40,6 +40,20 @@ import {
   installMockFireInvestigationFetch,
   validateFireInvestigationSmoke,
 } from "./agent-loop-smoke-fire-investigation.js";
+import {
+  createEarthquakeAssessmentSmokeModelClient,
+  EARTHQUAKE_ASSESSMENT_QUERY,
+  EARTHQUAKE_ASSESSMENT_SCENARIO,
+  installMockEarthquakeAssessmentFetch,
+  validateEarthquakeAssessmentSmoke,
+} from "./agent-loop-smoke-earthquake-assessment.js";
+import {
+  createFloodAssessmentSmokeModelClient,
+  FLOOD_ASSESSMENT_QUERY,
+  FLOOD_ASSESSMENT_SCENARIO,
+  installMockFloodAssessmentFetch,
+  validateFloodAssessmentSmoke,
+} from "./agent-loop-smoke-flood-assessment.js";
 import { buildDefaultToolRegistry, ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
@@ -66,6 +80,10 @@ async function main() {
           ? OIL_SPILL_MOCK_QUERY
           : options.scenario === FIRE_INVESTIGATION_SCENARIO
             ? FIRE_INVESTIGATION_QUERY
+            : options.scenario === EARTHQUAKE_ASSESSMENT_SCENARIO
+              ? EARTHQUAKE_ASSESSMENT_QUERY
+              : options.scenario === FLOOD_ASSESSMENT_SCENARIO
+                ? FLOOD_ASSESSMENT_QUERY
           : DEFAULT_QUERY);
 
   if (options.refreshOpenSky) {
@@ -96,6 +114,10 @@ async function main() {
             ? createOilSpillMockSmokeModelClient()
             : !options.realModel && options.scenario === FIRE_INVESTIGATION_SCENARIO
               ? createFireInvestigationSmokeModelClient()
+              : !options.realModel && options.scenario === EARTHQUAKE_ASSESSMENT_SCENARIO
+                ? createEarthquakeAssessmentSmokeModelClient()
+                : !options.realModel && options.scenario === FLOOD_ASSESSMENT_SCENARIO
+                  ? createFloodAssessmentSmokeModelClient()
           : undefined;
   const restoreWeatherMock =
     options.mockWeather && options.scenario === GIS_TOOLCHAIN_SCENARIO
@@ -117,6 +139,14 @@ async function main() {
     options.mockApi && options.scenario === FIRE_INVESTIGATION_SCENARIO
       ? installMockFireInvestigationFetch()
       : undefined;
+  const restoreEarthquakeAssessmentMock =
+    options.mockApi && options.scenario === EARTHQUAKE_ASSESSMENT_SCENARIO
+      ? installMockEarthquakeAssessmentFetch()
+      : undefined;
+  const restoreFloodAssessmentMock =
+    options.mockApi && options.scenario === FLOOD_ASSESSMENT_SCENARIO
+      ? installMockFloodAssessmentFetch()
+      : undefined;
 
   console.log(`[smoke] taskId=${taskId}`);
   console.log(`[smoke] query=${query}`);
@@ -124,7 +154,7 @@ async function main() {
   if (options.scenario) console.log(`[smoke] scenario=${options.scenario}`);
   if (modelClient) {
     console.log(
-      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : options.scenario === OIL_SPILL_MOCK_SCENARIO ? "oil-spill-mock" : options.scenario === FIRE_INVESTIGATION_SCENARIO ? "fire-investigation" : "unknown"}`
+      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : options.scenario === OIL_SPILL_MOCK_SCENARIO ? "oil-spill-mock" : options.scenario === FIRE_INVESTIGATION_SCENARIO ? "fire-investigation" : options.scenario === EARTHQUAKE_ASSESSMENT_SCENARIO ? "earthquake-assessment" : options.scenario === FLOOD_ASSESSMENT_SCENARIO ? "flood-assessment" : "unknown"}`
     );
   }
   if (options.realModel) console.log("[smoke] model=real");
@@ -133,6 +163,8 @@ async function main() {
   if (restoreBorderDefenseQaMock) console.log("[smoke] border-defense-qa=mock-mysql");
   if (restoreOilSpillMock) console.log("[smoke] oil-spill=queryData-mock");
   if (restoreFireInvestigationMock) console.log("[smoke] fire-investigation=mock");
+  if (restoreEarthquakeAssessmentMock) console.log("[smoke] earthquake-assessment=mock");
+  if (restoreFloodAssessmentMock) console.log("[smoke] flood-assessment=mock");
   console.log("");
 
   let finalSeen = false;
@@ -147,6 +179,7 @@ async function main() {
       query,
       registry,
       maxTurns: options.maxTurns,
+      turnDelayMs: options.turnDelayMs,
       ...(modelClient ? { modelClient } : {}),
       permissionHandler,
       onToolProgress: (event) => {
@@ -164,7 +197,9 @@ async function main() {
           options.scenario === DAILY_REPORT_SCENARIO ||
           options.scenario === BORDER_DEFENSE_QA_SCENARIO ||
           options.scenario === OIL_SPILL_MOCK_SCENARIO ||
-          options.scenario === FIRE_INVESTIGATION_SCENARIO
+          options.scenario === FIRE_INVESTIGATION_SCENARIO ||
+          options.scenario === EARTHQUAKE_ASSESSMENT_SCENARIO ||
+          options.scenario === FLOOD_ASSESSMENT_SCENARIO
             ? buildAgentLoopTaskResult(event.result)
             : event.result;
         await smokeDb.db
@@ -191,6 +226,8 @@ async function main() {
     restoreBorderDefenseQaMock?.();
     restoreOilSpillMock?.();
     restoreFireInvestigationMock?.();
+    restoreEarthquakeAssessmentMock?.();
+    restoreFloodAssessmentMock?.();
     if (!finalSeen) {
       await smokeDb.db
         .update(smokeDb.tasks)
@@ -265,6 +302,32 @@ async function main() {
     console.log(`[fire-investigation-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
     console.log(
       `[fire-investigation-smoke] gisOutputs=${report.gisOutputs} burnedAreaHectares=${report.burnedAreaHectares}`,
+    );
+  }
+
+  if (options.scenario === EARTHQUAKE_ASSESSMENT_SCENARIO && loopResult) {
+    const report = validateEarthquakeAssessmentSmoke({
+      rawEvents,
+      projectedResult: buildAgentLoopTaskResult(loopResult),
+    });
+    console.log("");
+    console.log("[earthquake-assessment-smoke] validation passed");
+    console.log(`[earthquake-assessment-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
+    console.log(
+      `[earthquake-assessment-smoke] gisOutputs=${report.gisOutputs} earthquakeMagnitude=${report.earthquakeMagnitude}`,
+    );
+  }
+
+  if (options.scenario === FLOOD_ASSESSMENT_SCENARIO && loopResult) {
+    const report = validateFloodAssessmentSmoke({
+      rawEvents,
+      projectedResult: buildAgentLoopTaskResult(loopResult),
+    });
+    console.log("");
+    console.log("[flood-assessment-smoke] validation passed");
+    console.log(`[flood-assessment-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
+    console.log(
+      `[flood-assessment-smoke] gisOutputs=${report.gisOutputs} floodedAreaKm2=${report.floodedAreaKm2}`,
     );
   }
 }
@@ -415,6 +478,7 @@ interface SmokeOptions {
   mockApi: boolean;
   mockReportContent: string;
   mockFetch: boolean;
+  turnDelayMs: number;
 }
 
 function parseArgs(args: string[]): SmokeOptions {
@@ -422,6 +486,7 @@ function parseArgs(args: string[]): SmokeOptions {
   let maxTurns = 6;
   let tools: string[] | undefined;
   let refreshOpenSky = false;
+  let turnDelayMs = 0;
   let verboseToolMessages = false;
   let scenario: string | undefined;
   let realModel = false;
@@ -471,6 +536,9 @@ function parseArgs(args: string[]): SmokeOptions {
       mockFetch = false;
     } else if (arg === "--verbose-tool-messages") {
       verboseToolMessages = true;
+    } else if (arg === "--turn-delay-ms") {
+      turnDelayMs = Number.parseInt(requireValue(arg, next), 10);
+      index += 1;
     } else if (arg === "--help" || arg === "-h") {
       printHelpAndExit();
     } else {
@@ -481,6 +549,9 @@ function parseArgs(args: string[]): SmokeOptions {
   if (!Number.isFinite(maxTurns) || maxTurns < 1) {
     throw new Error("--max-turns must be a positive integer");
   }
+  if (!Number.isFinite(turnDelayMs) || turnDelayMs < 0) {
+    throw new Error("--turn-delay-ms must be a non-negative integer");
+  }
 
   const knownScenarios = new Set([
     GIS_TOOLCHAIN_SCENARIO,
@@ -488,6 +559,8 @@ function parseArgs(args: string[]): SmokeOptions {
     BORDER_DEFENSE_QA_SCENARIO,
     OIL_SPILL_MOCK_SCENARIO,
     FIRE_INVESTIGATION_SCENARIO,
+    EARTHQUAKE_ASSESSMENT_SCENARIO,
+    FLOOD_ASSESSMENT_SCENARIO,
   ]);
   if (scenario && !knownScenarios.has(scenario)) {
     throw new Error(`Unknown smoke scenario: ${scenario}`);
@@ -509,6 +582,14 @@ function parseArgs(args: string[]): SmokeOptions {
     tools = ["RegionResolve", "RegionMark", ...FIRE_INVESTIGATION_TOOLS];
   }
 
+  if (scenario === EARTHQUAKE_ASSESSMENT_SCENARIO && (!tools || tools.length === 0)) {
+    tools = ["RegionResolve", "RegionMark"];
+  }
+
+  if (scenario === FLOOD_ASSESSMENT_SCENARIO && (!tools || tools.length === 0)) {
+    tools = ["RegionResolve", "RegionMark"];
+  }
+
   return {
     query,
     maxTurns,
@@ -522,6 +603,7 @@ function parseArgs(args: string[]): SmokeOptions {
     mockApi,
     mockReportContent,
     mockFetch: mockFetch ?? scenario === BORDER_DEFENSE_QA_SCENARIO,
+    turnDelayMs,
   };
 }
 
@@ -536,7 +618,7 @@ function printHelpAndExit(): never {
 
 Options:
   -q, --query <text>            User query to run.
-  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa, oil-spill-mock, fire-investigation.
+  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa, oil-spill-mock, fire-investigation, earthquake-assessment, flood-assessment.
   --max-turns <n>              Max loop turns. Default: 6.
   --tools <a,b,c>              Comma-separated tools from the default registry.
   --with-webfetch              Add WebFetch to the selected tools.
@@ -550,6 +632,7 @@ Options:
   --mock-fetch                 Mock MySQL responses (border-defense-qa only).
   --no-mock-fetch              Use real MySQL responses (border-defense-qa only).
   --verbose-tool-messages      Also print serialized tool messages.
+  --turn-delay-ms <n>          Delay between agent loop turns in milliseconds (demo scenarios only).
 
 GIS toolchain fake example:
   tsx scripts/agent-loop-smoke.ts --scenario gis-toolchain --max-turns 6
@@ -579,7 +662,19 @@ Fire investigation fake example:
   tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --mock-api --max-turns 10
 
 Fire investigation real-model example:
-  tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --real-model --query "/demo:fire-investigation" --max-turns 10
+  tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --real-model --query "/演示:火情研判" --max-turns 10
+
+Earthquake assessment fake example:
+  tsx scripts/agent-loop-smoke.ts --scenario earthquake-assessment --mock-api --max-turns 8
+
+Earthquake assessment real-model example:
+  tsx scripts/agent-loop-smoke.ts --scenario earthquake-assessment --real-model --query "/演示:地震灾后评估" --max-turns 8
+
+Flood assessment fake example:
+  tsx scripts/agent-loop-smoke.ts --scenario flood-assessment --mock-api --max-turns 8
+
+Flood assessment real-model example:
+  tsx scripts/agent-loop-smoke.ts --scenario flood-assessment --real-model --query "/演示:洪水灾后评估" --max-turns 8
 `);
   process.exit(0);
 }

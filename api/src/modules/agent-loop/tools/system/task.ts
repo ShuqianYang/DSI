@@ -6,6 +6,7 @@ const MAX_TOOL_OUTPUT_CHARS = 60_000;
 export function buildTodoWriteTool(): ToolDefinition {
   return {
     name: "TodoWrite",
+    displayName: "待办记录",
     description:
       'Update the session todo list. Each todo must have: content (short description of the task), status (pending|in_progress|completed), and activeForm (a present-continuous phrase like "Reading file" or "Analyzing data" that describes what is currently being done). Input: {"todos":[{"content":"Read package.json","status":"in_progress","activeForm":"Reading package.json"}]}.',
     kind: "system",

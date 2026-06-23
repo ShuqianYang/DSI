@@ -1,13 +1,13 @@
 ---
 name: fire-investigation
-description: Use only when the user explicitly invokes the fire investigation demo via /demo:fire-investigation; deterministic mock replay for the Kensai fire scenario.
-argument-hint: "[/demo:fire-investigation]"
+description: Use only when the user explicitly invokes the fire investigation demo via /演示:火情研判; deterministic mock replay for the Kensai fire scenario.
+argument-hint: "[/演示:火情研判]"
 allowed-tools: RegionResolve, RegionMark, FireDetectMock, FireSatelliteMock, FireAssessmentMock, FireReportMock
 ---
 
 # Fire Investigation
 
-Use this skill **only** for the deterministic Kensai fire investigation demo. The workflow is triggered by the explicit demo command `/demo:fire-investigation`; do not activate this skill for general fire-related questions or live fire alerts.
+Use this skill **only** for the deterministic Kensai fire investigation demo. The workflow is triggered by the explicit demo command `/演示:火情研判`; do not activate this skill for general fire-related questions or live fire alerts.
 
 ## Required Input
 
@@ -16,7 +16,7 @@ Use the user's original query as `$ARGUMENTS`.
 The query must start with exactly:
 
 ```
-/demo:fire-investigation
+/演示:火情研判
 ```
 
 Optional trailing text is allowed and is ignored except for extracting a display region name (default `Kensai`).
@@ -28,7 +28,7 @@ Run the tools in this exact order for multi-step GIS replay:
 1. Call `RegionResolve` with the display region name, defaulting to `{"regionName":"Kensai"}`.
 2. If `RegionResolve` returns `resolved:true`, call `RegionMark` with `selected.geometryRef` and `selected.bbox`; if there is no `geometryRef`, pass `selected.bbox` as the fallback geometry.
 3. `FireDetectMock` with `{"region":"Kensai"}` unless the user gives another display name.
-4. `FireSatelliteMock` with `{"region":"Kensai"}` to overlay post-fire imagery and burn mask.
+4. `FireSatelliteMock` with `{"region":"Kensai"}` to overlay post-fire imagery.
 5. `FireAssessmentMock` with `{"region":"Kensai"}` for fire intensity, spread direction, and wind field.
 6. `FireReportMock` with `{"region":"Kensai"}` to produce the final structured investigation report.
 
@@ -48,7 +48,7 @@ Each tool returns top-level `gisData`. Preserve the sequence because the fronten
 Summarize:
 
 - fire detection result and center coordinates,
-- post-fire satellite overlay and burn mask,
+- post-fire satellite overlay,
 - fire intensity, spread direction, and wind field,
 - final assessment and recommendations.
 

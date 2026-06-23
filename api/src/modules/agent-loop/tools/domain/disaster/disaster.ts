@@ -76,6 +76,7 @@ interface DisasterQueryOutput {
 export function buildDisasterQueryTool(): ToolDefinition {
   return {
     name: "DisasterQuery",
+    displayName: "灾害查询",
     aliases: ["disaster-query"],
     description:
       'Query recent disaster events (earthquakes, floods, typhoons, fires) from public APIs (USGS, GDACS) within a bounding box or global scope. Input: {"bbox":{"west":117,"east":122.5,"south":22,"north":26.5},"disasterType":"earthquake","timeRange":"30d","minMagnitude":4.0}. Returns a list of events with time, location, magnitude, and source links. For named regions, call RegionResolve first to get bbox, then pass it to this tool.',

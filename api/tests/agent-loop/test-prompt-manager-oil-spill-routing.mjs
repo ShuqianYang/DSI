@@ -27,6 +27,6 @@ assert.match(systemMessage.content, /WeatherFetchMock/);
 assert.match(systemMessage.content, /queryData/);
 assert.match(systemMessage.content, /shouldContinue:false/);
 assert.match(systemMessage.content, /do not use real WeatherFetch/i);
-assert.equal(DEFAULT_PROMPT_COMPONENT_VERSIONS.oilSpillMockRules, "oil-spill-mock-rules-v2");
+assert.equal(DEFAULT_PROMPT_COMPONENT_VERSIONS.oilSpillMockRules, "oil-spill-mock-rules-v4");
 
 console.log("prompt manager oil spill routing test passed");

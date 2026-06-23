@@ -3,6 +3,7 @@ export type AgentRole = "system" | "user" | "assistant" | "tool";
 export interface GatewayToolCall {
   id: string;
   toolName: string;
+  displayName?: string;
   input: Record<string, unknown>;
   reason?: string;
 }
@@ -18,6 +19,7 @@ export interface AgentMessage {
 export interface ToolProgressEvent {
   toolCallId?: string;
   toolName?: string;
+  displayName?: string;
   stage?: string;
   message?: string;
   percent?: number;
@@ -27,6 +29,7 @@ export interface ToolProgressEvent {
 export interface ToolObservation {
   toolCallId: string;
   toolName: string;
+  displayName?: string;
   ok: boolean;
   output?: unknown;
   error?: {
@@ -83,6 +86,7 @@ export type AgentLoopEvent =
       turn: number;
       toolCallId: string;
       toolName: string;
+      displayName?: string;
       reason?: string;
     }
   | {
@@ -91,6 +95,7 @@ export type AgentLoopEvent =
       turn: number;
       toolCallId: string;
       toolName: string;
+      displayName?: string;
       ok: boolean;
       observation: ToolObservation;
     }
@@ -100,6 +105,7 @@ export type AgentLoopEvent =
       turn: number;
       toolCallId: string;
       toolName: string;
+      displayName?: string;
       stage?: string;
       message?: string;
       percent?: number;
