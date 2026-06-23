@@ -24,6 +24,7 @@
     "agent:capability-probe": "tsx tests/agent-loop/test-agent-loop-capability-probe.mjs",
     "agent:smoke:daily-report": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario daily-report --mock-api",
     "agent:smoke:daily-report:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario daily-report",
+    "agent:smoke:oil-spill-mock": "tsx scripts/agent-loop/agent-loop-smoke-oil-spill-mock.ts",
     "agent:smoke:border-defense-qa": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario border-defense-qa",
     "agent:smoke:border-defense-qa:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario border-defense-qa --real-model --no-mock-fetch",
     "agent:test:border-defense-qa": "tsx tests/agent-loop/test-border-defense-qa-tool.mjs",
