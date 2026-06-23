@@ -12,10 +12,18 @@ const MOCK_WIND_DIR_DEG = 45;
 
 export function toDMS(deg: number, isLng: boolean): string {
   const absDeg = Math.abs(deg);
-  const d = Math.floor(absDeg);
+  let d = Math.floor(absDeg);
   const minDec = (absDeg - d) * 60;
-  const m = Math.floor(minDec);
-  const s = Math.round((minDec - m) * 60);
+  let m = Math.floor(minDec);
+  let s = Math.round((minDec - m) * 60);
+  if (s === 60) {
+    s = 0;
+    m += 1;
+  }
+  if (m === 60) {
+    m = 0;
+    d += 1;
+  }
   const prefix = isLng ? (deg >= 0 ? "东经" : "西经") : deg >= 0 ? "北纬" : "南纬";
   return `${prefix}${d}°${String(m).padStart(2, "0")}′${String(s).padStart(2, "0")}″`;
 }

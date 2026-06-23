@@ -14,6 +14,7 @@ assert.equal(ring.length, 17);
 assert.deepEqual(ring[0], ring.at(-1));
 assert.equal(helpers.toDMS(123.0375, true), "东经123°02′15″");
 assert.equal(helpers.toDMS(30.2761, false), "北纬30°16′34″");
+assert.equal(helpers.toDMS(123.999999, true), "东经124°00′00″");
 
 const wind = helpers.buildMockWindField(data.OIL_FILM_CENTER);
 assert.equal(wind.grid.rows, 10);
