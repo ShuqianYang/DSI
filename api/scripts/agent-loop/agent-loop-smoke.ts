@@ -25,6 +25,13 @@ import {
   installMockBorderDefenseQaFetch,
   validateBorderDefenseQaSmoke,
 } from "./agent-loop-smoke-border-defense-qa.js";
+import {
+  createOilSpillMockSmokeModelClient,
+  installMockOilSpillMockFetch,
+  OIL_SPILL_MOCK_QUERY,
+  OIL_SPILL_MOCK_SCENARIO,
+  validateOilSpillMockSmoke,
+} from "./agent-loop-smoke-oil-spill-mock.js";
 import { buildDefaultToolRegistry, ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
 import type {
   AgentLoopEvent,
@@ -47,6 +54,8 @@ async function main() {
         ? DAILY_REPORT_QUERY
         : options.scenario === BORDER_DEFENSE_QA_SCENARIO
           ? BORDER_DEFENSE_QA_QUERY
+          : options.scenario === OIL_SPILL_MOCK_SCENARIO
+            ? OIL_SPILL_MOCK_QUERY
           : DEFAULT_QUERY);
 
   if (options.refreshOpenSky) {
@@ -73,6 +82,8 @@ async function main() {
         ? createDailyReportSmokeModelClient()
         : !options.realModel && options.scenario === BORDER_DEFENSE_QA_SCENARIO
           ? createBorderDefenseQaSmokeModelClient()
+          : !options.realModel && options.scenario === OIL_SPILL_MOCK_SCENARIO
+            ? createOilSpillMockSmokeModelClient()
           : undefined;
   const restoreWeatherMock =
     options.mockWeather && options.scenario === GIS_TOOLCHAIN_SCENARIO
@@ -86,6 +97,10 @@ async function main() {
     options.mockFetch && options.scenario === BORDER_DEFENSE_QA_SCENARIO
       ? installMockBorderDefenseQaFetch()
       : undefined;
+  const restoreOilSpillMock =
+    options.mockApi && options.scenario === OIL_SPILL_MOCK_SCENARIO
+      ? installMockOilSpillMockFetch()
+      : undefined;
 
   console.log(`[smoke] taskId=${taskId}`);
   console.log(`[smoke] query=${query}`);
@@ -93,13 +108,14 @@ async function main() {
   if (options.scenario) console.log(`[smoke] scenario=${options.scenario}`);
   if (modelClient) {
     console.log(
-      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : "unknown"}`
+      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : options.scenario === OIL_SPILL_MOCK_SCENARIO ? "oil-spill-mock" : "unknown"}`
     );
   }
   if (options.realModel) console.log("[smoke] model=real");
   if (restoreWeatherMock) console.log("[smoke] weather=mock-open-meteo");
   if (restoreDailyReportMock) console.log("[smoke] daily-report=mock-api");
   if (restoreBorderDefenseQaMock) console.log("[smoke] border-defense-qa=mock-mysql");
+  if (restoreOilSpillMock) console.log("[smoke] oil-spill=queryData-mock");
   console.log("");
 
   let finalSeen = false;
@@ -129,7 +145,8 @@ async function main() {
         const result =
           options.scenario === GIS_TOOLCHAIN_SCENARIO ||
           options.scenario === DAILY_REPORT_SCENARIO ||
-          options.scenario === BORDER_DEFENSE_QA_SCENARIO
+          options.scenario === BORDER_DEFENSE_QA_SCENARIO ||
+          options.scenario === OIL_SPILL_MOCK_SCENARIO
             ? buildAgentLoopTaskResult(event.result)
             : event.result;
         await smokeDb.db
@@ -154,6 +171,7 @@ async function main() {
     restoreWeatherMock?.();
     restoreDailyReportMock?.();
     restoreBorderDefenseQaMock?.();
+    restoreOilSpillMock?.();
     if (!finalSeen) {
       await smokeDb.db
         .update(smokeDb.tasks)
@@ -202,6 +220,19 @@ async function main() {
     console.log(`[border-defense-qa-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
     console.log(
       `[border-defense-qa-smoke] schemaCalled=${report.schemaCalled} queryCalled=${report.queryCalled} finalAnswer=${report.finalAnswerReceived}`,
+    );
+  }
+
+  if (options.scenario === OIL_SPILL_MOCK_SCENARIO && loopResult) {
+    const report = validateOilSpillMockSmoke({
+      rawEvents,
+      projectedResult: buildAgentLoopTaskResult(loopResult),
+    });
+    console.log("");
+    console.log("[oil-spill-mock-smoke] validation passed");
+    console.log(`[oil-spill-mock-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
+    console.log(
+      `[oil-spill-mock-smoke] gisOutputs=${report.gisOutputs} primarySuspect=${report.primarySuspectMmsi}`,
     );
   }
 }
@@ -423,6 +454,7 @@ function parseArgs(args: string[]): SmokeOptions {
     GIS_TOOLCHAIN_SCENARIO,
     DAILY_REPORT_SCENARIO,
     BORDER_DEFENSE_QA_SCENARIO,
+    OIL_SPILL_MOCK_SCENARIO,
   ]);
   if (scenario && !knownScenarios.has(scenario)) {
     throw new Error(`Unknown smoke scenario: ${scenario}`);
@@ -467,7 +499,7 @@ function printHelpAndExit(): never {
 
 Options:
   -q, --query <text>            User query to run.
-  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa.
+  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa, oil-spill-mock.
   --max-turns <n>              Max loop turns. Default: 6.
   --tools <a,b,c>              Comma-separated tools from the default registry.
   --with-webfetch              Add WebFetch to the selected tools.
@@ -476,7 +508,7 @@ Options:
   --real-model                 Use the configured model instead of the scenario fake model.
   --mock-weather               Mock Open-Meteo weather responses (gis-toolchain only).
   --no-mock-weather            Use real Open-Meteo weather responses (gis-toolchain only).
-  --mock-api                   Mock the daily-report API (daily-report only).
+  --mock-api                   Mock the daily-report API or oil-spill queryData API.
   --mock-report-content <t>   Content returned by the mock daily-report API.
   --mock-fetch                 Mock MySQL responses (border-defense-qa only).
   --no-mock-fetch              Use real MySQL responses (border-defense-qa only).
@@ -499,6 +531,12 @@ Border defense QA fake example:
 
 Border defense QA real-model example:
   tsx scripts/agent-loop-smoke.ts --scenario border-defense-qa --real-model --no-mock-fetch --query "统计本月各级预警数量" --max-turns 8
+
+Oil spill mock fake example:
+  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --mock-api --max-turns 8
+
+Oil spill mock real-model example:
+  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --real-model --query "查询东海漏油并匹配疑似肇事船" --max-turns 8
 `);
   process.exit(0);
 }
