@@ -31,8 +31,15 @@ const registry = buildDefaultToolRegistry();
 assert.ok(registry.get("OilSpillDetectMock"), "OilSpillDetectMock should be registered");
 assert.ok(registry.get("WeatherFetchMock"), "WeatherFetchMock should be registered");
 assert.ok(registry.get("OilDriftTraceMock"), "OilDriftTraceMock should be registered");
-assert.ok(registry.get("satellite"), "satellite alias should resolve to OilSpillDetectMock");
+assert.equal(registry.get("satelliteForOilDetect")?.name, "OilSpillDetectMock");
+assert.notEqual(registry.get("satellite")?.name, "OilSpillDetectMock");
 assert.ok(registry.get("oil-drift"), "oil-drift alias should resolve to OilDriftTraceMock");
+assert.ok(registry.get("AisFetchMock"), "AisFetchMock should be registered");
+assert.ok(registry.get("AisMatchSuspectsMock"), "AisMatchSuspectsMock should be registered");
+assert.ok(registry.get("AisSuspectRankingMock"), "AisSuspectRankingMock should be registered");
+assert.ok(registry.get("ais-fetch"), "ais-fetch alias should resolve");
+assert.ok(registry.get("ais-match-suspects"), "ais-match-suspects alias should resolve");
+assert.ok(registry.get("ais-suspect-ranking"), "ais-suspect-ranking alias should resolve");
 assert.equal(
   registry.get("weather-fetch")?.name,
   "WeatherFetch",
@@ -101,5 +108,45 @@ assert.equal(driftObservation.ok, true);
 assert.equal(driftObservation.output.pollutionOrigin.lng, 123.0375);
 assert.equal(driftObservation.output.gisData.trajectories[0].id, "drift-path");
 assert.equal(driftObservation.output.gisData.regions[0].id, "pollution-origin-area");
+
+const aisObservation = await callTool(
+  registry,
+  { id: "ais", toolName: "AisFetchMock", input: { region: "中国东海" } },
+  toolContext,
+);
+assert.equal(aisObservation.ok, true);
+assert.equal(aisObservation.output.vesselCount, 157);
+assert.equal(aisObservation.output.displayedCount, 5);
+assert.equal(aisObservation.output.gisData.entities.length, 5);
+assert.equal(aisObservation.output.gisData.trajectories.length, 5);
+
+const matchObservation = await callTool(
+  registry,
+  { id: "match", toolName: "AisMatchSuspectsMock", input: {} },
+  {
+    ...toolContext,
+    observations: [
+      { toolCallId: "drift", toolName: "OilDriftTraceMock", ok: true, output: driftObservation.output },
+      { toolCallId: "ais", toolName: "AisFetchMock", ok: true, output: aisObservation.output },
+    ],
+  },
+);
+assert.equal(matchObservation.ok, true);
+assert.equal(matchObservation.output.matchedCount, 5);
+assert.equal(matchObservation.output.gisData.entities.every((entity) => entity.status === "warning"), true);
+
+const rankingObservation = await callTool(
+  registry,
+  { id: "ranking", toolName: "AisSuspectRankingMock", input: {} },
+  {
+    ...toolContext,
+    observations: [
+      { toolCallId: "match", toolName: "AisMatchSuspectsMock", ok: true, output: matchObservation.output },
+    ],
+  },
+);
+assert.equal(rankingObservation.ok, true);
+assert.equal(rankingObservation.output.primary[0].mmsi, "413567890");
+assert.equal(rankingObservation.output.gisData.entities.find((entity) => entity.id === "413567890").status, "danger");
 
 console.log("oil spill mock data/helper assertions passed");

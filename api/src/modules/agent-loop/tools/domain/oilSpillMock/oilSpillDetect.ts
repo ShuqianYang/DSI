@@ -144,7 +144,7 @@ function buildOilSpillDetectionOutput(
 export function buildOilSpillDetectMockTool(): ToolDefinition {
   return {
     name: "OilSpillDetectMock",
-    aliases: ["satellite"],
+    aliases: ["satelliteForOilDetect"],
     description:
       "Oil-spill detector for the mock replay. It calls the old queryData oil-spill lookup first; East China Sea may fall back to a local demo SAR image, other regions stop when queryData has no valid result.",
     kind: "domain",
