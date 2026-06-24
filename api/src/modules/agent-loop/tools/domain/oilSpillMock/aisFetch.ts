@@ -15,6 +15,7 @@ const InputSchema = z.strictObject({
 export function buildAisFetchMockTool(): ToolDefinition {
   return {
     name: "AisFetchMock",
+    displayName: "船舶轨迹获取",
     aliases: ["ais-fetch"],
     description: "Deterministic mock AIS trajectory fetch for the East China Sea oil-spill demo.",
     kind: "domain",

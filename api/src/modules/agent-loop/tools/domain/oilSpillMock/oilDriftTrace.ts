@@ -45,6 +45,7 @@ function pickWeather(observations: ToolObservation[]): {
 export function buildOilDriftTraceMockTool(): ToolDefinition {
   return {
     name: "OilDriftTraceMock",
+    displayName: "油污漂移溯源",
     aliases: ["oil-drift"],
     description: "Deterministic mock oil-drift backtrace for the East China Sea oil-spill demo.",
     kind: "domain",

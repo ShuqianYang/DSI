@@ -119,10 +119,14 @@ export function buildEarthquakeAssessmentGisData(region: string) {
   };
 }
 
-export function buildLegacyEarthquakeDemandPayload(region: string) {
+export function buildLegacyEarthquakeDemandPayload(region: string, requirementId = `REQ-EQ${Date.now()}`) {
+  const now = Date.now();
   return {
+    requirementId,
     requirementName: `${region} ${EARTHQUAKE_MAGNITUDE}级地震震后应急成像需求`,
     requirementSource: "天基信息服务系统",
+    startTime: now,
+    endTime: now + 24 * 60 * 60 * 1000,
     areaBounds: {
       type: "Point",
       coordinates: [EARTHQUAKE_CENTER_LNG, EARTHQUAKE_CENTER_LAT],
@@ -135,11 +139,11 @@ export function buildLegacyEarthquakeDemandPayload(region: string) {
     priority: "high",
     resolution: "1",
     trackType: "低",
-    timeConstraints: JSON.stringify({ latestStartTime: Date.now() }),
+    timeConstraints: JSON.stringify({ latestStartTime: now }),
     duration: null,
     timeLimitRequirement: "24小时内",
     rawPayload: { mode: 2 },
-    submitTime: new Date().toISOString(),
+    submitTime: now,
     callBackUrl: process.env.SATELLITE_CALLBACK_URL || "/agent/callback/slice",
   };
 }

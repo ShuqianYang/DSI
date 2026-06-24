@@ -10,6 +10,7 @@ const InputSchema = z.strictObject({
 export function buildWeatherFetchMockTool(): ToolDefinition {
   return {
     name: "WeatherFetchMock",
+    displayName: "气象海流获取",
     aliases: ["oil-spill-weather-fetch"],
     description:
       "Deterministic mock weather and ocean-current data for the East China Sea oil-spill demo. Use this only inside oil-spill tracing.",

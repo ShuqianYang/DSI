@@ -69,7 +69,7 @@ assert.deepEqual(DEFAULT_PROMPT_COMPONENT_VERSIONS, {
   gisRoutingRules: "gis-routing-rules-v2",
   disasterSatelliteRules: "disaster-satellite-rules-v2",
   oilSpillMockRules: "oil-spill-mock-rules-v4",
-  fireInvestigationRules: "fire-investigation-rules-v3",
+  fireInvestigationRules: "fire-investigation-rules-v4",
   earthquakeAssessmentRules: "earthquake-assessment-rules-v3",
   floodAssessmentRules: "flood-assessment-rules-v2",
   memoryRecallRules: "memory-recall-rules-v1",

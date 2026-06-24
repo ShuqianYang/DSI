@@ -50,9 +50,8 @@ async function fetchOilSpillImageUrl(
         productType: "目标切片",
         dataType: "漏油",
         targetType: "漏油",
-        targetName: input.region,
         reqObj: "天元认知计算",
-        reqContent: `接收到天元认知计算系统的历史影像查询(油膜)需求，区域=${input.region}，完成影像检索并反馈`,
+        reqContent: "接收到天元认知计算系统的历史影像查询(油膜)需求，完成影像检索并反馈",
       }),
       signal: controller.signal,
     });
@@ -144,6 +143,7 @@ function buildOilSpillDetectionOutput(
 export function buildOilSpillDetectMockTool(): ToolDefinition {
   return {
     name: "OilSpillDetectMock",
+    displayName: "油膜检测",
     aliases: ["satelliteForOilDetect"],
     description:
       "Oil-spill detector for the mock replay. It calls the old queryData oil-spill lookup first; East China Sea may fall back to a local demo SAR image, other regions stop when queryData has no valid result.",

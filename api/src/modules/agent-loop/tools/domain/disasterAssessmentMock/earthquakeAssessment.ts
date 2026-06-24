@@ -16,6 +16,7 @@ type EarthquakeAssessmentInput = z.infer<typeof InputSchema>;
 export function buildEarthquakeAssessmentMockTool(): ToolDefinition {
   return {
     name: "EarthquakeAssessmentMock",
+    displayName: "震害评估",
     aliases: ["earthquake-assessment"],
     description:
       "Deterministic mock earthquake damage assessment for the Guangxi Liuzhou Liunan demo. Returns affected objects, road/building impact, and GIS focus metadata.",

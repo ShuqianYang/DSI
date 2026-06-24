@@ -146,7 +146,7 @@ export default function TaskSection({
                             />
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-[#EAEAEA] truncate">{tool.toolName}</span>
+                                <span className="text-xs text-[#EAEAEA] truncate">{tool.displayName || tool.toolName}</span>
                                 {tool.gisDataType && (
                                   <span className="inline-flex items-center gap-1 text-[10px] text-[#00E0FF]">
                                     <MapPin className="w-2.5 h-2.5" />
@@ -177,7 +177,7 @@ export default function TaskSection({
                                 e.stopPropagation();
                                 onAgentLoopGisClick?.(linkId, {
                                   ...item.gisData,
-                                  eventName: `${item.toolName} · ${item.gisData.type}`,
+                                  eventName: `${item.displayName || item.toolName} · ${item.gisData.type}`,
                                 });
                               }}
                               className={`w-full flex items-center justify-between gap-2 rounded px-2 py-1 text-left transition-colors ${
@@ -188,7 +188,7 @@ export default function TaskSection({
                             >
                               <span className="min-w-0 flex items-center gap-1.5">
                                 <MapPin className="w-3 h-3 flex-shrink-0" />
-                                <span className="text-[10px] truncate">{item.toolName}</span>
+                                <span className="text-[10px] truncate">{item.displayName || item.toolName}</span>
                               </span>
                               <span className="text-[10px] text-[#8888AA] flex-shrink-0">
                                 {item.gisData.type}

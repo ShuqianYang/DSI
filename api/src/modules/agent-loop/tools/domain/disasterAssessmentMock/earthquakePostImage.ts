@@ -25,6 +25,7 @@ type EarthquakePostImageInput = z.infer<typeof InputSchema>;
 export function buildEarthquakePostImageMockTool(): ToolDefinition {
   return {
     name: "EarthquakePostImageMock",
+    displayName: "震后影像获取",
     aliases: ["earthquake-post-image"],
     description:
       "Deterministic mock post-earthquake imagery request. Submits the legacy demand payload, waits for callback only after successful submission, and falls back to the local post-earthquake image when demand is unavailable.",
@@ -36,9 +37,9 @@ export function buildEarthquakePostImageMockTool(): ToolDefinition {
     riskLevel: "low",
     async execute(input, context) {
       const parsed = InputSchema.parse(input) as EarthquakePostImageInput;
-      const demandPayload = buildLegacyEarthquakeDemandPayload(parsed.region);
+      let requirementId = `REQ-EQ${Date.now()}`;
+      const demandPayload = buildLegacyEarthquakeDemandPayload(parsed.region, requirementId);
       let image: EarthquakeImageResult = localPostFallback("demand was not called");
-      let requirementId: string | undefined;
 
       try {
         context.onProgress?.({
@@ -55,15 +56,14 @@ export function buildEarthquakePostImageMockTool(): ToolDefinition {
         if (!response.ok) {
           image = localPostFallback(`legacy demand HTTP ${response.status}`);
         } else {
-          requirementId = extractDemandRequirementId(body);
-          if (!requirementId) {
-            image = localPostFallback("legacy demand returned no requirementId/value");
-          } else {
-            const callback = await waitForSatelliteCallback(requirementId, parsed.callbackTimeoutMs);
-            image = callback.url
-              ? { imageSource: "callback", imageUrl: callback.url }
-              : localPostFallback(callback.fallbackReason ?? "legacy demand callback returned no image");
+          const returnedRequirementId = extractDemandRequirementId(body);
+          if (returnedRequirementId) {
+            requirementId = returnedRequirementId;
           }
+          const callback = await waitForSatelliteCallback(requirementId, parsed.callbackTimeoutMs);
+          image = callback.url
+            ? { imageSource: "callback", imageUrl: callback.url }
+            : localPostFallback(callback.fallbackReason ?? "legacy demand callback returned no image");
         }
       } catch (error) {
         image = localPostFallback(`legacy demand request failed: ${formatErrorMessage(error)}`);

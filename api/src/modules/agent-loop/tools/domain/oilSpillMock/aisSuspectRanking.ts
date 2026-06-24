@@ -28,6 +28,7 @@ function levelLabel(level: SuspectLevel): string {
 export function buildAisSuspectRankingMockTool(): ToolDefinition {
   return {
     name: "AisSuspectRankingMock",
+    displayName: "嫌疑船舶排序",
     aliases: ["ais-suspect-ranking"],
     description: "Deterministic mock suspect-vessel ranking for the East China Sea oil-spill demo.",
     kind: "domain",

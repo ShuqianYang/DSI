@@ -24,6 +24,7 @@ type FloodPreImageInput = z.infer<typeof InputSchema>;
 export function buildFloodPreImageMockTool(): ToolDefinition {
   return {
     name: "FloodPreImageMock",
+    displayName: "汛前影像获取",
     aliases: ["flood-pre-image"],
     description:
       "Deterministic mock pre-flood imagery lookup. Calls the legacy queryData flood payload first and falls back to the local pre-flood image when no preview is returned.",

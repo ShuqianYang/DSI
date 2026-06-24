@@ -16,6 +16,7 @@ const InputSchema = z.strictObject({});
 export function buildAisMatchSuspectsMockTool(): ToolDefinition {
   return {
     name: "AisMatchSuspectsMock",
+    displayName: "嫌疑船舶匹配",
     aliases: ["ais-match-suspects"],
     description: "Deterministic mock AIS suspect matching around the oil-spill pollution origin.",
     kind: "domain",

@@ -11,6 +11,7 @@ type FireReportInput = z.infer<typeof InputSchema>;
 export function buildFireReportMockTool(): ToolDefinition {
   return {
     name: "FireReportMock",
+    displayName: "火情报告",
     aliases: ["fire-report"],
     description:
       "Deterministic mock fire investigation report for the Kensai demo. Returns a structured summary and final assessment.",

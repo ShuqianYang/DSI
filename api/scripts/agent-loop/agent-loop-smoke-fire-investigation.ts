@@ -135,23 +135,33 @@ export function installMockFireInvestigationFetch(options: {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (!url.includes("/system/emergencyEvent/receiveDataInfo")) {
-      if (!originalFetch) {
-        throw new Error(`Unexpected fetch in fire investigation smoke: ${url}`);
+
+    // Emergency/border push endpoint
+    if (url.includes("/system/emergencyEvent/receiveDataInfo")) {
+      if (options.networkError) {
+        throw new Error("ECONNREFUSED");
       }
-      return originalFetch(input, init);
+      if (options.httpStatus && options.httpStatus >= 400) {
+        return new Response(null, { status: options.httpStatus, statusText: "Internal Server Error" });
+      }
+      return new Response(JSON.stringify({ code: 200, msg: "应急数据同步成功" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    if (options.networkError) {
-      throw new Error("ECONNREFUSED");
+    // Legacy satellite demand endpoint: return failure so FireSatelliteMock falls back deterministically
+    if (url.includes("/agent/zh/demand")) {
+      return new Response(JSON.stringify({ state: false, message: "demand disabled for smoke" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
     }
-    if (options.httpStatus && options.httpStatus >= 400) {
-      return new Response(null, { status: options.httpStatus, statusText: "Internal Server Error" });
+
+    if (!originalFetch) {
+      throw new Error(`Unexpected fetch in fire investigation smoke: ${url}`);
     }
-    return new Response(JSON.stringify({ code: 200, msg: "应急数据同步成功" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return originalFetch(input, init);
   }) as typeof fetch;
 
   return () => {

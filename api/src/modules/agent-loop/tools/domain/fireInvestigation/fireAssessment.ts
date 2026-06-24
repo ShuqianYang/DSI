@@ -11,6 +11,7 @@ type FireAssessmentInput = z.infer<typeof InputSchema>;
 export function buildFireAssessmentMockTool(): ToolDefinition {
   return {
     name: "FireAssessmentMock",
+    displayName: "火情评估",
     aliases: ["fire-assessment"],
     description:
       "Deterministic mock fire impact assessment for the Kensai demo. Returns fire intensity, spread direction/speed, wind field, and affected objects.",

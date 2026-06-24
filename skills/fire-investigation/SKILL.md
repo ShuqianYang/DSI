@@ -28,7 +28,7 @@ Run the tools in this exact order for multi-step GIS replay:
 1. Call `RegionResolve` with the display region name, defaulting to `{"regionName":"Kensai"}`.
 2. If `RegionResolve` returns `resolved:true`, call `RegionMark` with `selected.geometryRef` and `selected.bbox`; if there is no `geometryRef`, pass `selected.bbox` as the fallback geometry.
 3. `FireDetectMock` with `{"region":"Kensai"}` unless the user gives another display name.
-4. `FireSatelliteMock` with `{"region":"Kensai"}` to overlay post-fire imagery.
+4. `FireSatelliteMock` with `{"region":"Kensai"}` to submit a legacy fire imaging demand, wait for the `/agent/callback/slice` callback, and overlay the returned post-fire image; if demand submission or the callback fails, it falls back to the local post-fire image.
 5. `FireAssessmentMock` with `{"region":"Kensai"}` for fire intensity, spread direction, and wind field.
 6. `FireReportMock` with `{"region":"Kensai"}` to produce the final structured investigation report.
 7. `BorderPushMock` with `{"region":"Kensai"}` to push the investigation event to the emergency/border platform. If the push fails (e.g., network unreachable), treat it as a non-blocking fallback success so the demo flow completes.

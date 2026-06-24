@@ -1132,12 +1132,7 @@ function toolObservationEvent(
 async function createToolStep(
   taskId: string,
   order: number,
-  toolCall: {
-    id: string;
-    toolName: string;
-    input: Record<string, unknown>;
-    reason?: string;
-  }
+  toolCall: GatewayToolCall
 ): Promise<string> {
   const { db, taskSteps } = await getTaskStepDependencies();
   const [step] = await db
@@ -1148,7 +1143,7 @@ async function createToolStep(
       actionConfig: {
         id: toolCall.id,
         type: toolCall.toolName,
-        name: toolCall.toolName,
+        name: toolCall.displayName || toolCall.toolName,
         params: toolCall.input,
         reason: toolCall.reason,
         _order: order,

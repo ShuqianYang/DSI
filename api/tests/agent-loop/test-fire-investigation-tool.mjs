@@ -83,6 +83,8 @@ function createContext() {
 
 // Successful execution with deterministic mock data
 {
+  const restore = installMockFireInvestigationFetch();
+
   for (const buildTool of [
     buildFireDetectMockTool,
     buildFireSatelliteMockTool,
@@ -105,6 +107,7 @@ function createContext() {
 
   const satellite = await buildFireSatelliteMockTool().execute({ region: "Kensai" }, createContext());
   assert.equal(satellite.imageCount, 1);
+  assert.equal(satellite.imageSource, "local-fallback", "Mock demand should fall back to local image in tests");
   assert.deepEqual(
     satellite.gisData.imageOverlays.map((overlay) => overlay.id),
     ["fire-post-image"],
@@ -115,13 +118,13 @@ function createContext() {
   assert.equal(report.report.detection.burnedAreaHectares, 1200);
   assert.equal(report.report.assessment.riskLevel, "high");
 
-  const restore = installMockFireInvestigationFetch();
   const borderPush = await buildBorderPushMockTool().execute({ region: "Kensai" }, createContext());
-  restore();
   assert.equal(borderPush.pushed, true);
   assert.equal(borderPush.fallback, false, "Mock fetch should return 200 so fallback is not used in default test");
   assert.ok(borderPush.payload.emergencyPayload, "BorderPushMock should return emergency payload");
   assert.ok(borderPush.gisData, "BorderPushMock should return top-level gisData");
+
+  restore();
 }
 
 // Mock fetch helper intercepts the emergency/border push endpoint and returns a callable restore function

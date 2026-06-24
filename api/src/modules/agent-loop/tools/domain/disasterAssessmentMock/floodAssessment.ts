@@ -15,6 +15,7 @@ type FloodAssessmentInput = z.infer<typeof InputSchema>;
 export function buildFloodAssessmentMockTool(): ToolDefinition {
   return {
     name: "FloodAssessmentMock",
+    displayName: "洪涝评估",
     aliases: ["flood-assessment"],
     description:
       "Deterministic mock flood damage assessment for the Hunan Shimen demo. Loads flood.geojson damage zones and returns flood comparison GIS data.",

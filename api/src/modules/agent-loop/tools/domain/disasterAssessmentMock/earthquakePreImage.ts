@@ -24,6 +24,7 @@ type EarthquakePreImageInput = z.infer<typeof InputSchema>;
 export function buildEarthquakePreImageMockTool(): ToolDefinition {
   return {
     name: "EarthquakePreImageMock",
+    displayName: "震前影像获取",
     aliases: ["earthquake-pre-image"],
     description:
       "Deterministic mock pre-earthquake imagery lookup. Calls the legacy queryData payload first and falls back to the local pre-earthquake image when no preview is returned.",

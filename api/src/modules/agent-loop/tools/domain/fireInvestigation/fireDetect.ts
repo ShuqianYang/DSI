@@ -19,6 +19,7 @@ type FireDetectInput = z.infer<typeof InputSchema>;
 export function buildFireDetectMockTool(): ToolDefinition {
   return {
     name: "FireDetectMock",
+    displayName: "火点检测",
     aliases: ["fire-detect"],
     description:
       "Deterministic mock fire detection for the Kensai demo. Returns the fire center point, burned-area polygon, and overlay metadata for post-fire imagery.",

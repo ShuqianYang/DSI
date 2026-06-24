@@ -3,6 +3,7 @@ import type { GisData, ToolObservation } from '@datasourceintelligence/shared';
 export interface AgentLoopToolSummary {
   toolCallId: string;
   toolName: string;
+  displayName?: string;
   ok: boolean;
   summary: string;
   gisDataType?: string;
@@ -11,6 +12,7 @@ export interface AgentLoopToolSummary {
 export interface AgentLoopGisDataItem {
   toolCallId: string;
   toolName: string;
+  displayName?: string;
   gisData: GisData;
 }
 
@@ -41,6 +43,7 @@ export function buildAgentLoopTaskView(result: unknown): AgentLoopTaskView | nul
       return {
         toolCallId: observation.toolCallId,
         toolName: observation.toolName,
+        displayName: observation.displayName,
         ok: observation.ok,
         summary: summarizeObservation(observation),
         gisDataType: gisData?.type,
@@ -49,7 +52,7 @@ export function buildAgentLoopTaskView(result: unknown): AgentLoopTaskView | nul
     gisDataItems: observations.flatMap((observation) => {
       const gisData = extractObservationGisData(observation);
       return gisData
-        ? [{ toolCallId: observation.toolCallId, toolName: observation.toolName, gisData }]
+        ? [{ toolCallId: observation.toolCallId, toolName: observation.toolName, displayName: observation.displayName, gisData }]
         : [];
     }),
   };

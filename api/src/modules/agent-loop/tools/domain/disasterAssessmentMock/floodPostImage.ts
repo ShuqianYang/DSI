@@ -25,6 +25,7 @@ type FloodPostImageInput = z.infer<typeof InputSchema>;
 export function buildFloodPostImageMockTool(): ToolDefinition {
   return {
     name: "FloodPostImageMock",
+    displayName: "汛后影像获取",
     aliases: ["flood-post-image"],
     description:
       "Deterministic mock post-flood imagery request. Submits the legacy flood demand payload, waits for callback only after successful submission, and falls back to the local post-flood image when demand is unavailable.",
