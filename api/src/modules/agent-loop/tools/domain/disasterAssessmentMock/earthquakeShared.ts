@@ -144,7 +144,9 @@ export function buildLegacyEarthquakeDemandPayload(region: string, requirementId
     timeLimitRequirement: "24小时内",
     rawPayload: { mode: 2 },
     submitTime: now,
-    callBackUrl: process.env.SATELLITE_CALLBACK_URL || "/agent/callback/slice",
+    callBackUrl:
+      process.env.SATELLITE_CALLBACK_URL ||
+      `http://${process.env.CALLBACK_HOST || "localhost"}:${process.env.API_PORT || "3001"}/agent/callback/slice`,
   };
 }
 

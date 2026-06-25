@@ -12,7 +12,7 @@ export const FLOOD_ASSESSMENT_TOOLS = [
   "FloodPostImageMock",
   "FloodAssessmentMock",
 ] as const;
-export const FLOOD_ASSESSMENT_QUERY = "/演示:洪水灾后评估";
+export const FLOOD_ASSESSMENT_QUERY = "/演示:洪水灾后评估 湖南石门县 暴雨洪涝";
 
 const FLOOD_REGION = "湖南石门县";
 const FLOOD_REGION_BBOX = {

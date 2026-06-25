@@ -12,7 +12,7 @@ export const EARTHQUAKE_ASSESSMENT_TOOLS = [
   "EarthquakePostImageMock",
   "EarthquakeAssessmentMock",
 ] as const;
-export const EARTHQUAKE_ASSESSMENT_QUERY = "/演示:地震灾后评估";
+export const EARTHQUAKE_ASSESSMENT_QUERY = "/演示:地震灾后评估 广西柳州市柳南区 6.2级地震";
 
 const EARTHQUAKE_REGION = "广西柳州市柳南区";
 const EARTHQUAKE_REGION_BBOX = {

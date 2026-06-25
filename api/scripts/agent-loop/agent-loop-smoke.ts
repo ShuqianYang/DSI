@@ -653,28 +653,28 @@ Border defense QA real-model example:
   tsx scripts/agent-loop-smoke.ts --scenario border-defense-qa --real-model --no-mock-fetch --query "统计本月各级预警数量" --max-turns 8
 
 Oil spill mock fake example:
-  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --mock-api --max-turns 10
+  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --mock-api --max-turns 20
 
 Oil spill mock real-model example:
-  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --real-model --query "查询东海漏油并匹配疑似肇事船" --max-turns 10
+  tsx scripts/agent-loop-smoke.ts --scenario oil-spill-mock --real-model --query "查询东海漏油并匹配疑似肇事船" --max-turns 20
 
 Fire investigation fake example:
-  tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --mock-api --max-turns 10
+  tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --mock-api --max-turns 20
 
 Fire investigation real-model example:
-  tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --real-model --query "/演示:火情研判" --max-turns 10
+  tsx scripts/agent-loop-smoke.ts --scenario fire-investigation --real-model --query "/演示:火情研判" --max-turns 20
 
 Earthquake assessment fake example:
-  tsx scripts/agent-loop-smoke.ts --scenario earthquake-assessment --mock-api --max-turns 8
+  tsx scripts/agent-loop-smoke.ts --scenario earthquake-assessment --mock-api --max-turns 20
 
 Earthquake assessment real-model example:
-  tsx scripts/agent-loop-smoke.ts --scenario earthquake-assessment --real-model --query "/演示:地震灾后评估" --max-turns 8
+  tsx scripts/agent-loop-smoke.ts --scenario earthquake-assessment --real-model --query "/演示:地震灾后评估" --max-turns 20
 
 Flood assessment fake example:
-  tsx scripts/agent-loop-smoke.ts --scenario flood-assessment --mock-api --max-turns 8
+  tsx scripts/agent-loop-smoke.ts --scenario flood-assessment --mock-api --max-turns 20
 
 Flood assessment real-model example:
-  tsx scripts/agent-loop-smoke.ts --scenario flood-assessment --real-model --query "/演示:洪水灾后评估" --max-turns 8
+  tsx scripts/agent-loop-smoke.ts --scenario flood-assessment --real-model --query "/演示:洪水灾后评估" --max-turns 20
 `);
   process.exit(0);
 }

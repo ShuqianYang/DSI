@@ -15,7 +15,7 @@ export const OIL_SPILL_MOCK_TOOLS = [
   "AisMatchSuspectsMock",
   "AisSuspectRankingMock",
 ] as const;
-export const OIL_SPILL_MOCK_QUERY = "/演示:油污溯源";
+export const OIL_SPILL_MOCK_QUERY = "/演示:油污溯源 中国东海 2026-06-01 疑似溢油";
 
 const MOCK_TOOL_SEQUENCE = [
   {

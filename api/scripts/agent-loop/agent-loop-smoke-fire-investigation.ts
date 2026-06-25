@@ -14,7 +14,7 @@ export const FIRE_INVESTIGATION_TOOLS = [
   "FireReportMock",
   "BorderPushMock",
 ] as const;
-export const FIRE_INVESTIGATION_QUERY = "/演示:火情研判";
+export const FIRE_INVESTIGATION_QUERY = "/演示:火情研判 Kensai 森林火灾";
 
 const FIRE_REGION_BBOX = {
   west: 76.967,

@@ -10,7 +10,7 @@ const {
 } = await import("../../scripts/agent-loop/agent-loop-smoke-flood-assessment.ts");
 
 assert.equal(FLOOD_ASSESSMENT_SCENARIO, "flood-assessment");
-assert.equal(FLOOD_ASSESSMENT_QUERY, "/演示:洪水灾后评估");
+assert.equal(FLOOD_ASSESSMENT_QUERY, "/演示:洪水灾后评估 湖南石门县 暴雨洪涝");
 assert.deepEqual(FLOOD_ASSESSMENT_TOOLS, [
   "FloodPreImageMock",
   "FloodPostImageMock",
@@ -39,7 +39,7 @@ assert.deepEqual(FLOOD_ASSESSMENT_TOOLS, [
   const firstDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/演示:洪水灾后评估",
+    query: FLOOD_ASSESSMENT_QUERY,
     observations: [],
     callId: "call-1",
   });
@@ -56,7 +56,7 @@ assert.deepEqual(FLOOD_ASSESSMENT_TOOLS, [
   const secondDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/演示:洪水灾后评估",
+    query: FLOOD_ASSESSMENT_QUERY,
     observations: [
       {
         toolCallId: "flood-skill-1",
@@ -88,7 +88,7 @@ assert.deepEqual(FLOOD_ASSESSMENT_TOOLS, [
   const finalDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/演示:洪水灾后评估",
+    query: FLOOD_ASSESSMENT_QUERY,
     observations,
     callId: "call-7",
   });

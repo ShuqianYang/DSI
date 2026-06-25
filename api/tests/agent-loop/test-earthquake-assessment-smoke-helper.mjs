@@ -10,7 +10,7 @@ const {
 } = await import("../../scripts/agent-loop/agent-loop-smoke-earthquake-assessment.ts");
 
 assert.equal(EARTHQUAKE_ASSESSMENT_SCENARIO, "earthquake-assessment");
-assert.equal(EARTHQUAKE_ASSESSMENT_QUERY, "/演示:地震灾后评估");
+assert.equal(EARTHQUAKE_ASSESSMENT_QUERY, "/演示:地震灾后评估 广西柳州市柳南区 6.2级地震");
 assert.deepEqual(EARTHQUAKE_ASSESSMENT_TOOLS, [
   "EarthquakePreImageMock",
   "EarthquakePostImageMock",
@@ -39,7 +39,7 @@ assert.deepEqual(EARTHQUAKE_ASSESSMENT_TOOLS, [
   const firstDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/演示:地震灾后评估",
+    query: EARTHQUAKE_ASSESSMENT_QUERY,
     observations: [],
     callId: "call-1",
   });
@@ -56,7 +56,7 @@ assert.deepEqual(EARTHQUAKE_ASSESSMENT_TOOLS, [
   const secondDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/演示:地震灾后评估",
+    query: EARTHQUAKE_ASSESSMENT_QUERY,
     observations: [
       {
         toolCallId: "earthquake-skill-1",
@@ -88,7 +88,7 @@ assert.deepEqual(EARTHQUAKE_ASSESSMENT_TOOLS, [
   const finalDecision = await client.decide({
     messages: [],
     tools: [],
-    query: "/演示:地震灾后评估",
+    query: EARTHQUAKE_ASSESSMENT_QUERY,
     observations,
     callId: "call-7",
   });

@@ -14,6 +14,7 @@ import { createDbRecentTaskLister } from "../agent-loop/sessionSummaryMemoryMana
 import { createPipelineMemoryManager } from "./pipelineMemory.js";
 
 const DEMO_TURN_DELAY_MS = 5_000;
+const DEMO_MAX_TURNS = 20;
 
 function isDemoQuery(query: string): boolean {
   return query.trim().startsWith("/演示:");
@@ -48,6 +49,7 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
       query: body.query,
       fileLogger,
       turnDelayMs: isDemoQuery(body.query) ? DEMO_TURN_DELAY_MS : undefined,
+      maxTurns: isDemoQuery(body.query) ? DEMO_MAX_TURNS : undefined,
       transcriptStore: createBestEffortTranscriptStore(transcriptStore, console),
       memoryManager: createPipelineMemoryManager({
         currentTaskId: taskId,

@@ -21,10 +21,10 @@ interface ChatMessageListProps {
 }
 
 const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
-  { label: '油污溯源演示', prompt: '/演示:油污溯源' },
-  { label: '火情研判演示', prompt: '/演示:火情研判' },
-  { label: '地震灾后评估演示', prompt: '/演示:地震灾后评估' },
-  { label: '洪水灾后评估演示', prompt: '/演示:洪水灾后评估' },
+  { label: '东海油膜溯源演示', prompt: '/演示:油污溯源 中国东海 2026-06-01 疑似溢油' },
+  { label: 'Kensai 火情研判演示', prompt: '/演示:火情研判 Kensai 森林火灾' },
+  { label: '柳州地震灾后评估演示', prompt: '/演示:地震灾后评估 广西柳州市柳南区 6.2级地震' },
+  { label: '石门县洪水灾后评估演示', prompt: '/演示:洪水灾后评估 湖南石门县 暴雨洪涝' },
 ];
 
 function SuggestionButtons({ onSuggestion }: { onSuggestion: (text: string) => void }) {
