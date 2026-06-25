@@ -57,7 +57,7 @@ export default function SkillGalleryPage() {
         <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
-            onClick={() => router.back()}
+            onClick={() => router.push('/')}
             className="rounded-lg p-2 text-[#8888AA] transition-colors hover:bg-[#2A2A3E] hover:text-[#EAEAEA]"
             title="返回"
           >

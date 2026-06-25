@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { User, Settings, Bell, Shield, LogOut, ChevronDown, Camera, MessageSquare } from 'lucide-react';
+import { User, Settings, Bell, Shield, LogOut, ChevronDown, Camera, MessageSquare, Sparkles } from 'lucide-react';
 import { User as UserType } from '@/types/prd';
 
 interface UserCenterProps {
@@ -127,6 +127,16 @@ export default function UserCenter({ user, onLogout, onSettingsChange }: UserCen
                   >
                     <MessageSquare className="w-4 h-4 text-[#8888AA]" />
                     <span className="text-sm text-[#EAEAEA]">信息中心</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      window.open('/skills', '_blank', 'noopener,noreferrer');
+                      setIsOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#2A2A3E] transition-colors text-left"
+                  >
+                    <Sparkles className="w-4 h-4 text-[#8888AA]" />
+                    <span className="text-sm text-[#EAEAEA]">Skill 广场</span>
                   </button>
                   <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#2A2A3E] transition-colors text-left">
                     <Bell className="w-4 h-4 text-[#8888AA]" />

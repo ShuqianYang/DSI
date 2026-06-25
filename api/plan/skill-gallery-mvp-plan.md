@@ -1007,16 +1007,60 @@ git commit -m "feat(skills): add gallery page"
 ### Task 6: User Menu Entry
 
 **Files:**
+- Modify: `src/app/skills/page.tsx`
 - Modify: `src/components/UserCenter.tsx`
+- Test: `api/scripts/test-skill-navigation.ts`
 
 **Interfaces:**
 - Consumes:
   - Existing user menu state in `UserCenter`
 - Produces:
+  - Skill page back button navigates to `/`
   - Menu item labeled `Skill 广场`
   - Opens `/skills` and closes the menu
 
-- [ ] **Step 1: Add icon import**
+- [ ] **Step 1: Write the failing navigation smoke test**
+
+Create `api/scripts/test-skill-navigation.ts`:
+
+```typescript
+import { readFile } from 'node:fs/promises';
+import { strict as assert } from 'node:assert';
+
+async function main() {
+  const pageSource = await readFile('src/app/skills/page.tsx', 'utf8');
+  const userCenterSource = await readFile('src/components/UserCenter.tsx', 'utf8');
+
+  assert.ok(pageSource.includes("router.push('/')"), 'Skill page back button should navigate to the app home');
+  assert.ok(!pageSource.includes('router.back()'), 'Skill page should not rely on browser history for back navigation');
+  assert.ok(userCenterSource.includes('Sparkles'), 'UserCenter should import and render Sparkles for Skill Gallery');
+  assert.ok(userCenterSource.includes("window.open('/skills'"), 'UserCenter should open the Skill Gallery route');
+  assert.ok(userCenterSource.includes('Skill 广场'), 'UserCenter should label the menu item Skill 广场');
+
+  console.log('PASS skill navigation smoke test');
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm exec tsx api/scripts/test-skill-navigation.ts`
+
+Expected: FAIL because the page still uses `router.back()` and the menu item is not wired yet.
+
+- [ ] **Step 3: Make the Skill page back button deterministic**
+
+Change `src/app/skills/page.tsx`:
+
+```tsx
+onClick={() => router.push('/')}
+```
+
+- [ ] **Step 4: Add icon import**
 
 Modify the import from `lucide-react` in `src/components/UserCenter.tsx` to include `Sparkles`:
 
@@ -1024,7 +1068,7 @@ Modify the import from `lucide-react` in `src/components/UserCenter.tsx` to incl
 import { User, Settings, Bell, Shield, LogOut, ChevronDown, Camera, MessageSquare, Sparkles } from 'lucide-react';
 ```
 
-- [ ] **Step 2: Add menu item after 信息中心**
+- [ ] **Step 5: Add menu item after 信息中心**
 
 Add this button in the main menu section, after the existing `/info-center` button:
 
@@ -1041,16 +1085,34 @@ Add this button in the main menu section, after the existing `/info-center` butt
                   </button>
 ```
 
-- [ ] **Step 3: Run type check**
+- [ ] **Step 6: Run smoke tests**
+
+Run: `pnpm exec tsx api/scripts/test-skill-navigation.ts`
+
+Expected: PASS and prints `PASS skill navigation smoke test`.
+
+Run: `pnpm exec tsx api/scripts/test-skill-page.tsx`
+
+Expected: PASS and prints `PASS skill page smoke test`.
+
+Run: `pnpm exec tsx api/scripts/test-skill-components.tsx`
+
+Expected: PASS and prints `PASS skill component smoke test`.
+
+Run: `pnpm exec tsx api/scripts/test-skills-catalog.ts`
+
+Expected: PASS and prints `PASS skill catalog parser: <number> skills`.
+
+- [ ] **Step 7: Run type check**
 
 Run: `pnpm ts-check`
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/components/UserCenter.tsx
+git add src/app/skills/page.tsx src/components/UserCenter.tsx api/scripts/test-skill-navigation.ts
 git commit -m "feat(skills): link gallery from user menu"
 ```
 
