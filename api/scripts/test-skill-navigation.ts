@@ -8,7 +8,7 @@ async function main() {
   assert.ok(pageSource.includes("router.push('/')"), 'Skill page back button should navigate to the app home');
   assert.ok(!pageSource.includes('router.back()'), 'Skill page should not rely on browser history for back navigation');
   assert.ok(userCenterSource.includes('Sparkles'), 'UserCenter should import and render Sparkles for Skill Gallery');
-  assert.ok(userCenterSource.includes("window.open('/skills'"), 'UserCenter should open the Skill Gallery route');
+  assert.ok(userCenterSource.includes("router.push('/skills')"), 'UserCenter should navigate to the Skill Gallery route');
   assert.ok(userCenterSource.includes('Skill 广场'), 'UserCenter should label the menu item Skill 广场');
 
   console.log('PASS skill navigation smoke test');

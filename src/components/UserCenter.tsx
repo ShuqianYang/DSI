@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { User, Settings, Bell, Shield, LogOut, ChevronDown, Camera, MessageSquare, Sparkles } from 'lucide-react';
 import { User as UserType } from '@/types/prd';
 
@@ -18,6 +19,7 @@ interface UserSettings {
 }
 
 export default function UserCenter({ user, onLogout, onSettingsChange }: UserCenterProps) {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<'profile' | 'settings' | null>(null);
   const [settings, setSettings] = useState<UserSettings>({
@@ -130,7 +132,7 @@ export default function UserCenter({ user, onLogout, onSettingsChange }: UserCen
                   </button>
                   <button
                     onClick={() => {
-                      window.open('/skills', '_blank', 'noopener,noreferrer');
+                      router.push('/skills');
                       setIsOpen(false);
                     }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#2A2A3E] transition-colors text-left"

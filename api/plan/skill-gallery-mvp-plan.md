@@ -1017,7 +1017,7 @@ git commit -m "feat(skills): add gallery page"
 - Produces:
   - Skill page back button navigates to `/`
   - Menu item labeled `Skill 广场`
-  - Opens `/skills` and closes the menu
+  - Navigates to `/skills` in the current tab and closes the menu
 
 - [ ] **Step 1: Write the failing navigation smoke test**
 
@@ -1034,7 +1034,7 @@ async function main() {
   assert.ok(pageSource.includes("router.push('/')"), 'Skill page back button should navigate to the app home');
   assert.ok(!pageSource.includes('router.back()'), 'Skill page should not rely on browser history for back navigation');
   assert.ok(userCenterSource.includes('Sparkles'), 'UserCenter should import and render Sparkles for Skill Gallery');
-  assert.ok(userCenterSource.includes("window.open('/skills'"), 'UserCenter should open the Skill Gallery route');
+  assert.ok(userCenterSource.includes("router.push('/skills')"), 'UserCenter should navigate to the Skill Gallery route');
   assert.ok(userCenterSource.includes('Skill 广场'), 'UserCenter should label the menu item Skill 广场');
 
   console.log('PASS skill navigation smoke test');
@@ -1062,9 +1062,11 @@ onClick={() => router.push('/')}
 
 - [ ] **Step 4: Add icon import**
 
-Modify the import from `lucide-react` in `src/components/UserCenter.tsx` to include `Sparkles`:
+Modify `src/components/UserCenter.tsx` to import `useRouter` and include `Sparkles` in the
+`lucide-react` import:
 
 ```typescript
+import { useRouter } from 'next/navigation';
 import { User, Settings, Bell, Shield, LogOut, ChevronDown, Camera, MessageSquare, Sparkles } from 'lucide-react';
 ```
 
@@ -1075,7 +1077,7 @@ Add this button in the main menu section, after the existing `/info-center` butt
 ```tsx
                   <button
                     onClick={() => {
-                      window.open('/skills', '_blank', 'noopener,noreferrer');
+                      router.push('/skills');
                       setIsOpen(false);
                     }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#2A2A3E] transition-colors text-left"
@@ -1197,7 +1199,7 @@ Expected:
 Open the main app, click the top-right user block, then click `Skill 广场`.
 
 Expected:
-- `/skills` opens.
+- The current tab navigates to `/skills`.
 - The user menu closes.
 
 - [ ] **Step 8: Final commit if verification required small fixes**
