@@ -131,12 +131,14 @@ Create `api/scripts/test-skills-catalog.ts`:
 ```typescript
 import { strict as assert } from 'node:assert';
 import path from 'node:path';
-import {
+import skillCatalog from '../../src/lib/skillCatalog.server.ts';
+
+const {
   inferSkillCategory,
   loadProjectSkillCatalog,
   normalizeSkillCategory,
   parseSkillFrontmatter,
-} from '../../src/lib/skillCatalog.server';
+} = skillCatalog;
 
 async function main() {
   const frontmatter = parseSkillFrontmatter(`---
@@ -186,7 +188,7 @@ main().catch((error) => {
 
 Run: `pnpm exec tsx api/scripts/test-skills-catalog.ts`
 
-Expected: FAIL with module resolution error for `../../src/lib/skillCatalog.server`.
+Expected: FAIL with module resolution error for `../../src/lib/skillCatalog.server.ts`.
 
 - [ ] **Step 3: Implement server scanner**
 
