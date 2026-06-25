@@ -69,6 +69,24 @@ export default function SkillDetailDrawer({ item, onClose }: SkillDetailDrawerPr
             {item.relativePath}
           </div>
         </section>
+
+        <section className="mt-6">
+          <h3 className="mb-2 text-sm font-medium text-[#EAEAEA]">加载场景</h3>
+          {item.loadedByScenarios.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {item.loadedByScenarios.map((scenario) => (
+                <span
+                  key={scenario.id}
+                  className="rounded border border-[#00E0FF]/30 bg-[#00E0FF]/10 px-2.5 py-1 text-xs text-[#00E0FF]"
+                >
+                  {scenario.name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-[#8888AA]">暂未被任何场景加载</p>
+          )}
+        </section>
       </aside>
     </div>
   );

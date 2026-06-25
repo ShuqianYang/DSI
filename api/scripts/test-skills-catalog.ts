@@ -47,7 +47,25 @@ allowed-tools: Read, SqlQuery
   assert.ok(items.every((item) => item.relativePath.startsWith('skills/')), 'only repo skills should be exposed');
   assert.ok(items.every((item) => !item.relativePath.includes('.agents')), 'global user skills must not be exposed');
   assert.ok(items.every((item) => item.categorySource === 'frontmatter' || item.categorySource === 'inferred'));
-  assert.ok(items.every((item) => item.loadedByScenarios.length === 0), 'scenario binding is reserved but empty in MVP');
+
+  const oilSpill = items.find((item) => item.name === 'oil-spill-tracing');
+  assert.ok(oilSpill, 'oil-spill-tracing should be discovered');
+  assert.deepEqual(
+    oilSpill.loadedByScenarios.map((scenario) => scenario.id),
+    ['marine'],
+  );
+
+  const fire = items.find((item) => item.name === 'fire-investigation');
+  assert.ok(fire, 'fire-investigation should be discovered');
+  assert.deepEqual(
+    fire.loadedByScenarios.map((scenario) => scenario.id),
+    ['emergency', 'border'],
+  );
+
+  const csv = items.find((item) => item.name === 'csv-profile');
+  assert.ok(csv, 'csv-profile should be discovered');
+  assert.deepEqual(csv.loadedByScenarios, []);
+
   assert.equal(responseShape.total, responseShape.items.length);
   assert.ok(Date.parse(responseShape.generatedAt) > 0, 'generatedAt should be an ISO timestamp');
 

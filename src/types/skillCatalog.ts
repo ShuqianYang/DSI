@@ -1,3 +1,5 @@
+import type { ScenarioId } from '@datasourceintelligence/shared';
+
 export type SkillCategory =
   | 'situation'
   | 'disaster'
@@ -6,6 +8,11 @@ export type SkillCategory =
   | 'demo'
   | 'developer'
   | 'other';
+
+export interface SkillCatalogScenarioUsage {
+  id: ScenarioId;
+  name: string;
+}
 
 export interface SkillCatalogItem {
   id: string;
@@ -20,7 +27,7 @@ export interface SkillCatalogItem {
   relativePath: string;
   sourceDir: string;
   status: 'available';
-  loadedByScenarios: string[];
+  loadedByScenarios: SkillCatalogScenarioUsage[];
 }
 
 export interface SkillCatalogResponse {

@@ -30,7 +30,7 @@ const item: SkillCatalogItem = {
   relativePath: 'skills/border-defense-qa/SKILL.md',
   sourceDir: 'skills/border-defense-qa',
   status: 'available',
-  loadedByScenarios: [],
+  loadedByScenarios: [{ id: 'border', name: '边防' }],
 };
 
 const card = SkillCard({ item, onSelect: () => undefined });

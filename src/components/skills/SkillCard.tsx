@@ -48,6 +48,21 @@ export default function SkillCard({ item, onSelect }: SkillCardProps) {
           可用
         </span>
       </div>
+
+      {item.loadedByScenarios.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {item.loadedByScenarios.map((scenario) => (
+            <span
+              key={scenario.id}
+              className="rounded border border-[#00E0FF]/30 bg-[#00E0FF]/10 px-2 py-0.5 text-[11px] text-[#00E0FF]"
+            >
+              {scenario.name}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 text-[11px] text-[#8888AA]">暂未被场景加载</div>
+      )}
     </button>
   );
 }

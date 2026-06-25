@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { getSkillScenarioUsage } from '@datasourceintelligence/shared';
 import type { SkillCatalogItem, SkillCategory } from '../types/skillCatalog';
 
 interface SkillFileInput {
@@ -143,7 +144,7 @@ function buildCatalogItem(input: SkillFileInput): SkillCatalogItem {
     relativePath: input.relativePath,
     sourceDir: input.sourceDir,
     status: 'available',
-    loadedByScenarios: [],
+    loadedByScenarios: getSkillScenarioUsage(name),
   };
 }
 
