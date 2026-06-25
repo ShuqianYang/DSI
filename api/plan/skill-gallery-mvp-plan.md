@@ -13,6 +13,8 @@
 - Only project-local skills under repository root `skills/` are shown.
 - Do not scan or expose global user skills such as `C:\Users\24219\.agents\skills`.
 - Do not return full `SKILL.md` content from the API.
+- Use a lightweight frontmatter parser for MVP because current `SKILL.md` metadata is simple; replace it with `yaml` or `gray-matter` if multiline values, nested objects, or complex quoting become required.
+- Prefer explicit `category` in skill frontmatter when present; use keyword inference only as a fallback for existing skills.
 - First version is display-only: no install, enable, disable, edit, delete, or scenario-loading management.
 - Keep future scene binding as data-model headroom only; do not show "loaded by scenario" UI in this MVP.
 - Keep visual style aligned with the existing dark technology theme: `#121212`, `#1E1E2E`, `#EAEAEA`, `#00E0FF`, `#3A3A4E`.
@@ -28,7 +30,7 @@
   - Server-only filesystem scanner and frontmatter parser for project-local `skills/*/SKILL.md`.
 - Create `src/app/api/skills/route.ts`
   - Next.js read-only route that returns the skill catalog.
-- Create `scripts/test-skills-catalog.ts`
+- Create `api/scripts/test-skills-catalog.ts`
   - Lightweight executable test for the server parser and safety constraints.
 - Create `src/components/skills/SkillCard.tsx`
   - Reusable card for one skill.
@@ -76,6 +78,7 @@ export interface SkillCatalogItem {
   description: string;
   category: SkillCategory;
   categoryLabel: string;
+  categorySource: 'frontmatter' | 'inferred';
   argumentHint?: string;
   allowedTools: string[];
   relativePath: string;
@@ -110,7 +113,7 @@ git commit -m "feat(skills): add catalog types"
 
 **Files:**
 - Create: `src/lib/skillCatalog.server.ts`
-- Test: `scripts/test-skills-catalog.ts`
+- Test: `api/scripts/test-skills-catalog.ts`
 
 **Interfaces:**
 - Consumes:
@@ -118,11 +121,12 @@ git commit -m "feat(skills): add catalog types"
 - Produces:
   - `loadProjectSkillCatalog(workspaceRoot?: string): Promise<SkillCatalogItem[]>`
   - `parseSkillFrontmatter(markdown: string): Record<string, unknown>`
+  - `normalizeSkillCategory(value: unknown): SkillCategory | undefined`
   - `inferSkillCategory(name: string, description: string, allowedTools: string[]): SkillCategory`
 
 - [ ] **Step 1: Write the parser test**
 
-Create `scripts/test-skills-catalog.ts`:
+Create `api/scripts/test-skills-catalog.ts`:
 
 ```typescript
 import { strict as assert } from 'node:assert';
@@ -130,13 +134,15 @@ import path from 'node:path';
 import {
   inferSkillCategory,
   loadProjectSkillCatalog,
+  normalizeSkillCategory,
   parseSkillFrontmatter,
-} from '../src/lib/skillCatalog.server';
+} from '../../src/lib/skillCatalog.server';
 
 async function main() {
   const frontmatter = parseSkillFrontmatter(`---
 name: demo-skill
 description: Demo description
+category: data
 argument-hint: "[query]"
 allowed-tools: Read, SqlQuery
 ---
@@ -146,20 +152,25 @@ allowed-tools: Read, SqlQuery
 
   assert.equal(frontmatter.name, 'demo-skill');
   assert.equal(frontmatter.description, 'Demo description');
+  assert.equal(frontmatter.category, 'data');
   assert.equal(frontmatter['argument-hint'], '[query]');
   assert.deepEqual(frontmatter['allowed-tools'], ['Read', 'SqlQuery']);
+
+  assert.equal(normalizeSkillCategory('data'), 'data');
+  assert.equal(normalizeSkillCategory('unknown'), undefined);
 
   assert.equal(inferSkillCategory('flood-assessment', '洪水灾后评估', []), 'disaster');
   assert.equal(inferSkillCategory('border-defense-qa', '边防数据问答', ['MysqlQuery']), 'border');
   assert.equal(inferSkillCategory('csv-profile', 'Profiles CSV files', ['Bash']), 'data');
 
-  const root = path.resolve(__dirname, '..');
+  const root = path.resolve(process.cwd());
   const items = await loadProjectSkillCatalog(root);
 
   assert.ok(items.length > 0, 'project skills should be discovered');
   assert.ok(items.some((item) => item.name === 'border-defense-qa'), 'border-defense-qa should be listed');
   assert.ok(items.every((item) => item.relativePath.startsWith('skills/')), 'only repo skills should be exposed');
   assert.ok(items.every((item) => !item.relativePath.includes('.agents')), 'global user skills must not be exposed');
+  assert.ok(items.every((item) => item.categorySource === 'frontmatter' || item.categorySource === 'inferred'));
   assert.ok(items.every((item) => item.loadedByScenarios.length === 0), 'scenario binding is reserved but empty in MVP');
 
   console.log(`PASS skill catalog parser: ${items.length} skills`);
@@ -173,9 +184,9 @@ main().catch((error) => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm exec tsx scripts/test-skills-catalog.ts`
+Run: `pnpm exec tsx api/scripts/test-skills-catalog.ts`
 
-Expected: FAIL with module resolution error for `../src/lib/skillCatalog.server`.
+Expected: FAIL with module resolution error for `../../src/lib/skillCatalog.server`.
 
 - [ ] **Step 3: Implement server scanner**
 
@@ -282,12 +293,26 @@ export function inferSkillCategory(name: string, description: string, allowedToo
   return 'other';
 }
 
+export function normalizeSkillCategory(value: unknown): SkillCategory | undefined {
+  const text = String(value ?? '').trim();
+  return text === 'situation' ||
+    text === 'disaster' ||
+    text === 'border' ||
+    text === 'data' ||
+    text === 'demo' ||
+    text === 'developer' ||
+    text === 'other'
+    ? text
+    : undefined;
+}
+
 function buildCatalogItem(input: SkillFileInput): SkillCatalogItem {
   const frontmatter = parseSkillFrontmatter(input.markdown);
   const name = stringValue(frontmatter.name) || input.name;
   const description = stringValue(frontmatter.description) || extractFallbackDescription(input.markdown, name);
   const allowedTools = arrayValue(frontmatter['allowed-tools'] ?? frontmatter.allowed_tools);
-  const category = inferSkillCategory(name, description, allowedTools);
+  const explicitCategory = normalizeSkillCategory(frontmatter.category);
+  const category = explicitCategory ?? inferSkillCategory(name, description, allowedTools);
 
   return {
     id: name,
@@ -296,6 +321,7 @@ function buildCatalogItem(input: SkillFileInput): SkillCatalogItem {
     description,
     category,
     categoryLabel: CATEGORY_LABELS[category],
+    categorySource: explicitCategory ? 'frontmatter' : 'inferred',
     argumentHint: stringValue(frontmatter['argument-hint'] ?? frontmatter.argument_hint),
     allowedTools,
     relativePath: input.relativePath,
@@ -358,14 +384,14 @@ function normalizeRelativePath(value: string): string {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm exec tsx scripts/test-skills-catalog.ts`
+Run: `pnpm exec tsx api/scripts/test-skills-catalog.ts`
 
 Expected: PASS and prints `PASS skill catalog parser: <number> skills`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/skillCatalog.server.ts scripts/test-skills-catalog.ts
+git add src/lib/skillCatalog.server.ts api/scripts/test-skills-catalog.ts
 git commit -m "feat(skills): scan project skill catalog"
 ```
 
@@ -375,7 +401,7 @@ git commit -m "feat(skills): scan project skill catalog"
 
 **Files:**
 - Create: `src/app/api/skills/route.ts`
-- Modify: `scripts/test-skills-catalog.ts`
+- Modify: `api/scripts/test-skills-catalog.ts`
 
 **Interfaces:**
 - Consumes:
@@ -386,7 +412,7 @@ git commit -m "feat(skills): scan project skill catalog"
 
 - [ ] **Step 1: Extend the executable test with API response shape assertions**
 
-Modify `scripts/test-skills-catalog.ts` by adding these assertions after `const items = await loadProjectSkillCatalog(root);`:
+Modify `api/scripts/test-skills-catalog.ts` by adding these assertions after `const items = await loadProjectSkillCatalog(root);`:
 
 ```typescript
   const responseShape = {
@@ -401,7 +427,7 @@ Modify `scripts/test-skills-catalog.ts` by adding these assertions after `const 
 
 - [ ] **Step 2: Run test to verify parser still passes before route work**
 
-Run: `pnpm exec tsx scripts/test-skills-catalog.ts`
+Run: `pnpm exec tsx api/scripts/test-skills-catalog.ts`
 
 Expected: PASS.
 
@@ -446,7 +472,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/api/skills/route.ts scripts/test-skills-catalog.ts
+git add src/app/api/skills/route.ts api/scripts/test-skills-catalog.ts
 git commit -m "feat(skills): expose catalog api"
 ```
 
@@ -917,7 +943,7 @@ git commit -m "feat(skills): link gallery from user menu"
 
 - [ ] **Step 1: Run parser test**
 
-Run: `pnpm exec tsx scripts/test-skills-catalog.ts`
+Run: `pnpm exec tsx api/scripts/test-skills-catalog.ts`
 
 Expected: PASS and prints discovered project skill count.
 
@@ -1009,6 +1035,9 @@ Only make this commit when verification changes files after Tasks 1-6.
 
 - Populate `loadedByScenarios` from a future scene-skill registry.
 - Add `enabled`, `riskLevel`, `owner`, `updatedAt`, and `examples` fields to `SkillCatalogItem`.
+- Add `useDeferredValue` or debounce to search when catalog size grows beyond lightweight local filtering.
+- Add `yaml` or `gray-matter` when skill frontmatter needs complex YAML features.
+- Backfill explicit `category` fields into `skills/*/SKILL.md` after the team finalizes category taxonomy.
 - Add a "试用" action that sends an example prompt into the chat panel.
 - Add a backend registry that separates display metadata from agent execution prompts.
 
@@ -1016,4 +1045,4 @@ Only make this commit when verification changes files after Tasks 1-6.
 
 - Spec coverage: The plan adds the user menu entry, `/skills` page, project-local scan, safe metadata API, search/filter/card/detail UI, and verification path.
 - Placeholder scan: The plan contains no open implementation markers.
-- Type consistency: `SkillCatalogItem`, `SkillCategory`, `SkillCatalogResponse`, `loadProjectSkillCatalog`, `parseSkillFrontmatter`, and `inferSkillCategory` are defined before use and reused consistently.
+- Type consistency: `SkillCatalogItem`, `SkillCategory`, `SkillCatalogResponse`, `loadProjectSkillCatalog`, `parseSkillFrontmatter`, `normalizeSkillCategory`, and `inferSkillCategory` are defined before use and reused consistently.
