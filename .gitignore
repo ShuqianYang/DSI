@@ -2,8 +2,12 @@
 
 # Dependencies
 node_modules/
+.pnpm-store/
 .pnp
 .pnp.js
+
+# Local database dumps (large binary files, share via other means)
+docker/dumps/
 
 # Production build
 dist/
