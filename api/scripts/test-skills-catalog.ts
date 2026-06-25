@@ -36,6 +36,11 @@ allowed-tools: Read, SqlQuery
 
   const root = path.resolve(process.cwd());
   const items = await loadProjectSkillCatalog(root);
+  const responseShape = {
+    items,
+    total: items.length,
+    generatedAt: new Date().toISOString(),
+  };
 
   assert.ok(items.length > 0, 'project skills should be discovered');
   assert.ok(items.some((item) => item.name === 'border-defense-qa'), 'border-defense-qa should be listed');
@@ -43,6 +48,17 @@ allowed-tools: Read, SqlQuery
   assert.ok(items.every((item) => !item.relativePath.includes('.agents')), 'global user skills must not be exposed');
   assert.ok(items.every((item) => item.categorySource === 'frontmatter' || item.categorySource === 'inferred'));
   assert.ok(items.every((item) => item.loadedByScenarios.length === 0), 'scenario binding is reserved but empty in MVP');
+  assert.equal(responseShape.total, responseShape.items.length);
+  assert.ok(Date.parse(responseShape.generatedAt) > 0, 'generatedAt should be an ISO timestamp');
+
+  const skillsRoute = await import('../../src/app/api/skills/route.ts');
+  const routeResponse = await skillsRoute.GET();
+  const routeBody = await routeResponse.json();
+
+  assert.equal(routeResponse.status, 200);
+  assert.equal(routeBody.total, routeBody.items.length);
+  assert.ok(Date.parse(routeBody.generatedAt) > 0, 'route generatedAt should be an ISO timestamp');
+  assert.ok(routeBody.items.some((item: { name: string }) => item.name === 'border-defense-qa'));
 
   console.log(`PASS skill catalog parser: ${items.length} skills`);
 }

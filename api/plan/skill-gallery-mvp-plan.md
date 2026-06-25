@@ -425,6 +425,15 @@ Modify `api/scripts/test-skills-catalog.ts` by adding these assertions after `co
 
   assert.equal(responseShape.total, responseShape.items.length);
   assert.ok(Date.parse(responseShape.generatedAt) > 0, 'generatedAt should be an ISO timestamp');
+
+  const skillsRoute = await import('../../src/app/api/skills/route.ts');
+  const routeResponse = await skillsRoute.GET();
+  const routeBody = await routeResponse.json();
+
+  assert.equal(routeResponse.status, 200);
+  assert.equal(routeBody.total, routeBody.items.length);
+  assert.ok(Date.parse(routeBody.generatedAt) > 0, 'route generatedAt should be an ISO timestamp');
+  assert.ok(routeBody.items.some((item: { name: string }) => item.name === 'border-defense-qa'));
 ```
 
 - [ ] **Step 2: Run test to verify parser still passes before route work**
@@ -439,8 +448,8 @@ Create `src/app/api/skills/route.ts`:
 
 ```typescript
 import { NextResponse } from 'next/server';
-import { loadProjectSkillCatalog } from '@/lib/skillCatalog.server';
-import type { SkillCatalogResponse } from '@/types/skillCatalog';
+import { loadProjectSkillCatalog } from '../../../lib/skillCatalog.server';
+import type { SkillCatalogResponse } from '../../../types/skillCatalog';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
