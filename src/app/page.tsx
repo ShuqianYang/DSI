@@ -3,6 +3,11 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  DEFAULT_SCENARIO_ID,
+  getScenarioProfile,
+  type ScenarioId,
+} from '@datasourceintelligence/shared';
 import LogoIcon from '@/components/LogoIcon';
 import ChatPanel from '@/components/ChatPanel';
 import RightPanel from '@/components/RightPanel';
@@ -53,6 +58,7 @@ export default function HomePage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeGisIds, setActiveGisIds] = useState<Set<string>>(new Set());
   const [activeGisDataList, setActiveGisDataList] = useState<GisData[]>([]);
+  const [activeScenarioId, setActiveScenarioId] = useState<ScenarioId>(DEFAULT_SCENARIO_ID);
   // 真实 jobTask（含 agentTaskId）从 useRightPanelData 拿，供 swap effect 把 placeholder selectedTask 替换为真实版本
   const { tasks: apiTasks, refresh } = useRightPanelData();
   const [events, setEvents] = useState<TaskEvent[]>([]);
@@ -132,12 +138,23 @@ export default function HomePage() {
   const [adsTrajectories, setAdsTrajectories] = useState<Trajectory[]>([]);
 
   // 稳定引用：避免每次渲染展开新数组导致 CesiumMap 内部 sync 频繁触发闪烁
-  const allEntities = useMemo(() => [
-    ...aisEntities,
-    ...adsEntities,
-  ], [aisEntities, adsEntities]);
+  const activeScenario = useMemo(() => getScenarioProfile(activeScenarioId), [activeScenarioId]);
 
-  const allTrajectories = useMemo(() => [...aisTrajectories, ...adsTrajectories], [aisTrajectories, adsTrajectories]);
+  const visibleEntities = useMemo(() => {
+    const scenario = getScenarioProfile(activeScenarioId);
+    const entities: Entity[] = [];
+    if (scenario.mapLayers.includes('ais')) entities.push(...aisEntities);
+    if (scenario.mapLayers.includes('ads')) entities.push(...adsEntities);
+    return entities;
+  }, [activeScenarioId, aisEntities, adsEntities]);
+
+  const visibleTrajectories = useMemo(() => {
+    const scenario = getScenarioProfile(activeScenarioId);
+    const trajectories: Trajectory[] = [];
+    if (scenario.mapLayers.includes('ais')) trajectories.push(...aisTrajectories);
+    if (scenario.mapLayers.includes('ads')) trajectories.push(...adsTrajectories);
+    return trajectories;
+  }, [activeScenarioId, aisTrajectories, adsTrajectories]);
 
   // 客户端挂载后检查登录状态，避免 SSR 与客户端状态不一致导致闪现
   useEffect(() => {
@@ -359,7 +376,16 @@ export default function HomePage() {
   }, []);
 
   // 任务创建处理（由 ChatPanel 触发）
-  const handleTaskCreate = useCallback((task: Task, steps: ThinkingStep[], gisData?: GisData) => {
+  const handleScenarioChange = useCallback((scenarioId: ScenarioId) => {
+    setActiveScenarioId(scenarioId);
+    setSelectedEntity(null);
+    setSelectedTask(null);
+    setActiveGisIds(new Set());
+    setActiveGisDataList([]);
+    setPendingOperations([]);
+  }, []);
+
+  const handleTaskCreate = useCallback((task: Task, steps: ThinkingStep[]) => {
     const subTasks: SubTask[] = steps.map((step, index) => ({
       id: step.id,
       name: step.name,
@@ -644,6 +670,8 @@ export default function HomePage() {
           {/* ChatPanel 总是挂载——避免 showChat=false 时卸载，导致 useTaskChat SSE 连接断开 */}
           <div className="h-full p-2 md:p-3">
             <ChatPanel
+              scenario={activeScenario}
+              onScenarioChange={handleScenarioChange}
               onSendMessage={handleSendMessage}
               onGisDataRequest={(gisData) => {
                 const eventId = `auto-gis-${gisDataCounterRef.current++}`;
@@ -674,8 +702,8 @@ export default function HomePage() {
           <GisViewer
             cesiumMapRef={cesiumMapRef}
             mapCanvasOverlay={mapCanvasOverlay}
-            entities={allEntities}
-            trajectories={allTrajectories}
+            entities={visibleEntities}
+            trajectories={visibleTrajectories}
             regions={EMPTY_REGIONS}
             selectedEntity={selectedEntity}
             onEntityClick={handleEntityClick}
