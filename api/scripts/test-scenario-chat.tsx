@@ -46,6 +46,7 @@ assert.ok(chatPanelSource.includes("scenario?: ScenarioProfile"), "ChatPanel sho
 assert.ok(chatPanelSource.includes("onScenarioChange"), "ChatPanel should expose a scenario change callback");
 assert.ok(chatPanelSource.includes("addSystemMessage(scenario.switchMessage)"), "ChatPanel should add a separator when scenario changes");
 assert.ok(messageListSource.includes("msg.role === 'system'"), "ChatMessageList should render system messages separately");
+assert.ok(messageListSource.includes("nonSystemMessages.length === 0"), "ChatMessageList should keep scenario quick actions visible when only system separators exist");
 assert.ok(useTaskChatSource.includes("addSystemMessage"), "useTaskChat should expose addSystemMessage");
 assert.ok(prdTypesSource.includes("'system'"), "ChatMessage role should include system");
 

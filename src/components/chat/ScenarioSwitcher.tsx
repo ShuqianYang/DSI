@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { SCENARIOS, type ScenarioId, type ScenarioProfile } from '@datasourceintelligence/shared';
 
 interface ScenarioSwitcherProps {

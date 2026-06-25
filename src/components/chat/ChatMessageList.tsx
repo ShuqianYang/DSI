@@ -102,12 +102,13 @@ export default function ChatMessageList({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  const lastMsg = messages[messages.length - 1];
-  const showSuggestionsAfterMsg = messages.length > 0 && lastMsg?.role === 'assistant' && !isLoading;
+  const nonSystemMessages = messages.filter((message) => message.role !== 'system');
+  const lastMsg = nonSystemMessages[nonSystemMessages.length - 1];
+  const showSuggestionsAfterMsg = nonSystemMessages.length > 0 && lastMsg?.role === 'assistant' && !isLoading;
 
   return (
     <div ref={containerRef} className="flex-1 space-y-4 overflow-y-auto p-4">
-      {messages.length === 0 && (
+      {nonSystemMessages.length === 0 && (
         <div className="py-8 text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#00E0FF]/10">
             <span className="text-3xl">AI</span>
