@@ -1,10 +1,8 @@
 import type { z } from "zod";
 import type {
-  AgentLoopEvent,
-  AgentLoopResult,
   AgentMessage,
-  AgentRole,
   GatewayToolCall,
+  ScenarioId,
   ToolObservation,
   ToolProgressEvent,
 } from "@datasourceintelligence/shared";
@@ -118,6 +116,7 @@ export interface PromptSection {
 export interface AgentLoopToolUseContext {
   taskId: string;
   query: string;
+  scenarioId?: ScenarioId;
   messages: AgentMessage[];
   observations: ToolObservation[];
   options: {

@@ -47,6 +47,7 @@ export async function runAgentPipeline(taskId: string, body: CreateTaskRequest) 
     const loopResult = await runAgentLoop({
       taskId,
       query: body.query,
+      scenarioId: body.scenarioId,
       fileLogger,
       turnDelayMs: isDemoQuery(body.query) ? DEMO_TURN_DELAY_MS : undefined,
       maxTurns: isDemoQuery(body.query) ? DEMO_MAX_TURNS : undefined,

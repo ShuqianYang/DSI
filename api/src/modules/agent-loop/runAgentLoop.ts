@@ -1,4 +1,5 @@
 import { notifyTaskUpdate } from "../../sse/sseManager.js";
+import type { ScenarioId } from "@datasourceintelligence/shared";
 import {
   createAgentLoopFileLogger,
   type AgentLoopFileLogger,
@@ -60,6 +61,7 @@ function sleep(ms: number): Promise<void> {
 export interface RunAgentLoopOptions {
   taskId: string;
   query: string;
+  scenarioId?: ScenarioId;
   maxTurns?: number;
   registry?: ToolRegistry;
   modelClient?: ModelClient;
@@ -166,6 +168,7 @@ export async function* runAgentLoopEvents(
   let toolUseContext = createAgentLoopToolUseContext({
     taskId: options.taskId,
     query: options.query,
+    scenarioId: options.scenarioId,
     messages: initialMessages,
     observations,
     tools: registry.list(),
@@ -599,6 +602,7 @@ function serializeToolObservationForModel(observation: ToolObservation): string 
 function createAgentLoopToolUseContext(input: {
   taskId: string;
   query: string;
+  scenarioId?: ScenarioId;
   messages: AgentMessage[];
   observations: ToolObservation[];
   tools: ReturnType<ToolRegistry["list"]>;
@@ -608,6 +612,7 @@ function createAgentLoopToolUseContext(input: {
   return {
     taskId: input.taskId,
     query: input.query,
+    scenarioId: input.scenarioId,
     messages: input.messages,
     observations: input.observations,
     options: {
