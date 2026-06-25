@@ -805,6 +805,7 @@ git commit -m "feat(skills): add gallery components"
 
 **Files:**
 - Create: `src/app/skills/page.tsx`
+- Test: `api/scripts/test-skill-page.tsx`
 
 **Interfaces:**
 - Consumes:
@@ -815,8 +816,40 @@ git commit -m "feat(skills): add gallery components"
   - `SkillFilters`
 - Produces:
   - Route `/skills`
+  - `api/scripts/test-skill-page.tsx` smoke test
 
-- [ ] **Step 1: Create the page**
+- [ ] **Step 1: Write the failing page smoke test**
+
+Create `api/scripts/test-skill-page.tsx`:
+
+```tsx
+import { strict as assert } from 'node:assert';
+
+type PageModule = {
+  default: unknown | { default: unknown };
+};
+
+function unwrapDefault(module: PageModule): unknown {
+  const exported = module.default;
+  return typeof exported === 'object' && exported !== null && 'default' in exported
+    ? exported.default
+    : exported;
+}
+
+const SkillGalleryPage = unwrapDefault(await import('../../src/app/skills/page.tsx'));
+
+assert.equal(typeof SkillGalleryPage, 'function', 'Skill Gallery page should default export a component');
+
+console.log('PASS skill page smoke test');
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm exec tsx api/scripts/test-skill-page.tsx`
+
+Expected: FAIL with module resolution error for `src/app/skills/page.tsx`.
+
+- [ ] **Step 3: Create the page**
 
 Create `src/app/skills/page.tsx`:
 
@@ -942,16 +975,30 @@ export default function SkillGalleryPage() {
 }
 ```
 
-- [ ] **Step 2: Run type check**
+- [ ] **Step 4: Run smoke tests**
+
+Run: `pnpm exec tsx api/scripts/test-skill-page.tsx`
+
+Expected: PASS and prints `PASS skill page smoke test`.
+
+Run: `pnpm exec tsx api/scripts/test-skill-components.tsx`
+
+Expected: PASS and prints `PASS skill component smoke test`.
+
+Run: `pnpm exec tsx api/scripts/test-skills-catalog.ts`
+
+Expected: PASS and prints `PASS skill catalog parser: <number> skills`.
+
+- [ ] **Step 5: Run type check**
 
 Run: `pnpm ts-check`
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/app/skills/page.tsx
+git add src/app/skills/page.tsx api/scripts/test-skill-page.tsx
 git commit -m "feat(skills): add gallery page"
 ```
 
