@@ -28,6 +28,8 @@ assert.deepEqual(visibleEntityTypesForScenario("border"), {
 });
 
 const homePageSource = await readFile("src/app/page.tsx", "utf8");
+const apiSource = await readFile("src/lib/api.ts", "utf8");
+const hookSource = await readFile("src/hooks/useTaskChat.ts", "utf8");
 
 assert.ok(
   homePageSource.includes("activeScenarioId"),
@@ -52,6 +54,18 @@ assert.ok(
 assert.ok(
   homePageSource.includes("trajectories={visibleTrajectories}"),
   "GisViewer should receive scenario-filtered trajectories",
+);
+assert.ok(
+  apiSource.includes("scenarioId?: ScenarioId"),
+  "createAgentTask should accept an optional scenario id",
+);
+assert.ok(
+  apiSource.includes("JSON.stringify({ query, userId: AGENT_LOOP_FIXED_USER_ID, scenarioId: options.scenarioId })"),
+  "createAgentTask should send scenarioId in the request body",
+);
+assert.ok(
+  hookSource.includes("createAgentTask(userMessage.content, { scenarioId })"),
+  "useTaskChat should pass the active scenario id",
 );
 
 console.log("PASS scenario map and api smoke test");

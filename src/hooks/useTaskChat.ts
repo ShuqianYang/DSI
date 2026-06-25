@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import type { ScenarioId } from '@datasourceintelligence/shared';
 import { ChatMessage, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
 import { createAgentTask, getTask } from '@/lib/api';
 import { chooseAgentLoopDisplayContent } from '@/lib/agentLoopContent';
@@ -31,6 +32,7 @@ import {
 } from '@/lib/agentLoopFrontendTrace';
 
 export interface UseTaskChatOptions {
+  scenarioId?: ScenarioId;
   onGisDataRequest?: (gisData: GisData) => void;
   onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
   /** 任务创建成功后立即触发（拿到 taskId、构造 placeholder Task）；用于上层联动 UI（收起 chat / 弹进度窗）。详见 api/plan/auto-toggle-chat-and-task-panel.md */
@@ -51,7 +53,13 @@ export interface UseTaskChatReturn {
   toggleThinkingExpanded: (msgId: string) => void;
 }
 
-export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, onTaskFinished }: UseTaskChatOptions = {}): UseTaskChatReturn {
+export function useTaskChat({
+  scenarioId,
+  onGisDataRequest,
+  onGisOperation,
+  onTaskCreate,
+  onTaskFinished,
+}: UseTaskChatOptions = {}): UseTaskChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -427,7 +435,7 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
       };
       setMessages((prev) => [...prev, placeholderMsg]);
 
-      const result = await createAgentTask(userMessage.content);
+      const result = await createAgentTask(userMessage.content, { scenarioId });
 
       // 构造 placeholder Task 立刻通知上层（subTasks 用 placeholder thinkingSteps 兜底；
       // 等真实 task 数据从 useRightPanelData 周期性拉到后，page.tsx 可按 id 比对刷新）

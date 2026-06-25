@@ -1,4 +1,6 @@
 // API 客户端 - 对接后端展示数据接口
+import type { ScenarioId } from "@datasourceintelligence/shared";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 export const AGENT_LOOP_FIXED_USER_ID = "agent-loop-local-user";
 
@@ -163,13 +165,16 @@ export async function getRequirements(): Promise<{ requirements: ApiRequirement[
 }
 
 // ========== Agent 编排任务（创建新任务入口） ==========
-export async function createAgentTask(query: string): Promise<{
+export async function createAgentTask(
+  query: string,
+  options: { scenarioId?: ScenarioId } = {},
+): Promise<{
   taskId: string;
   status: string;
 }> {
   return fetchJson("/tasks", {
     method: "POST",
-    body: JSON.stringify({ query, userId: AGENT_LOOP_FIXED_USER_ID }),
+    body: JSON.stringify({ query, userId: AGENT_LOOP_FIXED_USER_ID, scenarioId: options.scenarioId }),
   });
 }
 

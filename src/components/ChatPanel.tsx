@@ -40,7 +40,13 @@ export default function ChatPanel({
     deleteMessage,
     clearAll,
     toggleThinkingExpanded,
-  } = useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, onTaskFinished });
+  } = useTaskChat({
+    scenarioId: scenario.id,
+    onGisDataRequest,
+    onGisOperation,
+    onTaskCreate,
+    onTaskFinished,
+  });
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
