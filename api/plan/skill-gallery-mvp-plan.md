@@ -495,6 +495,7 @@ git commit -m "feat(skills): expose catalog api"
 - Create: `src/components/skills/SkillCard.tsx`
 - Create: `src/components/skills/SkillDetailDrawer.tsx`
 - Create: `src/components/skills/SkillFilters.tsx`
+- Test: `api/scripts/test-skill-components.tsx`
 
 **Interfaces:**
 - Consumes:
@@ -504,8 +505,71 @@ git commit -m "feat(skills): expose catalog api"
   - `SkillCard`
   - `SkillDetailDrawer`
   - `SkillFilters`
+  - `api/scripts/test-skill-components.tsx` smoke test
 
-- [ ] **Step 1: Create `SkillCard`**
+- [ ] **Step 1: Write the failing component smoke test**
+
+Create `api/scripts/test-skill-components.tsx`:
+
+```tsx
+import { strict as assert } from 'node:assert';
+import { isValidElement } from 'react';
+import type { SkillCatalogItem } from '../../src/types/skillCatalog';
+
+type ComponentModule<T> = {
+  default: T | { default: T };
+};
+
+function unwrapDefault<T>(module: ComponentModule<T>): T {
+  const exported = module.default;
+  return typeof exported === 'object' && exported !== null && 'default' in exported
+    ? exported.default
+    : exported;
+}
+
+const SkillCard = unwrapDefault(await import('../../src/components/skills/SkillCard.tsx'));
+const SkillDetailDrawer = unwrapDefault(await import('../../src/components/skills/SkillDetailDrawer.tsx'));
+const SkillFilters = unwrapDefault(await import('../../src/components/skills/SkillFilters.tsx'));
+
+const item: SkillCatalogItem = {
+  id: 'border-defense-qa',
+  name: 'border-defense-qa',
+  title: 'Border Defense Qa',
+  description: 'Use when the user asks about border defense data.',
+  category: 'border',
+  categoryLabel: '边防业务',
+  categorySource: 'inferred',
+  argumentHint: '[user border defense query in Chinese]',
+  allowedTools: ['Read', 'MysqlQuerySchema', 'MysqlQuery'],
+  relativePath: 'skills/border-defense-qa/SKILL.md',
+  sourceDir: 'skills/border-defense-qa',
+  status: 'available',
+  loadedByScenarios: [],
+};
+
+const card = SkillCard({ item, onSelect: () => undefined });
+const drawer = SkillDetailDrawer({ item, onClose: () => undefined });
+const filters = SkillFilters({
+  search: '',
+  category: 'all',
+  onSearchChange: () => undefined,
+  onCategoryChange: () => undefined,
+});
+
+assert.ok(isValidElement(card), 'SkillCard should return a React element');
+assert.ok(isValidElement(drawer), 'SkillDetailDrawer should return a React element when item is selected');
+assert.ok(isValidElement(filters), 'SkillFilters should return a React element');
+
+console.log('PASS skill component smoke test');
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pnpm exec tsx api/scripts/test-skill-components.tsx`
+
+Expected: FAIL with module resolution error for `src/components/skills/SkillCard`.
+
+- [ ] **Step 3: Create `SkillCard`**
 
 Create `src/components/skills/SkillCard.tsx`:
 
@@ -565,7 +629,7 @@ export default function SkillCard({ item, onSelect }: SkillCardProps) {
 }
 ```
 
-- [ ] **Step 2: Create `SkillDetailDrawer`**
+- [ ] **Step 4: Create `SkillDetailDrawer`**
 
 Create `src/components/skills/SkillDetailDrawer.tsx`:
 
@@ -647,7 +711,7 @@ export default function SkillDetailDrawer({ item, onClose }: SkillDetailDrawerPr
 }
 ```
 
-- [ ] **Step 3: Create `SkillFilters`**
+- [ ] **Step 5: Create `SkillFilters`**
 
 Create `src/components/skills/SkillFilters.tsx`:
 
@@ -716,16 +780,22 @@ export default function SkillFilters({
 }
 ```
 
-- [ ] **Step 4: Run type check**
+- [ ] **Step 6: Run smoke test**
+
+Run: `pnpm exec tsx api/scripts/test-skill-components.tsx`
+
+Expected: PASS and prints `PASS skill component smoke test`.
+
+- [ ] **Step 7: Run type check**
 
 Run: `pnpm ts-check`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/components/skills
+git add src/components/skills api/scripts/test-skill-components.tsx
 git commit -m "feat(skills): add gallery components"
 ```
 
