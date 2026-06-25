@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { getScenarioProfile } from "@datasourceintelligence/shared";
 import { escapeRegExp, matchesGlobPattern, normalizeGlobPath } from "./tools/_shared/globUtils.js";
 import { callTool } from "./tools/_shared/toolGateway.js";
 import type { ToolRegistry } from "./tools/_shared/toolRegistry.js";
@@ -142,7 +143,10 @@ export class LocalSkillManager implements SkillManager {
 
   async getSkillListingSections(toolUseContext: AgentLoopToolUseContext): Promise<PromptSection[]> {
     await this.ensureBaseSkillsLoaded(getWorkspaceRoot(), toolUseContext, { refreshRoot: true });
-    const skills = this.listModelInvocableSkills();
+    const skills = filterSkillsForScenario(
+      this.listModelInvocableSkills(),
+      toolUseContext.scenarioId,
+    );
     if (skills.length === 0) return [];
 
     return [
@@ -286,10 +290,13 @@ export class LocalSkillManager implements SkillManager {
 
     if (names.length === 0) return [];
 
-    const skills = names
-      .map((name) => this.skills.get(name))
-      .filter((skill): skill is SkillDefinition => Boolean(skill))
-      .filter(isModelInvocableSkill);
+    const skills = filterSkillsForScenario(
+      names
+        .map((name) => this.skills.get(name))
+        .filter((skill): skill is SkillDefinition => Boolean(skill))
+        .filter(isModelInvocableSkill),
+      toolUseContext.scenarioId,
+    );
 
     if (skills.length === 0) return [];
 
@@ -393,6 +400,7 @@ function buildSkillTool(registry: ToolRegistry, skillManager: SkillManager): Too
       if (!skill.userInvocable) {
         throw new Error(`Skill is not user-invocable: ${skill.name}`);
       }
+      assertSkillEnabledForScenario(skill, requireToolUseContext(context));
       validateSkillArguments(parsed, skill);
       cacheValidatedSkill(context, parsed.skill, skill);
     },
@@ -408,6 +416,7 @@ function buildSkillTool(registry: ToolRegistry, skillManager: SkillManager): Too
       if (!skill) {
         throw new Error(`Unknown skill: ${normalizeSkillName(parsed.skill)}`);
       }
+      assertSkillEnabledForScenario(skill, toolUseContext);
       validateSkillArguments(parsed, skill);
 
       const content = await renderSkillContent({
@@ -660,7 +669,7 @@ async function loadSkillFile(input: {
   }
 
   const parsedMarkdown = parseFrontmatter(content);
-  const frontmatter = parseSkillFrontmatter(parsedMarkdown.frontmatter, parsedMarkdown.content);
+  const frontmatter = parseSkillFrontmatter(parsedMarkdown.frontmatter);
   const name = normalizeSkillName(frontmatter.name ?? input.skillName);
   const description = frontmatter.description ?? extractDescriptionFromMarkdown(parsedMarkdown.content, name);
   const fileIdentity = await getFileIdentity(input.filePath);
@@ -682,7 +691,7 @@ async function loadSkillFile(input: {
   };
 }
 
-function parseSkillFrontmatter(frontmatter: Record<string, unknown>, content: string): ParsedSkillFrontmatter {
+function parseSkillFrontmatter(frontmatter: Record<string, unknown>): ParsedSkillFrontmatter {
   const paths = parsePathPatterns(frontmatter.paths);
   return {
     name: optionalString(frontmatter.name),
@@ -943,6 +952,30 @@ function formatSkillListItem(skill: SkillDefinition): string {
   ].filter(Boolean);
 
   return `- ${skill.name}: ${details.join(" | ")}`;
+}
+
+function filterSkillsForScenario(
+  skills: SkillDefinition[],
+  scenarioId: AgentLoopToolUseContext["scenarioId"],
+): SkillDefinition[] {
+  if (!scenarioId) return skills;
+  const scenario = getScenarioProfile(scenarioId);
+  const allowedSkillNames = new Set(scenario.skillIds.map(normalizeSkillName));
+  return skills.filter((skill) => allowedSkillNames.has(normalizeSkillName(skill.name)));
+}
+
+function assertSkillEnabledForScenario(
+  skill: SkillDefinition,
+  toolUseContext: AgentLoopToolUseContext,
+): void {
+  if (!toolUseContext.scenarioId) return;
+  const scenario = getScenarioProfile(toolUseContext.scenarioId);
+  const allowedSkillNames = new Set(scenario.skillIds.map(normalizeSkillName));
+  if (allowedSkillNames.has(normalizeSkillName(skill.name))) return;
+
+  throw new Error(
+    `Skill ${skill.name} is not enabled for scenario ${scenario.id} (${scenario.name}).`,
+  );
 }
 
 function isModelInvocableSkill(skill: SkillDefinition): boolean {
