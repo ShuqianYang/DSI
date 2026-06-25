@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
 import { createAgentTask, getTask } from '@/lib/api';
 import { chooseAgentLoopDisplayContent } from '@/lib/agentLoopContent';
@@ -45,6 +45,7 @@ export interface UseTaskChatReturn {
   isLoading: boolean;
   setInputValue: (v: string) => void;
   sendMessage: (content: string) => Promise<void>;
+  addSystemMessage: (content: string) => void;
   deleteMessage: (id: string) => void;
   clearAll: () => void;
   toggleThinkingExpanded: (msgId: string) => void;
@@ -495,6 +496,20 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
     }
   };
 
+  const addSystemMessage = useCallback((content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `system-${Date.now()}`,
+        role: 'system',
+        content: trimmed,
+        timestamp: Date.now(),
+      },
+    ]);
+  }, []);
+
   const deleteMessage = (id: string) => {
     setMessages((prev) => prev.filter((m) => m.id !== id));
   };
@@ -517,6 +532,7 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
     isLoading,
     setInputValue,
     sendMessage,
+    addSystemMessage,
     deleteMessage,
     clearAll,
     toggleThinkingExpanded,

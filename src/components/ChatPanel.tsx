@@ -1,14 +1,18 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { ChatMessage as ChatMessageType, ThinkingStep, GisData, Task } from '@/types/prd';
+import { useEffect, useRef, useState } from 'react';
+import { getScenarioProfile, type ScenarioId, type ScenarioProfile } from '@datasourceintelligence/shared';
+import { ThinkingStep, GisData, Task } from '@/types/prd';
 import { useTaskChat } from '@/hooks/useTaskChat';
 import ChatHeader from './chat/ChatHeader';
 import ChatHistory from './chat/ChatHistory';
 import ChatMessageList from './chat/ChatMessageList';
 import ChatInput from './chat/ChatInput';
+import ScenarioSwitcher from './chat/ScenarioSwitcher';
 
 interface ChatPanelProps {
+  scenario?: ScenarioProfile;
+  onScenarioChange?: (scenarioId: ScenarioId) => void;
   onSendMessage: (message: string) => void;
   onGisDataRequest?: (gisData: GisData) => void;
   onTaskCreate?: (task: Task, steps: ThinkingStep[], gisData?: GisData) => void;
@@ -16,13 +20,23 @@ interface ChatPanelProps {
   onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
 }
 
-export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreate, onTaskFinished, onGisOperation }: ChatPanelProps) {
+export default function ChatPanel({
+  scenario: scenarioProp,
+  onScenarioChange = () => undefined,
+  onSendMessage,
+  onGisDataRequest,
+  onTaskCreate,
+  onTaskFinished,
+  onGisOperation,
+}: ChatPanelProps) {
+  const scenario = scenarioProp ?? getScenarioProfile();
   const {
     messages,
     inputValue,
     isLoading,
     setInputValue,
     sendMessage,
+    addSystemMessage,
     deleteMessage,
     clearAll,
     toggleThinkingExpanded,
@@ -30,9 +44,16 @@ export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreat
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const previousScenarioIdRef = useRef<ScenarioId>(scenario.id);
+
+  useEffect(() => {
+    if (previousScenarioIdRef.current === scenario.id) return;
+    previousScenarioIdRef.current = scenario.id;
+    addSystemMessage(scenario.switchMessage);
+  }, [scenario.id, scenario.switchMessage, addSystemMessage]);
 
   const handleContinue = (chatId: string) => {
-    const chat = messages.find((m) => m.id === chatId);
+    const chat = messages.find((message) => message.id === chatId);
     if (chat) {
       setInputValue(chat.content);
       inputRef.current?.focus();
@@ -63,8 +84,12 @@ export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreat
   };
 
   return (
-    <div className="h-full flex flex-col glass-panel rounded-lg overflow-hidden">
-      <ChatHeader onHistoryToggle={() => setIsHistoryOpen(!isHistoryOpen)} />
+    <div className="flex h-full flex-col overflow-hidden rounded-lg glass-panel">
+      <ChatHeader
+        title={scenario.chatTitle}
+        subtitle={scenario.chatSubtitle}
+        onHistoryToggle={() => setIsHistoryOpen(!isHistoryOpen)}
+      />
 
       {isHistoryOpen && (
         <ChatHistory
@@ -79,6 +104,9 @@ export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreat
       <ChatMessageList
         messages={messages}
         isLoading={isLoading}
+        greetingTitle={scenario.greetingTitle}
+        greetingDescription={scenario.greetingDescription}
+        quickActions={scenario.quickActions}
         onToggleThinking={toggleThinkingExpanded}
         formatTime={formatTime}
         onSuggestion={(text) => {
@@ -87,10 +115,12 @@ export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreat
         }}
       />
 
+      <ScenarioSwitcher scenario={scenario} onScenarioChange={onScenarioChange} />
       <ChatInput
         inputValue={inputValue}
         isLoading={isLoading}
         inputRef={inputRef}
+        placeholder={scenario.inputPlaceholder}
         onChange={setInputValue}
         onSend={handleSendClick}
       />
