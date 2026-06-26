@@ -20,6 +20,62 @@ const CATEGORY_LABELS: Record<SkillCategory, string> = {
   other: '其他能力',
 };
 
+interface SkillTranslation {
+  title: string;
+  description: string;
+}
+
+const SKILL_TRANSLATIONS: Record<string, SkillTranslation> = {
+  'aircraft-region-query': {
+    title: '航班区域查询',
+    description: '回答指定区域或边界框内的飞机、航班、ADS-B、空域态势问题，数据来自 OpenSky 每小时快照。',
+  },
+  'ais-region-query': {
+    title: '船舶区域查询',
+    description: '回答指定区域或边界框内的船舶、AIS、海上交通态势问题，数据来自 aisstream.io 每小时快照。',
+  },
+  'alarm-disposal-orchestrator': {
+    title: '告警处置编排',
+    description: '将便携式智能设备告警或边境入侵预警转化为巡逻资源调度建议方案。',
+  },
+  'border-defense-qa': {
+    title: '边防数据问答',
+    description: '以自然语言查询边防 MySQL 数据库中的告警事件、设备、巡逻记录及统计分析。',
+  },
+  'conventional-commit-helper': {
+    title: '提交信息助手',
+    description: '根据变更摘要或 git diff 生成符合 Conventional Commits 规范的提交信息。',
+  },
+  'csv-profile': {
+    title: 'CSV 数据画像',
+    description: '快速分析 CSV 文件的列结构、行数、缺失值和样本值。',
+  },
+  'daily-report': {
+    title: '边防日报生成',
+    description: '生成安防日报、周报、专项报告，支持总体、设备监控、预警事态等报告类型。',
+  },
+  'disaster-satellite-query': {
+    title: '灾害卫星查询',
+    description: '查询指定区域的地震、洪水、台风、火灾等灾情事实及卫星遥感影像，并支持影像分析。',
+  },
+  'earthquake-assessment': {
+    title: '地震灾后评估演示',
+    description: '仅在 /演示:地震灾后评估 命令时触发，执行柳州柳南地震灾后评估的确定性回放。',
+  },
+  'fire-investigation': {
+    title: '火情研判演示',
+    description: '仅在 /演示:火情研判 命令时触发，执行 Kensai 森林火灾的确定性回放研判。',
+  },
+  'flood-assessment': {
+    title: '洪水灾后评估演示',
+    description: '仅在 /演示:洪水灾后评估 命令时触发，执行湖南石门洪水灾后评估的确定性回放。',
+  },
+  'oil-spill-tracing': {
+    title: '油污溯源演示',
+    description: '仅在 /演示:油污溯源 命令时触发，执行东海油污确定性溯源回放并匹配嫌疑船舶。',
+  },
+};
+
 export async function loadProjectSkillCatalog(workspaceRoot = process.cwd()): Promise<SkillCatalogItem[]> {
   const skillsRoot = path.join(workspaceRoot, 'skills');
   const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
@@ -126,7 +182,9 @@ export function inferSkillCategory(name: string, description: string, allowedToo
 function buildCatalogItem(input: SkillFileInput): SkillCatalogItem {
   const frontmatter = parseSkillFrontmatter(input.markdown);
   const name = stringValue(frontmatter.name) || input.name;
-  const description = stringValue(frontmatter.description) || extractFallbackDescription(input.markdown, name);
+  const translation = SKILL_TRANSLATIONS[input.name];
+  const description =
+    translation?.description || stringValue(frontmatter.description) || extractFallbackDescription(input.markdown, name);
   const allowedTools = arrayValue(frontmatter['allowed-tools'] ?? frontmatter.allowed_tools);
   const explicitCategory = normalizeSkillCategory(frontmatter.category);
   const category = explicitCategory ?? inferSkillCategory(name, description, allowedTools);
@@ -134,7 +192,7 @@ function buildCatalogItem(input: SkillFileInput): SkillCatalogItem {
   return {
     id: name,
     name,
-    title: toSkillTitle(name),
+    title: translation?.title ?? toSkillTitle(name),
     description,
     category,
     categoryLabel: CATEGORY_LABELS[category],

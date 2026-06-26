@@ -3,7 +3,7 @@
 import { Search } from 'lucide-react';
 import type { SkillCategory } from '@/types/skillCatalog';
 
-export type SkillCategoryFilter = SkillCategory | 'all';
+export type SkillCategoryFilter = SkillCategory | 'all' | 'my';
 
 interface SkillFiltersProps {
   search: string;
