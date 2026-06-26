@@ -2,7 +2,7 @@
 name: ais-region-query
 description: Use when the user asks about vessels, ships, maritime traffic, AIS data, aisstream, or naval/marine situation in a named region or bounding box that should be answered from the hourly aisstream.io ais_current_states database table.
 argument-hint: "[user vessel query with region or bbox]"
-allowed-tools: Read, SqlQuerySchema, SqlQuery
+allowed-tools: RegionResolve, RegionMark, Read, SqlQuerySchema, SqlQuery
 ---
 
 # AIS Region Query
@@ -20,11 +20,13 @@ The query must contain:
 1. Vessel intent: vessel, ship, maritime, AIS, aisstream, naval, marine, 船舶, 船只,  vessel traffic, or equivalent wording.
 2. Region intent: a `RegionResolve.selected.bbox` already present in the current agent context, or an explicit bbox with latitude/longitude bounds.
 
-If the vessel intent is present but the region is missing, ask the user to provide a bbox or resolve the named region first with RegionResolve. Do not map named regions to coordinates inside this skill.
+If the vessel intent is present but the region is missing, ask the user to provide a bbox.
+
+If the query names a region (e.g. "东海", "南海"), call `RegionResolve` inside this skill. If `RegionResolve` returns `resolved:false`, ask for a bbox/polygon or say the region is not available. Do not map named regions to coordinates inside this skill.
 
 ## Region Bbox Source
 
-For named regions, the agent must call RegionResolve before using this skill. Reuse `RegionResolve.selected.bbox` exactly:
+For named regions, call `RegionResolve` first. Then call `RegionMark` with `RegionResolve.selected.geometryRef`, passing `selected.bbox` as the fallback geometry, so the region is visible on the map. Reuse `RegionResolve.selected.bbox` exactly for downstream SQL:
 
 - `minLat = selected.bbox.south`
 - `maxLat = selected.bbox.north`
@@ -36,8 +38,9 @@ Do not widen, shrink, round, or replace that bbox for "附近/nearby" wording. I
 ## Workflow
 
 1. Extract the user's vessel question, region, time expectation, and detail level.
-2. Reuse `RegionResolve.selected.bbox` from the current context, or parse the user-provided bbox.
-3. Call `SqlQuerySchema` before querying:
+2. If the query names a region, call `RegionResolve` first. If `RegionResolve` returns `resolved:true`, call `RegionMark` with `selected.geometryRef` and `selected.bbox` as fallback.
+3. Reuse `RegionResolve.selected.bbox` from the current context, or parse the user-provided bbox.
+4. Call `SqlQuerySchema` before querying:
 
 ```json
 {"database":"default","schema":"public","table":"ais_current_states"}

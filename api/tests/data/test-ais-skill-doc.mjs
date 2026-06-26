@@ -18,8 +18,8 @@ assert.match(
 );
 assert.match(
   frontmatter,
-  /^allowed-tools:\s+Read,\s*SqlQuerySchema,\s*SqlQuery\s*$/m,
-  "AIS skill should only allow the tools needed for read-only SQL discovery and query"
+  /^allowed-tools:\s+RegionResolve,\s*RegionMark,\s*Read,\s*SqlQuerySchema,\s*SqlQuery\s*$/m,
+  "AIS skill should allow RegionResolve, RegionMark, and the read-only SQL discovery and query tools"
 );
 assert.doesNotMatch(skill, /\bWebSearch\b/, "hourly AIS database queries should not require WebSearch");
 assert.match(

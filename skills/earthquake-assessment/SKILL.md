@@ -32,7 +32,7 @@ Default region:
 1. Call `RegionResolve` for the requested region. If no region is provided, use `广西柳州市柳南区`.
 2. Call `RegionMark` with `selected.geometryRef`; pass `selected.bbox` as fallback when available. If `RegionResolve` returns `resolved:false`, continue this demo only by calling `RegionMark` with the deterministic bbox `{west:109.25894741025947,south:24.36555725731195,east:109.26069621053718,north:24.366585886456956}`.
 3. Call `EarthquakePreImageMock` with the same display region. This tool calls the old `queryData` historical image API first and falls back to `/local-tiles/pre_earthquake.png` when no preview image is returned.
-4. Call `EarthquakePostImageMock` with the same display region. This tool submits the old satellite demand payload first; if the demand succeeds, wait for the callback, and if the demand fails or returns no image, fall back to `/local-tiles/wenchuan_post.png`.
+4. Call `EarthquakePostImageMock` with the same display region. This tool submits the old satellite demand payload first; if the demand succeeds, wait for the callback, and if the demand fails or returns no image, fall back to `/local-tiles/post_earthquake.png`.
 5. Call `EarthquakeAssessmentMock` to produce the deterministic damage assessment and GIS focus metadata.
 6. Final answer: summarize the pre/post image source, demand fallback if any, earthquake magnitude, suspected building/road damage, and next response actions.
 

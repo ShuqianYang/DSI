@@ -105,7 +105,7 @@ assert.deepEqual(EARTHQUAKE_ASSESSMENT_TOOLS, [
       { type: "tool_observation", taskId: "task", turn: 2, toolCallId: "rr1", toolName: "RegionResolve", ok: true, observation: { ok: true, output: {} } },
       { type: "tool_observation", taskId: "task", turn: 3, toolCallId: "rm1", toolName: "RegionMark", ok: true, observation: { ok: true, output: { gisData: { type: "region" } } } },
       { type: "tool_observation", taskId: "task", turn: 4, toolCallId: "pre1", toolName: "EarthquakePreImageMock", ok: true, observation: { ok: true, output: { imageSource: "local-fallback", imageUrl: "/local-tiles/pre_earthquake.png", gisData: {} } } },
-      { type: "tool_observation", taskId: "task", turn: 5, toolCallId: "post1", toolName: "EarthquakePostImageMock", ok: true, observation: { ok: true, output: { imageSource: "local-fallback", imageUrl: "/local-tiles/wenchuan_post.png", gisData: {} } } },
+      { type: "tool_observation", taskId: "task", turn: 5, toolCallId: "post1", toolName: "EarthquakePostImageMock", ok: true, observation: { ok: true, output: { imageSource: "local-fallback", imageUrl: "/local-tiles/post_earthquake.png", gisData: {} } } },
       { type: "tool_observation", taskId: "task", turn: 6, toolCallId: "assess1", toolName: "EarthquakeAssessmentMock", ok: true, observation: { ok: true, output: { earthquakeMagnitude: 5.2, gisData: { imageOverlays: [{ id: "earthquake-pre-image", alpha: 1, rectangle: [109.25, 24.36, 109.26, 24.37] }, { id: "earthquake-post-image", alpha: 1, rectangle: [109.25, 24.36, 109.26, 24.37] }] } } } },
       { type: "loop_stop", taskId: "task", turn: 7, result: { stoppedBy: "final_answer", turns: 7, finalAnswer: "done" } },
     ],

@@ -143,7 +143,7 @@ function jsonResponse(body, status = 200) {
     );
     assert.equal(output.phase, "post");
     assert.equal(output.imageSource, "local-fallback");
-    assert.equal(output.imageUrl, "/local-tiles/wenchuan_post.png");
+    assert.equal(output.imageUrl, "/local-tiles/post_earthquake.png");
     assert.match(requestBody.requirementName, /广西柳州市柳南区 5\.2级地震震后应急成像需求/);
     assert.equal(requestBody.targetType, "地震后");
     assert.equal(requestBody.targetName, "地震后");
@@ -170,7 +170,7 @@ function jsonResponse(body, status = 200) {
   assert.equal(output.gisData.compareConfig, undefined);
   assert.deepEqual(
     output.gisData.imageOverlays.map((overlay) => overlay.url),
-    ["/local-tiles/pre_earthquake.png", "/local-tiles/wenchuan_post.png"],
+    ["/local-tiles/pre_earthquake.png", "/local-tiles/post_earthquake.png"],
   );
   assert.deepEqual(
     output.gisData.imageOverlays.map((overlay) => overlay.alpha),

@@ -59,6 +59,18 @@ export default function HomePage() {
   const [activeGisIds, setActiveGisIds] = useState<Set<string>>(new Set());
   const [activeGisDataList, setActiveGisDataList] = useState<GisData[]>([]);
   const [activeScenarioId, setActiveScenarioId] = useState<ScenarioId>(DEFAULT_SCENARIO_ID);
+
+  // 支持外部 deep link：/?scenario=marine 等，进入时直接切换到对应场景
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const scenarioParam = params.get('scenario');
+    if (scenarioParam) {
+      const profile = getScenarioProfile(scenarioParam);
+      setActiveScenarioId(profile.id);
+    }
+  }, []);
+
   // 真实 jobTask（含 agentTaskId）从 useRightPanelData 拿，供 swap effect 把 placeholder selectedTask 替换为真实版本
   const { tasks: apiTasks, refresh } = useRightPanelData();
   const [events, setEvents] = useState<TaskEvent[]>([]);

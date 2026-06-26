@@ -2,7 +2,7 @@
 name: aircraft-region-query
 description: Use when the user asks about aircraft, flights, planes, ADS-B, OpenSky, air traffic, or aviation situation in a named region or bounding box that should be answered from the hourly OpenSky aircraft_current_states database table.
 argument-hint: "[user aircraft query with region or bbox]"
-allowed-tools: Read, SqlQuerySchema, SqlQuery
+allowed-tools: RegionResolve, RegionMark, Read, SqlQuerySchema, SqlQuery
 ---
 
 # Aircraft Region Query
@@ -20,11 +20,13 @@ The query must contain:
 1. Aircraft intent: aircraft, flight, plane, ADS-B, OpenSky, aviation, air traffic, 飞机, 航班, 航空器, 空域, or equivalent wording.
 2. Region intent: a `RegionResolve.selected.bbox` already present in the current agent context, or an explicit bbox with latitude/longitude bounds.
 
-If the aircraft intent is present but the region is missing, ask the user to provide a bbox or resolve the named region first with RegionResolve. Do not map named regions to coordinates inside this skill.
+If the aircraft intent is present but the region is missing, ask the user to provide a bbox.
+
+If the query names a region (e.g. "北京", "华东"), call `RegionResolve` inside this skill. If `RegionResolve` returns `resolved:false`, ask for a bbox/polygon or say the region is not available. Do not map named regions to coordinates inside this skill.
 
 ## Region Bbox Source
 
-For named regions, the agent must call RegionResolve before using this skill. Reuse `RegionResolve.selected.bbox` exactly:
+For named regions, call `RegionResolve` first. Then call `RegionMark` with `RegionResolve.selected.geometryRef`, passing `selected.bbox` as the fallback geometry, so the region is visible on the map. Reuse `RegionResolve.selected.bbox` exactly for downstream SQL:
 
 - `minLat = selected.bbox.south`
 - `maxLat = selected.bbox.north`
@@ -36,8 +38,9 @@ Do not widen, shrink, round, or replace that bbox for "附近/nearby" wording. I
 ## Workflow
 
 1. Extract the user's aircraft question, region, time expectation, and detail level.
-2. Reuse `RegionResolve.selected.bbox` from the current context, or parse the user-provided bbox.
-3. Call `SqlQuerySchema` before querying:
+2. If the query names a region, call `RegionResolve` first. If `RegionResolve` returns `resolved:true`, call `RegionMark` with `selected.geometryRef` and `selected.bbox` as fallback.
+3. Reuse `RegionResolve.selected.bbox` from the current context, or parse the user-provided bbox.
+4. Call `SqlQuerySchema` before querying:
 
 ```json
 {"database":"default","schema":"public","table":"aircraft_current_states"}

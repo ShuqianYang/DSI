@@ -18,8 +18,8 @@ assert.match(
 );
 assert.match(
   frontmatter,
-  /^allowed-tools:\s+Read,\s*SqlQuerySchema,\s*SqlQuery\s*$/m,
-  "aircraft skill should only allow the tools needed for read-only SQL discovery and query"
+  /^allowed-tools:\s+RegionResolve,\s*RegionMark,\s*Read,\s*SqlQuerySchema,\s*SqlQuery\s*$/m,
+  "aircraft skill should allow RegionResolve, RegionMark, and the read-only SQL discovery and query tools"
 );
 assert.doesNotMatch(skill, /\bWebSearch\b/, "hourly OpenSky database queries should not require WebSearch");
 assert.doesNotMatch(skill, /\bRunSqlReadOnly\b|\bQueryDatabase\b/, "skill should use current SqlQuery tools only");

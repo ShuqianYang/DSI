@@ -20,7 +20,7 @@ export const EARTHQUAKE_BOUNDS = [
 ] as [number, number][];
 
 export const EARTHQUAKE_PRE_LOCAL_IMAGE_URL = "/local-tiles/pre_earthquake.png";
-export const EARTHQUAKE_POST_LOCAL_IMAGE_URL = "/local-tiles/wenchuan_post.png";
+export const EARTHQUAKE_POST_LOCAL_IMAGE_URL = "/local-tiles/post_earthquake.png";
 
 export const EARTHQUAKE_PRE_QUERY_DATA_PAYLOAD = {
   pageNo: 1,
