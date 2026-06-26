@@ -529,9 +529,14 @@ function toEventOverlaySpec(
   overlay: GisImageOverlay,
   apiBase: string,
 ): SingleTileOverlaySpec {
+  const isStaticAsset = overlay.url.startsWith('/local-tiles/') || overlay.url.startsWith('/satellite/');
   return {
     id: overlay.id,
-    url: overlay.url.startsWith('http') ? overlay.url : `${apiBase}${overlay.url}`,
+    url: isStaticAsset
+      ? overlay.url
+      : overlay.url.startsWith('http')
+        ? overlay.url
+        : `${apiBase}${overlay.url}`,
     rectangle: overlay.rectangle,
     alpha: overlay.alpha,
     tileWidth: overlay.tileWidth,
