@@ -67,13 +67,9 @@ export const SCENARIOS: readonly ScenarioProfile[] = [
         label: "东海油污溯源演示",
         prompt: "/演示:油污溯源 中国东海 2026-06-01 疑似溢油",
       },
-      {
-        label: "嫌疑船关联分析",
-        prompt: "围绕东海疑似油膜区域，分析周边 AIS 船舶并给出嫌疑船排序。",
-      },
     ],
     mapLayers: [],
-    skillIds: ["oil-spill-tracing", "ais-region-query"],
+    skillIds: ["oil-spill-tracing"],
   },
   {
     id: "emergency",
@@ -87,16 +83,16 @@ export const SCENARIOS: readonly ScenarioProfile[] = [
     switchMessage: "已切换到「应急」场景，当前将优先使用灾情检索、天机影像和灾后评估能力。",
     quickActions: [
       {
-        label: "Kensai 火情研判演示",
-        prompt: "/演示:火情研判 Kensai 森林火灾",
-      },
-      {
         label: "柳州地震灾后评估演示",
         prompt: "/演示:地震灾后评估 广西柳州市柳南区 6.2级地震",
       },
+      {
+        label: "石门县洪水灾后评估演示",
+        prompt: "/演示:洪水灾后评估 湖南石门县",
+      },
     ],
     mapLayers: [],
-    skillIds: ["disaster-satellite-query", "earthquake-assessment", "fire-investigation"],
+    skillIds: ["earthquake-assessment", "flood-assessment"],
   },
   {
     id: "border",
@@ -114,7 +110,7 @@ export const SCENARIOS: readonly ScenarioProfile[] = [
         prompt: "生成今天的边防安防日报，报告类型为总体。",
       },
       {
-        label: "边境火情识别演示",
+        label: "Kensai 火情研判演示",
         prompt: "/演示:火情研判 Kensai 森林火灾",
       },
     ],

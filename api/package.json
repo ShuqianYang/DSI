@@ -33,6 +33,8 @@
     "agent:smoke:earthquake-assessment:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario earthquake-assessment --real-model --max-turns 20 --turn-delay-ms 5000",
     "agent:smoke:flood-assessment": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario flood-assessment --mock-api --max-turns 20 --turn-delay-ms 5000",
     "agent:smoke:flood-assessment:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario flood-assessment --real-model --max-turns 20 --turn-delay-ms 5000",
+    "agent:smoke:scenario-skill-filter": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario scenario-skill-filter --mock-api --max-turns 4",
+    "agent:smoke:scenario-skill-filter:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario scenario-skill-filter --real-model --max-turns 4",
     "agent:smoke:border-defense-qa": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario border-defense-qa",
     "agent:smoke:border-defense-qa:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario border-defense-qa --real-model --no-mock-fetch",
     "agent:test:border-defense-qa": "tsx tests/agent-loop/test-border-defense-qa-tool.mjs",

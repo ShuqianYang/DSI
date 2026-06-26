@@ -54,7 +54,17 @@ import {
   installMockFloodAssessmentFetch,
   validateFloodAssessmentSmoke,
 } from "./agent-loop-smoke-flood-assessment.js";
+import {
+  createScenarioSkillFilterSmokeModelClient,
+  SCENARIO_SKILL_FILTER_QUERY,
+  SCENARIO_SKILL_FILTER_SCENARIO,
+  SCENARIO_SKILL_FILTER_SCENARIO_ID,
+  SCENARIO_SKILL_FILTER_TOOLS,
+  installMockScenarioSkillFilterFetch,
+  validateScenarioSkillFilterSmoke,
+} from "./agent-loop-smoke-scenario-skill-filter.js";
 import { buildDefaultToolRegistry, ToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
+import type { ScenarioId } from "@datasourceintelligence/shared";
 import type {
   AgentLoopEvent,
   AgentLoopResult,
@@ -65,6 +75,17 @@ import type {
 const DEFAULT_QUERY =
   "Use read-only tools to inspect the api/src/modules/agent-loop directory and summarize its core files.";
 const PREVIEW_CHARS = Number.parseInt(process.env.AGENT_LOOP_SMOKE_PREVIEW_CHARS ?? "8000", 10);
+
+const SCENARIO_ID_BY_SMOKE_SCENARIO: Record<string, ScenarioId> = {
+  [GIS_TOOLCHAIN_SCENARIO]: "osint",
+  [DAILY_REPORT_SCENARIO]: "border",
+  [BORDER_DEFENSE_QA_SCENARIO]: "border",
+  [OIL_SPILL_MOCK_SCENARIO]: "marine",
+  [FIRE_INVESTIGATION_SCENARIO]: "emergency",
+  [EARTHQUAKE_ASSESSMENT_SCENARIO]: "emergency",
+  [FLOOD_ASSESSMENT_SCENARIO]: "emergency",
+  [SCENARIO_SKILL_FILTER_SCENARIO]: "marine",
+};
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -84,6 +105,8 @@ async function main() {
               ? EARTHQUAKE_ASSESSMENT_QUERY
               : options.scenario === FLOOD_ASSESSMENT_SCENARIO
                 ? FLOOD_ASSESSMENT_QUERY
+                : options.scenario === SCENARIO_SKILL_FILTER_SCENARIO
+                  ? SCENARIO_SKILL_FILTER_QUERY
           : DEFAULT_QUERY);
 
   if (options.refreshOpenSky) {
@@ -118,6 +141,8 @@ async function main() {
                 ? createEarthquakeAssessmentSmokeModelClient()
                 : !options.realModel && options.scenario === FLOOD_ASSESSMENT_SCENARIO
                   ? createFloodAssessmentSmokeModelClient()
+                  : !options.realModel && options.scenario === SCENARIO_SKILL_FILTER_SCENARIO
+                    ? createScenarioSkillFilterSmokeModelClient()
           : undefined;
   const restoreWeatherMock =
     options.mockWeather && options.scenario === GIS_TOOLCHAIN_SCENARIO
@@ -147,6 +172,10 @@ async function main() {
     options.mockApi && options.scenario === FLOOD_ASSESSMENT_SCENARIO
       ? installMockFloodAssessmentFetch()
       : undefined;
+  const restoreScenarioSkillFilterMock =
+    options.mockApi && options.scenario === SCENARIO_SKILL_FILTER_SCENARIO
+      ? installMockScenarioSkillFilterFetch()
+      : undefined;
 
   console.log(`[smoke] taskId=${taskId}`);
   console.log(`[smoke] query=${query}`);
@@ -154,7 +183,7 @@ async function main() {
   if (options.scenario) console.log(`[smoke] scenario=${options.scenario}`);
   if (modelClient) {
     console.log(
-      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : options.scenario === OIL_SPILL_MOCK_SCENARIO ? "oil-spill-mock" : options.scenario === FIRE_INVESTIGATION_SCENARIO ? "fire-investigation" : options.scenario === EARTHQUAKE_ASSESSMENT_SCENARIO ? "earthquake-assessment" : options.scenario === FLOOD_ASSESSMENT_SCENARIO ? "flood-assessment" : "unknown"}`
+      `[smoke] model=fake-${options.scenario === GIS_TOOLCHAIN_SCENARIO ? "gis-toolchain" : options.scenario === DAILY_REPORT_SCENARIO ? "daily-report" : options.scenario === BORDER_DEFENSE_QA_SCENARIO ? "border-defense-qa" : options.scenario === OIL_SPILL_MOCK_SCENARIO ? "oil-spill-mock" : options.scenario === FIRE_INVESTIGATION_SCENARIO ? "fire-investigation" : options.scenario === EARTHQUAKE_ASSESSMENT_SCENARIO ? "earthquake-assessment" : options.scenario === FLOOD_ASSESSMENT_SCENARIO ? "flood-assessment" : options.scenario === SCENARIO_SKILL_FILTER_SCENARIO ? "scenario-skill-filter" : "unknown"}`
     );
   }
   if (options.realModel) console.log("[smoke] model=real");
@@ -169,6 +198,7 @@ async function main() {
 
   let finalSeen = false;
   let loopResult: AgentLoopResult | undefined;
+  const scenarioId = options.scenario ? SCENARIO_ID_BY_SMOKE_SCENARIO[options.scenario] : undefined;
   const handleEvent = (event: AgentLoopEvent) => {
     rawEvents.push(event);
   };
@@ -177,6 +207,7 @@ async function main() {
     for await (const event of runAgentLoopEvents({
       taskId,
       query,
+      scenarioId,
       registry,
       maxTurns: options.maxTurns,
       turnDelayMs: options.turnDelayMs,
@@ -228,6 +259,7 @@ async function main() {
     restoreFireInvestigationMock?.();
     restoreEarthquakeAssessmentMock?.();
     restoreFloodAssessmentMock?.();
+    restoreScenarioSkillFilterMock?.();
     if (!finalSeen) {
       await smokeDb.db
         .update(smokeDb.tasks)
@@ -328,6 +360,19 @@ async function main() {
     console.log(`[flood-assessment-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
     console.log(
       `[flood-assessment-smoke] gisOutputs=${report.gisOutputs} floodedAreaKm2=${report.floodedAreaKm2}`,
+    );
+  }
+
+  if (options.scenario === SCENARIO_SKILL_FILTER_SCENARIO && loopResult) {
+    const report = validateScenarioSkillFilterSmoke({
+      rawEvents,
+      projectedResult: buildAgentLoopTaskResult(loopResult),
+    });
+    console.log("");
+    console.log("[scenario-skill-filter-smoke] validation passed");
+    console.log(`[scenario-skill-filter-smoke] raw tools: ${report.toolOrder.join(" -> ")}`);
+    console.log(
+      `[scenario-skill-filter-smoke] skillListingFiltered=${report.skillListingFiltered} disallowedSkillRejected=${report.disallowedSkillRejected}`,
     );
   }
 }
@@ -561,6 +606,7 @@ function parseArgs(args: string[]): SmokeOptions {
     FIRE_INVESTIGATION_SCENARIO,
     EARTHQUAKE_ASSESSMENT_SCENARIO,
     FLOOD_ASSESSMENT_SCENARIO,
+    SCENARIO_SKILL_FILTER_SCENARIO,
   ]);
   if (scenario && !knownScenarios.has(scenario)) {
     throw new Error(`Unknown smoke scenario: ${scenario}`);
@@ -588,6 +634,10 @@ function parseArgs(args: string[]): SmokeOptions {
 
   if (scenario === FLOOD_ASSESSMENT_SCENARIO && (!tools || tools.length === 0)) {
     tools = ["RegionResolve", "RegionMark"];
+  }
+
+  if (scenario === SCENARIO_SKILL_FILTER_SCENARIO && (!tools || tools.length === 0)) {
+    tools = [...SCENARIO_SKILL_FILTER_TOOLS];
   }
 
   return {
@@ -618,7 +668,7 @@ function printHelpAndExit(): never {
 
 Options:
   -q, --query <text>            User query to run.
-  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa, oil-spill-mock, fire-investigation, earthquake-assessment, flood-assessment.
+  --scenario <name>            Scenario assertions and fake model. Supported: gis-toolchain, daily-report, border-defense-qa, oil-spill-mock, fire-investigation, earthquake-assessment, flood-assessment, scenario-skill-filter.
   --max-turns <n>              Max loop turns. Default: 6.
   --tools <a,b,c>              Comma-separated tools from the default registry.
   --with-webfetch              Add WebFetch to the selected tools.
@@ -675,6 +725,9 @@ Flood assessment fake example:
 
 Flood assessment real-model example:
   tsx scripts/agent-loop-smoke.ts --scenario flood-assessment --real-model --query "/演示:洪水灾后评估" --max-turns 20
+
+Scenario skill filter fake example:
+  tsx scripts/agent-loop/agent-loop-smoke.ts --scenario scenario-skill-filter --max-turns 4
 `);
   process.exit(0);
 }
