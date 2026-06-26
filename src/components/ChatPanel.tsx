@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getScenarioProfile, type ScenarioId, type ScenarioProfile } from '@datasourceintelligence/shared';
 import { ThinkingStep, GisData, Task } from '@/types/prd';
+import type { SkillCatalogItem, SkillCatalogResponse } from '@/types/skillCatalog';
 import { useTaskChat } from '@/hooks/useTaskChat';
 import ChatHeader from './chat/ChatHeader';
 import ChatHistory from './chat/ChatHistory';
 import ChatMessageList from './chat/ChatMessageList';
 import ChatInput from './chat/ChatInput';
-import ScenarioSwitcher from './chat/ScenarioSwitcher';
+import ScenarioTabs from './chat/ScenarioTabs';
+import ScenarioSkillButton from './chat/ScenarioSkillButton';
 
 interface ChatPanelProps {
   scenario?: ScenarioProfile;
@@ -36,7 +38,6 @@ export default function ChatPanel({
     isLoading,
     setInputValue,
     sendMessage,
-    addSystemMessage,
     deleteMessage,
     clearAll,
     toggleThinkingExpanded,
@@ -50,13 +51,38 @@ export default function ChatPanel({
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const previousScenarioIdRef = useRef<ScenarioId>(scenario.id);
+
+  const [skillItems, setSkillItems] = useState<SkillCatalogItem[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (previousScenarioIdRef.current === scenario.id) return;
-    previousScenarioIdRef.current = scenario.id;
-    addSystemMessage(scenario.switchMessage);
-  }, [scenario.id, scenario.switchMessage, addSystemMessage]);
+    let cancelled = false;
+    setSkillsLoading(true);
+    setSkillsError(null);
+
+    fetch(`/api/skills?_t=${Date.now()}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as SkillCatalogResponse;
+        if (!cancelled) setSkillItems(data.items);
+      })
+      .catch((loadError) => {
+        if (!cancelled) setSkillsError(loadError instanceof Error ? loadError.message : 'Skill 加载失败');
+      })
+      .finally(() => {
+        if (!cancelled) setSkillsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scenario.id]);
+
+  const scenarioSkills = useMemo(() => {
+    const skillIdSet = new Set(scenario.skillIds);
+    return skillItems.filter((item) => skillIdSet.has(item.name));
+  }, [skillItems, scenario.skillIds]);
 
   const handleContinue = (chatId: string) => {
     const chat = messages.find((message) => message.id === chatId);
@@ -97,6 +123,8 @@ export default function ChatPanel({
         onHistoryToggle={() => setIsHistoryOpen(!isHistoryOpen)}
       />
 
+      <ScenarioTabs scenario={scenario} onScenarioChange={onScenarioChange} />
+
       {isHistoryOpen && (
         <ChatHistory
           messages={messages}
@@ -121,12 +149,12 @@ export default function ChatPanel({
         }}
       />
 
-      <ScenarioSwitcher scenario={scenario} onScenarioChange={onScenarioChange} />
       <ChatInput
         inputValue={inputValue}
         isLoading={isLoading}
         inputRef={inputRef}
         placeholder={scenario.inputPlaceholder}
+        leftSlot={<ScenarioSkillButton scenario={scenario} skills={scenarioSkills} loading={skillsLoading} error={skillsError} />}
         onChange={setInputValue}
         onSend={handleSendClick}
       />

@@ -7,17 +7,16 @@ function unwrapDefault(moduleValue: unknown) {
   return (moduleValue as { default?: unknown }).default ?? moduleValue;
 }
 
-const ScenarioSwitcher = unwrapDefault(await import("../../src/components/chat/ScenarioSwitcher.tsx"));
+const ScenarioTabs = unwrapDefault(await import("../../src/components/chat/ScenarioTabs.tsx"));
+const ScenarioSkillButton = unwrapDefault(await import("../../src/components/chat/ScenarioSkillButton.tsx"));
 const ChatHeader = unwrapDefault(await import("../../src/components/chat/ChatHeader.tsx"));
 const ChatInput = unwrapDefault(await import("../../src/components/chat/ChatInput.tsx"));
 const ChatPanel = unwrapDefault(await import("../../src/components/ChatPanel.tsx"));
 
 const scenario = getScenarioProfile("marine");
 
-const switcher = ScenarioSwitcher({
-  scenario,
-  onScenarioChange: () => undefined,
-});
+const scenarioTabs = ScenarioTabs({ scenario, onScenarioChange: () => undefined });
+const skillButton = ScenarioSkillButton({ scenario, skills: [] });
 const header = ChatHeader({
   title: scenario.chatTitle,
   subtitle: scenario.chatSubtitle,
@@ -32,7 +31,8 @@ const input = ChatInput({
   onSend: () => undefined,
 });
 
-assert.ok(isValidElement(switcher), "ScenarioSwitcher should render a React element");
+assert.ok(isValidElement(scenarioTabs), "ScenarioTabs should render a React element");
+assert.ok(isValidElement(skillButton), "ScenarioSkillButton should render a React element");
 assert.ok(isValidElement(header), "ChatHeader should render with scenario copy");
 assert.ok(isValidElement(input), "ChatInput should render with scenario placeholder");
 assert.equal(typeof ChatPanel, "function", "ChatPanel should export a component");
@@ -44,9 +44,10 @@ const prdTypesSource = await readFile("src/types/prd.ts", "utf8");
 
 assert.ok(chatPanelSource.includes("scenario?: ScenarioProfile"), "ChatPanel should accept a scenario profile");
 assert.ok(chatPanelSource.includes("onScenarioChange"), "ChatPanel should expose a scenario change callback");
-assert.ok(chatPanelSource.includes("addSystemMessage(scenario.switchMessage)"), "ChatPanel should add a separator when scenario changes");
-assert.ok(messageListSource.includes("msg.role === 'system'"), "ChatMessageList should render system messages separately");
-assert.ok(messageListSource.includes("nonSystemMessages.length === 0"), "ChatMessageList should keep scenario quick actions visible when only system separators exist");
+assert.ok(chatPanelSource.includes("scenarioId: scenario.id"), "ChatPanel should pass active scenario id to useTaskChat");
+assert.ok(chatPanelSource.includes("ScenarioTabs"), "ChatPanel should render ScenarioTabs");
+assert.ok(chatPanelSource.includes("ScenarioSkillButton"), "ChatPanel should render ScenarioSkillButton");
+assert.ok(messageListSource.includes("msg.role === 'system'"), "ChatMessageList should still be able to render system messages");
 assert.ok(useTaskChatSource.includes("addSystemMessage"), "useTaskChat should expose addSystemMessage");
 assert.ok(prdTypesSource.includes("'system'"), "ChatMessage role should include system");
 

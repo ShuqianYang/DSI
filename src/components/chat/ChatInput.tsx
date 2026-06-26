@@ -8,6 +8,7 @@ interface ChatInputProps {
   isLoading: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
   placeholder: string;
+  leftSlot?: React.ReactNode;
   onChange: (value: string) => void;
   onSend: () => void;
 }
@@ -17,12 +18,14 @@ export default function ChatInput({
   isLoading,
   inputRef,
   placeholder,
+  leftSlot,
   onChange,
   onSend,
 }: ChatInputProps) {
   return (
     <div className="border-t border-[#3A3A4E] p-4">
       <div className="flex items-center gap-2">
+        {leftSlot}
         <input
           ref={inputRef}
           type="text"
