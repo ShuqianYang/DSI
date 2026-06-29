@@ -13,6 +13,7 @@ import ScenarioTabs from './chat/ScenarioTabs';
 import ScenarioSkillButton from './chat/ScenarioSkillButton';
 
 interface ChatPanelProps {
+  userId?: string;
   scenario?: ScenarioProfile;
   onScenarioChange?: (scenarioId: ScenarioId) => void;
   onSendMessage: (message: string) => void;
@@ -23,6 +24,7 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({
+  userId,
   scenario: scenarioProp,
   onScenarioChange = () => undefined,
   onSendMessage,
@@ -42,6 +44,7 @@ export default function ChatPanel({
     clearAll,
     toggleThinkingExpanded,
   } = useTaskChat({
+    userId,
     scenarioId: scenario.id,
     onGisDataRequest,
     onGisOperation,

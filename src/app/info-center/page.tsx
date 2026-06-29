@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, MessageSquare, RefreshCw, Download } from 'lucide-react';
 import { getInfoCenterItems, exportInfoCenter, type InfoItem, type InfoCenterResult } from '@/lib/api';
-import InfoFilters, { type FilterState, type TimeRange, type SourceType } from '@/components/info-center/InfoFilters';
+import InfoFilters, { type FilterState, type TimeRange } from '@/components/info-center/InfoFilters';
 import InfoTable from '@/components/info-center/InfoTable';
 import InfoPagination from '@/components/info-center/InfoPagination';
 import InfoDetail from '@/components/info-center/InfoDetail';
@@ -24,9 +24,7 @@ export default function InfoCenterPage() {
   const router = useRouter();
 
   const [filters, setFilters] = useState<FilterState>({
-    type: 'all',
     status: '',
-    source: 'all',
     timeRange: 'all',
     search: '',
   });
@@ -44,17 +42,10 @@ export default function InfoCenterPage() {
     setError(null);
     try {
       const timeBounds = getTimeRangeBounds(filters.timeRange);
-      const typeMap: Record<string, string> = {
-        all: 'event,insight',
-        event: 'event',
-        insight: 'insight',
-      };
       const res = await getInfoCenterItems({
         page,
         pageSize,
-        type: typeMap[filters.type],
         status: filters.status || undefined,
-        source: filters.source === 'all' ? undefined : filters.source,
         search: filters.search || undefined,
         ...timeBounds,
       });
@@ -86,15 +77,8 @@ export default function InfoCenterPage() {
     setExporting(true);
     try {
       const timeBounds = getTimeRangeBounds(filters.timeRange);
-      const typeMap: Record<string, string> = {
-        all: 'event,insight',
-        event: 'event',
-        insight: 'insight',
-      };
       const blob = await exportInfoCenter({
-        type: typeMap[filters.type],
         status: filters.status || undefined,
-        source: filters.source === 'all' ? undefined : filters.source,
         search: filters.search || undefined,
         ...timeBounds,
       });

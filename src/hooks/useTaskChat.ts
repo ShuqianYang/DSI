@@ -1,8 +1,8 @@
-﻿'use client';
+'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { ScenarioId } from '@datasourceintelligence/shared';
-import { ChatMessage, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
+import { ChatMessage, ChatSession, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
 import { createAgentTask, getTask } from '@/lib/api';
 import { chooseAgentLoopDisplayContent } from '@/lib/agentLoopContent';
 import { formatTaskResult } from '@/lib/taskResultFormatter';
@@ -30,8 +30,16 @@ import {
   recordTaskFinished,
   recordTaskStreamEvent,
 } from '@/lib/agentLoopFrontendTrace';
+import {
+  loadSessions,
+  saveSessions,
+  ensureSession,
+  updateSessionMessages,
+  findSessionIdByTaskId,
+} from '@/lib/chatSessions';
 
 export interface UseTaskChatOptions {
+  userId?: string;
   scenarioId?: ScenarioId;
   onGisDataRequest?: (gisData: GisData) => void;
   onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
@@ -54,15 +62,17 @@ export interface UseTaskChatReturn {
 }
 
 export function useTaskChat({
+  userId,
   scenarioId,
   onGisDataRequest,
   onGisOperation,
   onTaskCreate,
   onTaskFinished,
 }: UseTaskChatOptions = {}): UseTaskChatReturn {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set());
 
   const sseConnections = useRef<Map<string, EventSource>>(new Map());
   // GIS 数据去重：记录已推送过 gisData 的 actionId，避免 step_update 和 task completed 重复推送
@@ -70,6 +80,36 @@ export function useTaskChat({
   const finishedTaskIdsRef = useRef<Set<string>>(new Set());
   const taskStreamModeTrackerRef = useRef(createTaskStreamModeTracker());
   const globalSseRef = useRef<EventSource | null>(null);
+
+  // 派生：当前会话的消息和加载状态
+  const activeSession = useMemo(
+    () => sessions.find((s) => s.id === activeSessionId),
+    [sessions, activeSessionId]
+  );
+  const messages = activeSession?.messages ?? [];
+  const isLoading = activeSessionId ? loadingSessionIds.has(activeSessionId) : false;
+
+  // 初始化：从 localStorage 加载当前用户的所有会话
+  useEffect(() => {
+    if (!userId) return;
+    setSessions(loadSessions(userId));
+  }, [userId]);
+
+  // 持久化：sessions 变化时保存到 localStorage
+  useEffect(() => {
+    if (!userId) return;
+    saveSessions(userId, sessions);
+  }, [userId, sessions]);
+
+  // 场景切换：确保当前场景有默认会话，并激活它
+  useEffect(() => {
+    if (!scenarioId) return;
+    setSessions((prev) => {
+      const [nextSessions, active] = ensureSession(prev, scenarioId);
+      setActiveSessionId(active.id);
+      return nextSessions;
+    });
+  }, [scenarioId]);
 
   // 清理 SSE 连接和动画定时器
   useEffect(() => {
@@ -81,6 +121,35 @@ export function useTaskChat({
       globalSseRef.current?.close();
     };
   }, []);
+
+  // 更新指定 session 的消息列表
+  const updateMessagesBySessionId = useCallback(
+    (sessionId: string | null | undefined, updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+      if (!sessionId) return;
+      setSessions((prev) => updateSessionMessages(prev, sessionId, updater));
+    },
+    []
+  );
+
+  // 更新当前激活 session 的消息列表
+  const updateActiveMessages = useCallback(
+    (updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+      updateMessagesBySessionId(activeSessionId, updater);
+    },
+    [activeSessionId, updateMessagesBySessionId]
+  );
+
+  // 通过 taskId 找到对应 session 并更新其消息
+  const updateMessagesByTaskId = useCallback(
+    (taskId: string, updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+      setSessions((prev) => {
+        const sessionId = findSessionIdByTaskId(prev, taskId);
+        if (!sessionId) return prev;
+        return updateSessionMessages(prev, sessionId, updater);
+      });
+    },
+    []
+  );
 
   // 全局 SSE：监听 subscription_triggered_task 等跨任务事件
   useEffect(() => {
@@ -98,7 +167,7 @@ export function useTaskChat({
           const query = data.query || '';
 
           // 避免重复创建同 taskId 的占位消息
-          setMessages((prev) => {
+          updateActiveMessages((prev) => {
             if (prev.some((m) => m.taskId === taskId)) return prev;
 
             const placeholderMsg: ChatMessage = {
@@ -149,7 +218,7 @@ export function useTaskChat({
     return () => {
       es.close();
     };
-  }, []);
+  }, [updateActiveMessages, onTaskCreate]);
 
   // 建立 SSE 连接并监听步骤级实时更新
   const startTaskSse = (taskId: string) => {
@@ -186,6 +255,17 @@ export function useTaskChat({
       evtSource.close();
       sseConnections.current.delete(taskId);
       taskStreamModeTrackerRef.current.clear(taskId);
+      // 出错时移除该任务对应 session 的 loading 状态
+      setSessions((prev) => {
+        const sessionId = findSessionIdByTaskId(prev, taskId);
+        if (!sessionId) return prev;
+        setLoadingSessionIds((ids) => {
+          const next = new Set(ids);
+          next.delete(sessionId);
+          return next;
+        });
+        return prev;
+      });
     };
   };
 
@@ -195,7 +275,7 @@ export function useTaskChat({
     step: ThinkingStep,
     options: { append?: boolean } = {}
   ) => {
-    setMessages((prev) => {
+    updateMessagesByTaskId(taskId, (prev) => {
       const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
       if (idx === -1) return prev;
 
@@ -272,7 +352,7 @@ export function useTaskChat({
     if (resultLogFilePath) {
       recordTaskFinished(taskId, 'completed', resultLogFilePath);
     }
-    setMessages((prev) => {
+    updateMessagesByTaskId(taskId, (prev) => {
       const idx = prev.findIndex(
         (m) => m.taskId === taskId && m.role === 'assistant'
       );
@@ -321,7 +401,7 @@ export function useTaskChat({
       onTaskFinished?.(taskId, finalStatus);
     }
 
-    setMessages((prev) => {
+    updateMessagesByTaskId(taskId, (prev) => {
       const idx = prev.findIndex(
         (m) => m.taskId === taskId && m.role === 'assistant'
       );
@@ -350,6 +430,18 @@ export function useTaskChat({
     if (finalStatus === 'completed' && options.fetchResult) {
       window.setTimeout(() => fetchAndApplyTaskResult(taskId), 250);
     }
+
+    // 任务结束，移除对应 session 的 loading 状态
+    setSessions((prev) => {
+      const sessionId = findSessionIdByTaskId(prev, taskId);
+      if (!sessionId) return prev;
+      setLoadingSessionIds((ids) => {
+        const next = new Set(ids);
+        next.delete(sessionId);
+        return next;
+      });
+      return prev;
+    });
   };
 
   const handleAgentLoopUpdate = (taskId: string, event: AgentLoopEvent) => {
@@ -359,7 +451,7 @@ export function useTaskChat({
     pushGisPushes(taskId, extractGisPushesFromAgentLoopEvent(taskId, event));
 
     if (update.content || update.completeOpenStepsAs) {
-      setMessages((prev) => {
+      updateMessagesByTaskId(taskId, (prev) => {
         const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
         if (idx === -1) return prev;
 
@@ -406,7 +498,7 @@ export function useTaskChat({
   };
 
   const sendMessage = async (content: string) => {
-    if (!content.trim() || isLoading) return;
+    if (!content.trim() || isLoading || !activeSessionId) return;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -415,9 +507,13 @@ export function useTaskChat({
       timestamp: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    updateActiveMessages((prev) => [...prev, userMessage]);
     setInputValue('');
-    setIsLoading(true);
+    setLoadingSessionIds((ids) => {
+      const next = new Set(ids);
+      next.add(activeSessionId);
+      return next;
+    });
 
     try {
       const placeholderId = `ai-${Date.now()}`;
@@ -433,7 +529,7 @@ export function useTaskChat({
         ],
         isThinkingExpanded: true,
       };
-      setMessages((prev) => [...prev, placeholderMsg]);
+      updateActiveMessages((prev) => [...prev, placeholderMsg]);
 
       const result = await createAgentTask(userMessage.content, { scenarioId });
 
@@ -460,7 +556,7 @@ export function useTaskChat({
       };
       onTaskCreate?.(placeholderTask, placeholderMsg.thinkingSteps ?? [], undefined);
 
-      setMessages((prev) => {
+      updateActiveMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === placeholderId);
         if (idx === -1) return prev;
         const next = [...prev];
@@ -478,7 +574,7 @@ export function useTaskChat({
       console.warn('[useTaskChat] API failed, fallback to mock:', errorMsg);
 
       const mockResp = getMockResponse(userMessage.content);
-      setMessages((prev) => {
+      updateActiveMessages((prev) => {
         const filtered = prev.filter((m) => m.role !== 'assistant' || m.content !== '正在为您规划任务...');
         return [
           ...filtered,
@@ -500,14 +596,18 @@ export function useTaskChat({
         onGisDataRequest(mockResp.gisData);
       }
     } finally {
-      setIsLoading(false);
+      setLoadingSessionIds((ids) => {
+        const next = new Set(ids);
+        next.delete(activeSessionId);
+        return next;
+      });
     }
   };
 
   const addSystemMessage = useCallback((content: string) => {
     const trimmed = content.trim();
     if (!trimmed) return;
-    setMessages((prev) => [
+    updateActiveMessages((prev) => [
       ...prev,
       {
         id: `system-${Date.now()}`,
@@ -516,18 +616,23 @@ export function useTaskChat({
         timestamp: Date.now(),
       },
     ]);
-  }, []);
+  }, [updateActiveMessages]);
 
   const deleteMessage = (id: string) => {
-    setMessages((prev) => prev.filter((m) => m.id !== id));
+    updateActiveMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
   const clearAll = () => {
-    setMessages([]);
+    if (!activeSessionId) return;
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSessionId ? { ...s, messages: [], updatedAt: Date.now() } : s
+      )
+    );
   };
 
   const toggleThinkingExpanded = (msgId: string) => {
-    setMessages((prev) =>
+    updateActiveMessages((prev) =>
       prev.map((m) =>
         m.id === msgId ? { ...m, isThinkingExpanded: !m.isThinkingExpanded } : m
       )

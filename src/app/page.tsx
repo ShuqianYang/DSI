@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Menu, X, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import {
   DEFAULT_SCENARIO_ID,
   getScenarioProfile,
@@ -50,6 +51,7 @@ const GisViewer = dynamic(() => import('@/components/GisViewer'), {
 });
 
 export default function HomePage() {
+  const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
@@ -664,6 +666,15 @@ export default function HomePage() {
             {showRightPanel ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
 
+          {/* Skill 广场 */}
+          <button
+            onClick={() => router.push('/skills')}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[#2A2A3E] transition-colors text-[#EAEAEA]"
+          >
+            <Sparkles className="w-4 h-4 text-[#8888AA]" />
+            <span className="hidden sm:inline text-sm">Skill 广场</span>
+          </button>
+
           {/* 用户中心 */}
           <UserCenter user={mockUser} onLogout={handleLogout} />
         </div>
@@ -682,6 +693,7 @@ export default function HomePage() {
           {/* ChatPanel 总是挂载——避免 showChat=false 时卸载，导致 useTaskChat SSE 连接断开 */}
           <div className="h-full p-2 md:p-3">
             <ChatPanel
+              userId={mockUser.id}
               scenario={activeScenario}
               onScenarioChange={handleScenarioChange}
               onSendMessage={handleSendMessage}

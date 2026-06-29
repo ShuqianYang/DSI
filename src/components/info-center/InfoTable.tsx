@@ -9,7 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useState } from 'react';
-import { AlertCircle, Eye, FileText, MapPin, Terminal, Copy, Check } from 'lucide-react';
+import { AlertCircle, Eye, Terminal, Copy, Check } from 'lucide-react';
 import type { InfoItem } from '@/lib/api';
 
 interface InfoTableProps {
@@ -22,10 +22,8 @@ function ApiModal({ item, onClose }: { item: InfoItem; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-  const detailUrl = item.itemType === 'event'
-    ? `${apiBase}/events/${item.id}`
-    : `${apiBase}/insights/${item.id}`;
-  const taskUrl = item.agentTaskId ? `${apiBase}/tasks/${item.agentTaskId}` : null;
+  const detailUrl = `${apiBase}/tasks/${item.id}`;
+  const listUrl = `${apiBase}/info-center`;
 
   const copy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -46,9 +44,8 @@ function ApiModal({ item, onClose }: { item: InfoItem; onClose: () => void }) {
         </div>
 
         <div className="space-y-4">
-          {/* 详情接口 */}
           <div>
-            <div className="text-xs text-[#8888AA] mb-1.5">{item.itemType === 'event' ? '事件' : '洞察'}详情接口</div>
+            <div className="text-xs text-[#8888AA] mb-1.5">任务详情接口</div>
             <div className="bg-[#121212] rounded-lg border border-[#3A3A4E] p-3 flex items-center justify-between gap-2">
               <code className="text-xs text-[#00E0FF] font-mono break-all">GET {detailUrl}</code>
               <button
@@ -61,30 +58,12 @@ function ApiModal({ item, onClose }: { item: InfoItem; onClose: () => void }) {
             </div>
           </div>
 
-          {/* 任务链路接口 */}
-          {taskUrl && (
-            <div>
-              <div className="text-xs text-[#8888AA] mb-1.5">任务执行链路接口</div>
-              <div className="bg-[#121212] rounded-lg border border-[#3A3A4E] p-3 flex items-center justify-between gap-2">
-                <code className="text-xs text-[#00E0FF] font-mono break-all">GET {taskUrl}</code>
-                <button
-                  onClick={() => copy(`GET ${taskUrl}`)}
-                  className="shrink-0 p-1.5 rounded hover:bg-[#2A2A3E] text-[#8888AA] hover:text-[#EAEAEA] transition-colors"
-                  title="复制"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5 text-[#44FF44]" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* 聚合列表接口 */}
           <div>
             <div className="text-xs text-[#8888AA] mb-1.5">信息中心聚合列表接口</div>
             <div className="bg-[#121212] rounded-lg border border-[#3A3A4E] p-3 flex items-center justify-between gap-2">
-              <code className="text-xs text-[#00E0FF] font-mono break-all">GET {apiBase}/info-center</code>
+              <code className="text-xs text-[#00E0FF] font-mono break-all">GET {listUrl}</code>
               <button
-                onClick={() => copy(`GET ${apiBase}/info-center`)}
+                onClick={() => copy(`GET ${listUrl}`)}
                 className="shrink-0 p-1.5 rounded hover:bg-[#2A2A3E] text-[#8888AA] hover:text-[#EAEAEA] transition-colors"
                 title="复制"
               >
@@ -99,13 +78,8 @@ function ApiModal({ item, onClose }: { item: InfoItem; onClose: () => void }) {
 }
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
-  success: { label: '成功', color: 'text-[#44FF44]', bg: 'bg-[#44FF44]/10' },
-  partial: { label: '部分成功', color: 'text-[#FFAA00]', bg: 'bg-[#FFAA00]/10' },
+  completed: { label: '成功', color: 'text-[#44FF44]', bg: 'bg-[#44FF44]/10' },
   failed: { label: '失败', color: 'text-[#FF4444]', bg: 'bg-[#FF4444]/10' },
-  high: { label: '高危', color: 'text-[#FF4444]', bg: 'bg-[#FF4444]/10' },
-  medium: { label: '中危', color: 'text-[#FFAA00]', bg: 'bg-[#FFAA00]/10' },
-  low: { label: '低危', color: 'text-[#FFFF44]', bg: 'bg-[#FFFF44]/10' },
-  safe: { label: '安全', color: 'text-[#44FF44]', bg: 'bg-[#44FF44]/10' },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -117,41 +91,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function TypeBadge({ type }: { type: string }) {
-  if (type === 'event') {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs text-[#00E0FF]">
-        <FileText className="w-3.5 h-3.5" />
-        事件
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 text-xs text-[#FFAA00]">
-      <Eye className="w-3.5 h-3.5" />
-      洞察
-    </span>
-  );
-}
-
-function SourceBadge({ source }: { source?: string }) {
-  if (source === 'instant') {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-[#00E0FF] bg-[#00E0FF]/10 border border-[#00E0FF]/20">
-        即时
-      </span>
-    );
-  }
-  if (source === 'subscription') {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-[#FFAA00] bg-[#FFAA00]/10 border border-[#FFAA00]/20">
-        订阅
-      </span>
-    );
-  }
-  return <span className="text-xs text-[#8888AA]">—</span>;
-}
-
 function formatTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleString('zh-CN', {
@@ -160,6 +99,20 @@ function formatTime(iso: string) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatResultPreview(item: InfoItem): string {
+  if (item.status === 'failed') {
+    return item.error || '任务执行失败';
+  }
+  if (!item.result) return '无结果';
+  const content =
+    typeof item.result.finalAnswer === 'string'
+      ? item.result.finalAnswer
+      : typeof item.result.content === 'string'
+        ? item.result.content
+        : JSON.stringify(item.result).slice(0, 200);
+  return content.slice(0, 120).replace(/\n/g, ' ') || '无文本结果';
 }
 
 export default function InfoTable({ items, loading, onViewDetail }: InfoTableProps) {
@@ -188,68 +141,38 @@ export default function InfoTable({ items, loading, onViewDetail }: InfoTablePro
       <Table>
         <TableHeader>
           <TableRow className="border-b border-[#3A3A4E] hover:bg-transparent">
-            <TableHead className="text-[#8888AA] text-xs font-medium w-[80px]">类型</TableHead>
-            <TableHead className="text-[#8888AA] text-xs font-medium">标题</TableHead>
-            <TableHead className="text-[#8888AA] text-xs font-medium w-[160px]">关联任务</TableHead>
             <TableHead className="text-[#8888AA] text-xs font-medium w-[100px]">状态</TableHead>
-            <TableHead className="text-[#8888AA] text-xs font-medium w-[80px]">来源</TableHead>
-            <TableHead className="text-[#8888AA] text-xs font-medium w-[100px]">分类</TableHead>
+            <TableHead className="text-[#8888AA] text-xs font-medium">用户问题</TableHead>
+            <TableHead className="text-[#8888AA] text-xs font-medium w-[280px]">最终结果预览</TableHead>
             <TableHead className="text-[#8888AA] text-xs font-medium w-[140px]">时间</TableHead>
-            <TableHead className="text-[#8888AA] text-xs font-medium w-[80px] text-right">操作</TableHead>
+            <TableHead className="text-[#8888AA] text-xs font-medium w-[100px] text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {items.map((item) => (
             <TableRow
-              key={`${item.itemType}-${item.id}`}
+              key={item.id}
               className="border-b border-[#3A3A4E]/50 hover:bg-[#2A2A3E]/50 transition-colors cursor-pointer"
               onClick={() => onViewDetail?.(item)}
             >
               <TableCell>
-                <TypeBadge type={item.itemType} />
-              </TableCell>
-              <TableCell>
-                <div className="text-sm text-[#EAEAEA] font-medium truncate max-w-[280px]">
-                  {item.title}
-                </div>
-                <div className="text-xs text-[#8888AA] truncate max-w-[280px] mt-0.5">
-                  {item.summary}
-                </div>
-              </TableCell>
-              <TableCell>
-                {item.sourceTaskName ? (
-                  <span className="text-xs text-[#00E0FF] bg-[#00E0FF]/10 px-2 py-0.5 rounded-full border border-[#00E0FF]/20 truncate max-w-[140px] inline-block">
-                    {item.sourceTaskName}
-                  </span>
-                ) : (
-                  <span className="text-xs text-[#8888AA]">—</span>
-                )}
-              </TableCell>
-              <TableCell>
                 <StatusBadge status={item.status} />
               </TableCell>
               <TableCell>
-                <SourceBadge source={item.sourceTaskType} />
+                <div className="text-sm text-[#EAEAEA] font-medium truncate max-w-[320px]">
+                  {item.query}
+                </div>
               </TableCell>
               <TableCell>
-                {item.category ? (
-                  <span className="text-xs text-[#EAEAEA]">
-                    {item.category === 'geopolitics' ? '地缘' : item.category === 'military' ? '军事' : '产业'}
-                  </span>
-                ) : (
-                  <span className="text-xs text-[#8888AA]">—</span>
-                )}
+                <div className="text-xs text-[#8888AA] truncate max-w-[260px]">
+                  {formatResultPreview(item)}
+                </div>
               </TableCell>
               <TableCell>
-                <span className="text-xs text-[#8888AA]">{formatTime(item.timestamp)}</span>
+                <span className="text-xs text-[#8888AA]">{formatTime(item.createdAt)}</span>
               </TableCell>
               <TableCell className="text-right">
-                <div className="flex items-center justify-end gap-2">
-                  {item.meta?.gisEnabled && (
-                    <span title="含 GIS 数据">
-                      <MapPin className="w-3.5 h-3.5 text-[#00E0FF]" />
-                    </span>
-                  )}
+                <div className="flex items-center justify-end gap-3">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -264,8 +187,9 @@ export default function InfoTable({ items, loading, onViewDetail }: InfoTablePro
                       e.stopPropagation();
                       onViewDetail?.(item);
                     }}
-                    className="text-xs text-[#00E0FF] hover:underline"
+                    className="flex items-center gap-1 text-xs text-[#00E0FF] hover:underline"
                   >
+                    <Eye className="w-3.5 h-3.5" />
                     详情
                   </button>
                 </div>

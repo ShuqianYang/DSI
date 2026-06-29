@@ -6,10 +6,11 @@ import type {
   Region,
   GisData,
   AgentLoopEventType,
+  ScenarioId,
 } from "@datasourceintelligence/shared";
 import type { AgentLoopTaskView } from "@/lib/agentLoopTaskView";
 
-export type { Entity, Trajectory, Region, GisData };
+export type { Entity, Trajectory, Region, GisData, ScenarioId };
 
 export interface User {
   id: string;
@@ -45,6 +46,15 @@ export interface ChatMessage {
   thinkingSteps?: ThinkingStep[]; // 分步思考/规划步骤
   isThinkingExpanded?: boolean;   // 思考过程是否展开（UI状态）
   agentLoopLogFilePath?: string;
+}
+
+export interface ChatSession {
+  id: string;
+  scenarioId: ScenarioId;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface Alert {

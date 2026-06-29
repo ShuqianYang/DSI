@@ -24,9 +24,10 @@ export default function ChatHeader({ title, subtitle, onHistoryToggle }: ChatHea
       <div className="flex items-center gap-2">
         <button
           onClick={onHistoryToggle}
-          className="rounded-lg p-2 text-[#8888AA] transition-colors hover:bg-[#2A2A3E] hover:text-[#EAEAEA]"
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-[#8888AA] transition-colors hover:bg-[#2A2A3E] hover:text-[#EAEAEA]"
           title="历史对话"
         >
+          <span className="text-sm">历史对话</span>
           <Clock className="h-4 w-4" />
         </button>
       </div>

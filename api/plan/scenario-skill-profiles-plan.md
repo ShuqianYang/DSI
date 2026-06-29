@@ -84,7 +84,7 @@ The initial profiles are:
 
 | id | name | baseline map layers | enabled skills |
 | --- | --- | --- | --- |
-| `osint` | 开源情报分析 | `ais`, `ads` | `ais-region-query`, `aircraft-region-query` |
+| `osint` | 开源情报 | `ais`, `ads` | `ais-region-query`, `aircraft-region-query` |
 | `marine` | 海洋 | none | `oil-spill-tracing`, `ais-region-query` |
 | `emergency` | 应急 | none | `disaster-satellite-query`, `earthquake-assessment`, `fire-investigation` |
 | `border` | 边防 | none | `border-defense-qa`, `daily-report`, `alarm-disposal-orchestrator`, `fire-investigation` |
@@ -219,14 +219,14 @@ export const DEFAULT_SCENARIO_ID: ScenarioId = "osint";
 export const SCENARIOS: readonly ScenarioProfile[] = [
   {
     id: "osint",
-    name: "开源情报分析",
+    name: "开源情报",
     description: "整合互联网舆情工具、开源船舶数据和开源航班数据，支撑统一检索与关联分析。",
-    chatTitle: "开源情报分析助手",
+    chatTitle: "开源情报助手",
     chatSubtitle: "船舶、航班与公开信息关联检索",
-    greetingTitle: "您好，我是开源情报分析助手",
+    greetingTitle: "您好，我是开源情报助手",
     greetingDescription: "我可以帮您检索 AIS 船舶、ADS-B 航班与区域态势，并支持后续舆情关联分析。",
     inputPlaceholder: "输入船舶、航班、区域或开源情报问题...",
-    switchMessage: "已切换到「开源情报分析」场景，当前将优先使用船舶、航班与开源检索能力。",
+    switchMessage: "已切换到「开源情报」场景，当前将优先使用船舶、航班与开源检索能力。",
     quickActions: [
       {
         label: "东海船舶态势",
@@ -1819,7 +1819,7 @@ password: admin123
 ```
 
 Expected:
-- ChatPanel starts in `开源情报分析`.
+- ChatPanel starts in `开源情报`.
 - The map displays AIS ships and ADS-B aircraft.
 - Switch to `海洋`.
 - Chat history remains.

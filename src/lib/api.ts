@@ -238,19 +238,12 @@ export async function getAdsData(): Promise<ApiAdsData> {
 // ========== 信息中心（聚合查询） ==========
 export interface InfoItem {
   id: string;
-  itemType: "event" | "insight";
-  title: string;
-  summary: string;
-  status: string;
-  category?: string;
-  sourceTaskId?: string;
-  sourceTaskName?: string;
-  sourceTaskType?: "instant" | "subscription";
-  agentTaskId?: string;
-  timestamp: string;
-  meta?: {
-    gisEnabled?: boolean;
-  };
+  query: string;
+  status: "completed" | "failed";
+  result: Record<string, unknown> | null;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
 }
 
 export interface InfoCenterResult {
