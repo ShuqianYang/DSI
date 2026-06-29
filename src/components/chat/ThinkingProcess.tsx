@@ -24,16 +24,13 @@ function StepIcon({ status }: { status: ThinkingStep['status'] }) {
 }
 
 function StepBadge({ step }: { step: ThinkingStep }) {
-  const label =
-    step.category === 'gis'
-      ? 'GIS'
-      : step.category === 'result'
-        ? 'Result'
-        : step.category === 'agent'
-          ? 'Agent'
-          : step.category === 'tool'
-            ? 'Tool'
-            : step.eventType;
+  const labelMap: Record<string, string> = {
+    gis: 'GIS',
+    result: '结果',
+    agent: '智能体',
+    tool: '工具',
+  };
+  const label = step.category ? labelMap[step.category] ?? step.eventType : step.eventType;
 
   if (!label) return null;
 
@@ -138,14 +135,12 @@ export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps)
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <StepBadge step={step} />
-                        <span className="text-xs text-[#EAEAEA] font-medium truncate">
+                        <span
+                          className="text-xs text-[#EAEAEA] font-medium truncate"
+                          title={step.toolName}
+                        >
                           {step.name}
                         </span>
-                        {step.toolName && step.toolName !== step.name && (
-                          <span className="text-[10px] text-[#8888AA] truncate">
-                            {step.toolName}
-                          </span>
-                        )}
                       </div>
                       {step.duration && (
                         <span className="text-[10px] text-[#8888AA] tabular-nums">

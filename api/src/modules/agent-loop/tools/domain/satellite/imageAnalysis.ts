@@ -180,10 +180,14 @@ function isCdseProtectedUrl(url: string): boolean {
   return CDSE_AUTH_DOMAINS.some((domain) => url.includes(domain));
 }
 
-/** 验证 HTTP Content-Type 是否为常见图片类型 */
+/** 验证 HTTP Content-Type 是否为常见图片类型，或 application/octet-stream（CDSE 经常返回此类型） */
 function isImageContentType(contentType: string | null): boolean {
   if (!contentType) return false;
-  return /^image\/(jpeg|jpg|png|gif|webp|bmp|tiff?)$/i.test(contentType.trim());
+  const trimmed = contentType.trim().toLowerCase();
+  if (/^image\/(jpeg|jpg|png|gif|webp|bmp|tiff?)$/i.test(trimmed)) return true;
+  // CDSE thumbnail/quicklook URLs often return application/octet-stream; validate by magic bytes later
+  if (trimmed === "application/octet-stream") return true;
+  return false;
 }
 
 /** 通过文件魔数验证是否为 JPEG 或 PNG */
@@ -204,8 +208,15 @@ async function downloadImageAsBase64(url: string, signal?: AbortSignal): Promise
   // If already a data URI, return as-is
   if (url.startsWith("data:")) return url;
 
-  // Try direct download first
-  let response = await fetchImage(url, undefined, signal);
+  // For CDSE/Creodias URLs, always include the OAuth token on the first request
+  // to avoid 401/403 and to get proper image data instead of error pages.
+  let response: Response;
+  if (isCdseProtectedUrl(url)) {
+    const token = await getAccessToken();
+    response = await fetchImage(url, token ?? undefined, signal);
+  } else {
+    response = await fetchImage(url, undefined, signal);
+  }
 
   // If unauthorized and it's a CDSE/Creodias URL, retry with token
   if ((response.status === 401 || response.status === 403) && isCdseProtectedUrl(url)) {
@@ -234,8 +245,12 @@ async function downloadImageAsBase64(url: string, signal?: AbortSignal): Promise
 
   validateImageMagicBytes(buffer);
 
-  const base64 = buffer.toString("base64");
-  return `data:${contentType!.trim()};base64,${base64}`;
+  // Use a concrete image MIME type for the data URI; fall back to image/jpeg if the server returned octet-stream
+  const concreteContentType =
+    contentType && contentType.trim().toLowerCase() !== "application/octet-stream"
+      ? contentType.trim()
+      : "image/jpeg";
+  return `data:${concreteContentType};base64,${buffer.toString("base64")}`;
 }
 
 async function fetchImage(url: string, token: string | undefined, signal?: AbortSignal): Promise<Response> {

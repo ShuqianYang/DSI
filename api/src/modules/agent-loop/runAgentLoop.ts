@@ -51,6 +51,12 @@ const MAX_CLOSING_ONLY_FINAL_ANSWER_CHARS = 160;
 const ANSWER_CANDIDATE_COMPATIBLE_TOOL_NAMES = new Set(["TodoWrite"]);
 let taskStepDependenciesPromise: ReturnType<typeof loadTaskStepDependencies> | undefined;
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export interface RunAgentLoopOptions {
   taskId: string;
   query: string;
@@ -69,6 +75,7 @@ export interface RunAgentLoopOptions {
   fileLogger?: AgentLoopFileLogger | false;
   onEvent?: (event: AgentLoopEvent) => void;
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
+  turnDelayMs?: number;
 }
 
 export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentLoopResult> {
@@ -258,6 +265,10 @@ export async function* runAgentLoopEvents(
         message: `Agent loop turn ${turn}/${maxTurns}`,
       });
 
+      if (options.turnDelayMs && options.turnDelayMs > 0) {
+        await sleep(options.turnDelayMs);
+      }
+
       const callId = `call-${turn}`;
       const skillSections = [...skillListingSections, ...skillDiscoverySections];
       const runtimeSections = buildRuntimeToolStateSections(toolUseContext);
@@ -432,18 +443,23 @@ export async function* runAgentLoopEvents(
         return await finishAndReturn(result);
       }
 
+      const toolCallsWithDisplayName = decision.toolCalls.map((toolCall) => ({
+        ...toolCall,
+        displayName: registry.get(toolCall.toolName)?.displayName,
+      }));
+
       yield emitEvent({
         type: "tool_calls",
         taskId: options.taskId,
         turn,
-        count: decision.toolCalls.length,
-        tools: decision.toolCalls.map((toolCall) => toolCall.toolName),
+        count: toolCallsWithDisplayName.length,
+        tools: toolCallsWithDisplayName.map((toolCall) => toolCall.toolName),
       });
 
       const assistantMessage: AgentMessage = {
         role: "assistant",
         content: decision.content ?? "",
-        toolCalls: decision.toolCalls,
+        toolCalls: toolCallsWithDisplayName,
       };
       conversationMessages.push(assistantMessage);
       latestAssistantAnswerCandidate =
@@ -460,7 +476,7 @@ export async function* runAgentLoopEvents(
         message: assistantMessage,
       });
 
-      const batches = partitionToolCalls(registry, decision.toolCalls, maxConcurrentToolCalls);
+      const batches = partitionToolCalls(registry, toolCallsWithDisplayName, maxConcurrentToolCalls);
       for (const batch of batches) {
         const batchObservations = yield* executeToolBatch({
           taskId: options.taskId,
@@ -617,8 +633,11 @@ function updateAgentLoopToolUseContext(
     signal?: AbortSignal;
   }
 ): AgentLoopToolUseContext {
+  const toolSource = context.skillAllowedToolNames
+    ? context.options.refreshTools?.() ?? input.tools
+    : input.tools;
   const refreshedTools = filterToolsForActiveSkill(
-    context.options.refreshTools?.() ?? input.tools,
+    toolSource,
     context.skillAllowedToolNames,
   );
   return {
@@ -1089,6 +1108,7 @@ function toolCallEvent(
     turn: options.turn,
     toolCallId: toolCall.id,
     toolName: toolCall.toolName,
+    displayName: toolCall.displayName,
     reason: toolCall.reason,
   };
 }
@@ -1103,6 +1123,7 @@ function toolObservationEvent(
     turn: options.turn,
     toolCallId: observation.toolCallId,
     toolName: observation.toolName,
+    displayName: observation.displayName,
     ok: observation.ok,
     observation,
   };
@@ -1111,12 +1132,7 @@ function toolObservationEvent(
 async function createToolStep(
   taskId: string,
   order: number,
-  toolCall: {
-    id: string;
-    toolName: string;
-    input: Record<string, unknown>;
-    reason?: string;
-  }
+  toolCall: GatewayToolCall
 ): Promise<string> {
   const { db, taskSteps } = await getTaskStepDependencies();
   const [step] = await db
@@ -1127,7 +1143,7 @@ async function createToolStep(
       actionConfig: {
         id: toolCall.id,
         type: toolCall.toolName,
-        name: toolCall.toolName,
+        name: toolCall.displayName || toolCall.toolName,
         params: toolCall.input,
         reason: toolCall.reason,
         _order: order,

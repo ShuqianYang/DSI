@@ -132,6 +132,7 @@ let postgisCatalogPromise: Promise<RegionCatalogEntry[]> | undefined;
 export function buildRegionResolveTool(): ToolDefinition {
   return {
     name: "RegionResolve",
+    displayName: "区域解析",
     aliases: ["region-resolve"],
     description:
       'Resolve a named region from PostGIS region_geom.region_resolve_catalog into bbox + geometryRef. Input: {"regionName":"台湾海峡"} or {"query":"请圈选福建省"}. This tool only resolves geometry references; it does not create a visible map layer. When the user asks to 圈选/标出/高亮 a named region, call RegionResolve first, then call RegionMark with selected.geometryRef and reuse selected.bbox for downstream data tools. If resolved=false, do not guess a bbox.',

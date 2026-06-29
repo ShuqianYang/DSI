@@ -130,6 +130,7 @@ interface PreparedRegionGeometry {
 export function buildRegionMarkTool(): ToolDefinition {
   return {
     name: "RegionMark",
+    displayName: "区域标注",
     aliases: ["region-mark"],
     description:
       'Create a visible GIS region layer from RegionResolve selected.geometryRef or explicit WGS84 geometry. Input: {"name":"台湾海峡","geometryRef":{"schema":"region_geom","catalog":"region_resolve_catalog","sourceTable":"custom_region","sourceId":"92","stableId":"92"},"bbox":{"west":117,"east":122.5,"south":22,"north":26.5}} or {"name":"区域","polygon":[[120,22],[121,22],[120.5,23]]}. Use RegionResolve first for named places. This tool does not resolve named places or guess region boundaries.',

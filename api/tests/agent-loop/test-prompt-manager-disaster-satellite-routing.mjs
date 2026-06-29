@@ -19,9 +19,13 @@ assert.ok(systemMessage, "expected a system message");
 
 assert.match(systemMessage.content, /# Disaster Satellite Query Rules/);
 assert.match(systemMessage.content, /Call RegionResolve first/);
-assert.match(systemMessage.content, /reuse selected\.bbox exactly/);
+assert.match(systemMessage.content, /reuse selected\.bbox exactly for DisasterQuery/);
 assert.match(systemMessage.content, /Call DisasterQuery/);
 assert.match(systemMessage.content, /Call SatelliteImageSearch/);
+assert.match(systemMessage.content, /event\.affectedArea/);
+assert.match(systemMessage.content, /event\.location/);
+assert.match(systemMessage.content, /targetPoint/);
+assert.match(systemMessage.content, /searchRadiusKm/);
 assert.match(systemMessage.content, /call RegionMark with selected\.geometryRef/);
 assert.match(systemMessage.content, /ImageAnalysis[\s\S]*available/);
 assert.match(systemMessage.content, /do not fabricate/i);

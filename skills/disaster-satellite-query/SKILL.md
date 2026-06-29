@@ -23,7 +23,7 @@ If the user names a region, call `RegionResolve` first. If `RegionResolve` retur
 
 ## Region Source
 
-For named regions, reuse `RegionResolve.selected.bbox` exactly for every downstream disaster or satellite query:
+For named regions, reuse `RegionResolve.selected.bbox` exactly for `DisasterQuery` and as the clipping boundary for event-focused satellite search:
 
 - `west = selected.bbox.west`
 - `east = selected.bbox.east`
@@ -32,7 +32,21 @@ For named regions, reuse `RegionResolve.selected.bbox` exactly for every downstr
 
 Use `RegionResolve.selected.geometryRef` for `RegionMark`. Pass `selected.bbox` to `RegionMark` only as a fallback.
 
-Do not widen, shrink, round, or replace the bbox for wording such as "nearby", "around", or "附近" unless the user gives an explicit alternative bbox.
+Do not widen, shrink, round, or replace the region bbox for wording such as "nearby", "around", or "附近" unless the user gives an explicit alternative bbox. For satellite imagery after a disaster event is found, use the Event-Focused Satellite Search rules below.
+
+## Event-Focused Satellite Search
+
+1. Call `DisasterQuery` with `RegionResolve.selected.bbox`.
+2. If the user asks for satellite imagery, remote-sensing imagery, or disaster assessment and `DisasterQuery` returns events:
+   - Prefer `event.affectedArea` as the satellite `bbox`.
+   - Otherwise use `event.location` as `targetPoint` and pass `searchRadiusKm` based on the disaster type.
+   - Always pass `RegionResolve.selected.bbox` too, so `SatelliteImageSearch` clips the focused search to the user-requested region.
+3. Use these default radii when only `event.location` is available:
+   - earthquake: `searchRadiusKm: 30`
+   - flood: `searchRadiusKm: 20`
+   - fire: `searchRadiusKm: 10`
+   - typhoon: use `RegionResolve.selected.bbox`; do not use a single point unless `event.affectedArea` is returned.
+4. If no disaster event is returned, do not invent a point or bbox. Use the user's explicit satellite bbox/date request, or report that no event-focused imagery can be requested.
 
 ## Workflow
 
@@ -51,12 +65,14 @@ Do not widen, shrink, round, or replace the bbox for wording such as "nearby", "
 }
 ```
 
-5. For satellite imagery, call `SatelliteImageSearch` with the same bbox and an explicit date range:
+5. For satellite imagery, call `SatelliteImageSearch` with an event-focused bbox or point and an explicit date range:
 
 ```json
 {
   "regionName": "Taiwan Strait",
   "bbox": { "west": 117, "east": 122.5, "south": 22, "north": 26.5 },
+  "targetPoint": { "lon": 120.8, "lat": 23.6 },
+  "searchRadiusKm": 30,
   "startDate": "2024-05-01",
   "endDate": "2024-05-10",
   "maxCloudCoverage": 30,
@@ -91,6 +107,8 @@ For satellite search:
 
 - Use the user's explicit dates if provided.
 - If a disaster event is found and the user asks for post-disaster imagery, set `startDate` to the event date and `endDate` to today or the user's requested end date.
+- If a disaster event has `event.affectedArea`, use that as the satellite bbox.
+- If a disaster event only has `event.location`, pass it as `targetPoint` with the default `searchRadiusKm` for its disaster type and pass `RegionResolve.selected.bbox` for clipping.
 - If the user asks for satellite imagery without a disaster event, use the user date range or the last 30 days.
 - Use `maxCloudCoverage: 30` by default. Tighten it only if the user asks for clearer imagery.
 
@@ -107,7 +125,7 @@ For satellite search:
 
 Include:
 
-- Region name and exact bbox used.
+- Region name, original region bbox, and focused satellite bbox or targetPoint/searchRadiusKm used.
 - Disaster data source, event count, time window, and latest or most relevant events.
 - Satellite image count, acquisition dates, source, cloud coverage when available, and browser links.
 - Whether the result is event-based, metadata-based, or image-analysis-based.

@@ -31,7 +31,7 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
       return {
         steps: toolCalls.map((call) => ({
           id: call.id,
-          name: call.toolName,
+          name: call.displayName || call.toolName,
           status: 'pending' as const,
           detail: call.reason || '等待工具执行',
           category: 'tool' as const,
@@ -53,7 +53,7 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
       steps: [
         {
           id: event.toolCallId,
-          name: event.toolName,
+          name: event.displayName || event.toolName,
           status: 'running',
           detail: event.reason || '正在执行工具',
           category: 'tool',
@@ -72,7 +72,7 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
       steps: [
         {
           id: event.toolCallId,
-          name: event.toolName,
+          name: event.displayName || event.toolName,
           status: 'running',
           detail: `${stage}${event.message || '正在执行'}${percent}`,
           category: 'tool',
@@ -90,7 +90,7 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
       steps: [
         {
           id: event.toolCallId,
-          name: event.toolName,
+          name: event.displayName || event.toolName,
           status: ok ? 'completed' : 'failed',
           detail: summarizeToolObservation(event),
           category: extractGisDataFromAgentLoopEvent(event) ? 'gis' : 'tool',

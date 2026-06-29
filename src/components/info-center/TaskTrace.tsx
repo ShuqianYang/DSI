@@ -16,6 +16,13 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   pending: <CircleDot className="w-4 h-4 text-[#8888AA]" />,
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  completed: '已完成',
+  failed: '失败',
+  running: '执行中',
+  pending: '等待中',
+};
+
 const ACTION_TYPE_LABEL: Record<string, string> = {
   maritime: '船舶数据采集',
   'ais-fetch': 'AIS 数据获取',
@@ -35,6 +42,18 @@ const ACTION_TYPE_LABEL: Record<string, string> = {
   requirement: '需求处理',
   'intelligent_qa': '智能问答',
 };
+
+function getStepDisplayName(step: { actionType: string; result: Record<string, unknown> | null }): string {
+  const result = step.result;
+  if (!result) return ACTION_TYPE_LABEL[step.actionType] || step.actionType;
+
+  // Try to read displayName from the stored observation
+  const observation = result.observation || result;
+  if (typeof (observation as Record<string, unknown>).displayName === 'string') {
+    return (observation as Record<string, unknown>).displayName as string;
+  }
+  return ACTION_TYPE_LABEL[step.actionType] || step.actionType;
+}
 
 export default function TaskTrace({ task }: TaskTraceProps) {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
@@ -69,7 +88,7 @@ export default function TaskTrace({ task }: TaskTraceProps) {
         <div className="text-xs text-[#8888AA] mb-1">原始需求</div>
         <div className="text-sm text-[#EAEAEA] font-medium">{task.query}</div>
         <div className="flex items-center gap-3 mt-2 text-xs text-[#8888AA]">
-          <span>状态: <span className={task.status === 'completed' ? 'text-[#44FF44]' : task.status === 'failed' ? 'text-[#FF4444]' : 'text-[#00E0FF]'}>{task.status}</span></span>
+          <span>状态: <span className={task.status === 'completed' ? 'text-[#44FF44]' : task.status === 'failed' ? 'text-[#FF4444]' : 'text-[#00E0FF]'}>{STATUS_LABEL[task.status] || task.status}</span></span>
           <span>创建: {formatTime(task.createdAt)}</span>
         </div>
       </div>
@@ -86,7 +105,7 @@ export default function TaskTrace({ task }: TaskTraceProps) {
               )}
             </div>
             <span className="text-[10px] text-[#8888AA] truncate">
-              stoppedBy={agentLoop.stoppedBy}
+              停止原因={agentLoop.stoppedBy}
             </span>
           </div>
 
@@ -110,7 +129,7 @@ export default function TaskTrace({ task }: TaskTraceProps) {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-[#EAEAEA] truncate">{tool.toolName}</span>
+                      <span className="text-sm text-[#EAEAEA] truncate">{tool.displayName || tool.toolName}</span>
                       {tool.gisDataType && (
                         <span className="inline-flex items-center gap-1 text-[10px] text-[#00E0FF]">
                           <MapPin className="w-3 h-3" />
@@ -128,7 +147,7 @@ export default function TaskTrace({ task }: TaskTraceProps) {
           {(agentLoop.gisDataItems.length > 0 || agentLoop.logFilePath) && (
             <div className="flex flex-col gap-1 text-[10px] text-[#8888AA]">
               {agentLoop.gisDataItems.length > 0 && (
-                <span>GIS outputs: {agentLoop.gisDataItems.length}</span>
+                <span>GIS 输出: {agentLoop.gisDataItems.length}</span>
               )}
               {agentLoop.logFilePath && (
                 <span className="font-mono truncate">{agentLoop.logFilePath}</span>
@@ -141,7 +160,7 @@ export default function TaskTrace({ task }: TaskTraceProps) {
       <div className="space-y-2">
         {task.steps.map((step, index) => {
           const isExpanded = expandedSteps.has(step.id);
-          const label = ACTION_TYPE_LABEL[step.actionType] || step.actionType;
+          const label = getStepDisplayName(step);
           const icon = STATUS_ICON[step.status] || STATUS_ICON.pending;
 
           return (
@@ -168,7 +187,7 @@ export default function TaskTrace({ task }: TaskTraceProps) {
                     )}
                   </button>
                   <div className="text-xs text-[#8888AA] mt-0.5">
-                    {step.status}
+                    {STATUS_LABEL[step.status] || step.status}
                   </div>
 
                   {/* 展开结果 */}

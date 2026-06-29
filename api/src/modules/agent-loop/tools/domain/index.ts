@@ -8,10 +8,12 @@ import { buildImageAnalysisTool } from "./satellite/imageAnalysis.js";
 import { buildRegionResolveTool } from "./gis/regionResolve.js";
 import { buildRegionMarkTool } from "./gis/regionMark.js";
 import { buildDailyReportTool } from "./dailyReport/dailyReport.js";
+import type { ToolDefinition } from "../_shared/types.js";
 import {
   buildMysqlQuerySchemaTool,
   buildMysqlQueryTool,
 } from "./borderDefenseQa/borderDefenseQa.js";
+import { buildFireInvestigationMockTools } from "./fireInvestigation/index.js";
 
 export function registerDomainTools(registry: ToolRegistry): void {
   for (const tool of buildDomainTools()) {
@@ -19,7 +21,7 @@ export function registerDomainTools(registry: ToolRegistry): void {
   }
 }
 
-export function buildDomainTools(): ReturnType<typeof buildSqlQueryTool>[] {
+export function buildDomainTools(): ToolDefinition[] {
   return [
     buildSqlQuerySchemaTool(),
     buildSqlQueryTool(),
@@ -32,5 +34,6 @@ export function buildDomainTools(): ReturnType<typeof buildSqlQueryTool>[] {
     buildDailyReportTool(),
     buildMysqlQuerySchemaTool(),
     buildMysqlQueryTool(),
+    ...buildFireInvestigationMockTools(),
   ];
 }

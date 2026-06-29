@@ -33,9 +33,14 @@ export async function GET(request: NextRequest) {
     /identity\.dataspace\.copernicus\.eu/i,
     /.*\.s3\..*\.amazonaws\.com/i,
     /.*\.cloudfront\.net/i,
+    /192\.168\.0\.129/i,
   ];
-  const isAllowed = allowedHostPatterns.some((re) => re.test(new URL(targetUrl).hostname));
-  if (!isAllowed) {
+  const parsedUrl = new URL(targetUrl);
+  const isAllowedHost = allowedHostPatterns.some((re) => re.test(parsedUrl.hostname));
+  const isLocalTile =
+    (parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1') &&
+    parsedUrl.pathname.startsWith('/local-tiles/');
+  if (!isAllowedHost && !isLocalTile) {
     return NextResponse.json({ error: 'Target host not allowed' }, { status: 403 });
   }
 

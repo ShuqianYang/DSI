@@ -5,6 +5,11 @@ import { z } from "zod";
 import { escapeRegExp, matchesGlobPattern, normalizeGlobPath } from "./tools/_shared/globUtils.js";
 import { callTool } from "./tools/_shared/toolGateway.js";
 import type { ToolRegistry } from "./tools/_shared/toolRegistry.js";
+import {
+  buildEarthquakeAssessmentMockTools,
+  buildFloodAssessmentMockTools,
+} from "./tools/domain/disasterAssessmentMock/index.js";
+import { buildOilSpillMockTools } from "./tools/domain/oilSpillMock/index.js";
 import type {
   AgentLoopPrefetch,
   AgentLoopToolUseContext,
@@ -412,6 +417,7 @@ function buildSkillTool(registry: ToolRegistry, skillManager: SkillManager): Too
         registry,
       });
       injectSkillContent(toolUseContext, skill, content);
+      applySkillScopedTools(toolUseContext, skill, registry);
       applySkillAllowedTools(toolUseContext, skill);
 
       return {
@@ -464,21 +470,39 @@ function injectSkillContent(
 function applySkillAllowedTools(toolUseContext: AgentLoopToolUseContext, skill: SkillDefinition): void {
   if (skill.allowedTools.length === 0) return;
 
-  const allowedToolNames = new Set<string>(["Skill"]);
+  const allowedToolNames = new Set<string>(["Skill", "TodoWrite"]);
   for (const allowedTool of skill.allowedTools) {
     const normalized = normalizeAllowedToolName(allowedTool);
     if (normalized) allowedToolNames.add(normalized);
   }
   toolUseContext.skillAllowedToolNames = allowedToolNames;
-  toolUseContext.skillAllowedToolsExpiresOnTurn = inferCurrentTurn(toolUseContext) + 1;
+  toolUseContext.skillAllowedToolsExpiresOnTurn = undefined;
+}
+
+function applySkillScopedTools(
+  toolUseContext: AgentLoopToolUseContext,
+  skill: SkillDefinition,
+  registry: ToolRegistry
+): void {
+  const scopedTools =
+    skill.name === "oil-spill-tracing"
+      ? buildOilSpillMockTools()
+      : skill.name === "earthquake-assessment"
+        ? buildEarthquakeAssessmentMockTools()
+        : skill.name === "flood-assessment"
+          ? buildFloodAssessmentMockTools()
+        : undefined;
+
+  if (!scopedTools) return;
+
+  for (const tool of scopedTools) {
+    registry.register(tool, { override: Boolean(registry.get(tool.name)), visible: false });
+  }
+  toolUseContext.options.refreshTools = () => registry.list({ includeHidden: true });
 }
 
 function normalizeAllowedToolName(value: string): string {
   return value.trim().replace(/\(.+$/, "").replace(/^\/+/, "");
-}
-
-function inferCurrentTurn(toolUseContext: AgentLoopToolUseContext): number {
-  return toolUseContext.messages.filter((message) => message.role === "assistant").length + 1;
 }
 
 async function renderSkillContent(input: {

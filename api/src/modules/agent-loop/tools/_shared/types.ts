@@ -72,6 +72,7 @@ export type ToolPermissionHandler = <Input = unknown>(
 
 export interface ToolDefinition<Input = unknown, Output = unknown> {
   name: string;
+  displayName?: string;
   description: string;
   kind?: ToolKind;
   aliases?: string[];

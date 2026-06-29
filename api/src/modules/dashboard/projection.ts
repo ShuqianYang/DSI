@@ -253,6 +253,11 @@ function projectEventStatus(status: StepStatus): ApiEvent["status"] {
 }
 
 function stepName(step: TaskStepLike): string {
+  const result = objectRecord(step.result);
+  const observation = objectRecord(result.observation);
+  const displayName = stringValue(observation.displayName);
+  if (displayName) return displayName;
+
   const config = objectRecord(step.actionConfig);
   return stringValue(config.name) || step.actionType;
 }
