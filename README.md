@@ -24,22 +24,27 @@ S:/Projects/projects_new/
 │   │   ├── page.tsx              # 首页 - 三栏布局主页面
 │   │   ├── layout.tsx            # 根布局
 │   │   ├── info-center/          # 信息中心页面
+│   │   ├── skills/               # 技能广场页面
 │   │   └── api/                  # Next.js API Routes
 │   │       ├── chat/             # 聊天接口代理
-│   │       └── prd/              # PRD 相关接口
+│   │       ├── prd/              # PRD 相关接口
+│   │       ├── proxy/image/      # 图片代理
+│   │       └── skills/           # 技能列表接口
 │   ├── components/               # React 组件
 │   │   ├── ui/                   # shadcn/ui 基础组件
-│   │   ├── chat/                 # 左侧问答面板
-│   │   │   ├── ChatPanel.tsx     # 主组件
+│   │   ├── ChatPanel.tsx         # 左侧问答面板主组件
+│   │   ├── chat/                 # 问答面板子组件
 │   │   │   ├── ChatHeader.tsx    # 面板头部
 │   │   │   ├── ChatHistory.tsx   # 历史对话侧边栏
 │   │   │   ├── ChatMessage.tsx   # 单条消息气泡
-│   │   │   ├── ChatMessageList.tsx # 消息列表（含 Suggestion 按钮）
+│   │   │   ├── ChatMessageList.tsx # 消息列表
 │   │   │   ├── ChatInput.tsx     # 输入框
 │   │   │   ├── MarkdownContent.tsx # Markdown 渲染
-│   │   │   └── ThinkingProcess.tsx # 思考过程折叠面板
-│   │   ├── right-panel/          # 右侧信息面板
-│   │   │   ├── RightPanel.tsx    # 主组件
+│   │   │   ├── ThinkingProcess.tsx # 思考过程折叠面板
+│   │   │   ├── ScenarioTabs.tsx  # 场景标签
+│   │   │   └── ScenarioSkillButton.tsx # 场景技能按钮
+│   │   ├── RightPanel.tsx        # 右侧信息面板主组件
+│   │   ├── right-panel/          # 右侧面板子组件
 │   │   │   ├── TaskSection.tsx   # 可执行任务列表
 │   │   │   ├── SubscriptionSection.tsx # 订阅任务列表
 │   │   │   ├── RequirementSection.tsx  # 定制需求列表
@@ -47,28 +52,44 @@ S:/Projects/projects_new/
 │   │   │   ├── InsightList.tsx   # AI 洞察卡片列表
 │   │   │   └── StatusIcons.tsx   # 状态图标组件
 │   │   ├── info-center/          # 信息中心组件
+│   │   │   ├── InfoTable.tsx
+│   │   │   ├── InfoDetail.tsx
+│   │   │   ├── InfoFilters.tsx
+│   │   │   ├── InfoPagination.tsx
+│   │   │   ├── TaskTrace.tsx
+│   │   │   └── useInfoCenterStream.ts
+│   │   ├── skills/               # 技能广场组件
+│   │   │   ├── SkillCard.tsx
+│   │   │   ├── SkillFilters.tsx
+│   │   │   └── SkillDetailDrawer.tsx
 │   │   ├── GisViewer.tsx         # 中间 3D 地球/GIS 可视化
+│   │   ├── UserCenter.tsx        # 用户中心
+│   │   ├── LoginPage.tsx         # 登录页
+│   │   ├── LiveClock.tsx         # 实时时钟
+│   │   ├── LogoIcon.tsx
 │   │   └── cesium/               # Cesium 地图组件
 │   │       ├── CesiumMap.tsx     # 地图渲染核心
 │   │       ├── CesiumInitializer.tsx # 初始化
 │   │       ├── ImageryManager.ts # 底图图层管理
-│   │       ├── FireOverlay.ts    # 火灾 overlay
 │   │       ├── mapDrawTool.ts    # 地图绘制工具
-│   │       └── ...               # 效果组件（光墙、脉冲环、流动材质等）
+│   │       ├── mapDrawPersisted.ts
+│   │       └── ...               # 效果组件（光墙、脉冲环、流动材质、油污扩散等）
 │   ├── features/                 # 功能模块
 │   │   └── gis-custom/           # GIS 自定义功能
 │   │       └── multi-layer-points/ # 多层点位/风场示例
 │   ├── hooks/                    # 自定义 Hooks
-│   │   ├── useTaskChat.ts        # 问答面板业务逻辑
-│   │   ├── useRightPanel.ts      # 右侧面板业务逻辑
-│   │   └── useRightPanelData.ts  # 右侧面板数据获取
+│   │   ├── useRightPanelData.ts  # 右侧面板数据获取
+│   │   └── use-mobile.ts         # 移动端检测
 │   ├── lib/                      # 工具库
-│   │   ├── api.ts                # 前端 API 客户端
-│   │   ├── taskResultFormatter.ts # 任务结果格式化
+│   │   ├── utils.ts              # 通用工具函数
 │   │   ├── taskMock.ts           # Mock 响应数据
-│   │   └── utils.ts              # 通用工具函数
-│   ├── data/                     # 静态数据
-│   └── types/                    # 前端类型定义
+│   │   ├── eventGrouping.ts      # 事件分组
+│   │   ├── styleMaps.ts          # 样式映射
+│   │   └── mapDrawCollectEntities.ts
+│   └── data/                     # 静态数据
+│       ├── mockData.ts
+│       ├── aisMockData.ts
+│       └── adsMockData.ts
 │
 ├── api/src/                      # 后端 API 服务 (Express)
 │   ├── index.ts                  # API 服务器入口
@@ -84,42 +105,70 @@ S:/Projects/projects_new/
 │   ├── middleware/               # Express 中间件
 │   └── modules/                  # 业务模块
 │       ├── tasks/                # Agent 编排任务管理
+│       │   ├── controller.ts     # 任务创建/查询/流式接口
+│       │   ├── service.ts
+│       │   ├── schema.ts
+│       │   ├── pipeline.ts       # Agent Loop 编排入口（兼容层包装）
+│       │   ├── agentLoopResultProjection.ts
+│       │   └── agentLoopSseMode.ts
 │       ├── agent-loop/           # Agent 运行时核心 (Claude Code 风格，已替代旧 Planner / Router / Executor)
 │       │   ├── runAgentLoop.ts       # 主循环：turn 驱动、事件流、工具调度
+│       │   ├── runAgentLoopEvents()  # 事件流主循环
 │       │   ├── contextProvider.ts    # 上下文加载：项目文件 / git / task 状态
 │       │   ├── promptManager.ts      # 提示词渲染：system prompt + 工具目录 + sections
 │       │   ├── contextWindowManager.ts # 窗口治理：字符预算 / tool 截断 / 邻接保护
 │       │   ├── modelClient.ts        # 模型客户端：DeepSeek API 调用
-│       │   ├── toolRegistry.ts       # 工具注册中心（name + alias）
-│       │   ├── toolGateway.ts        # 工具执行网关（权限 → 执行 → 结果预算）
-│       │   ├── toolPolicy.ts         # 工具权限策略（allow/deny/ask）
-│       │   ├── systemTools.ts        # 系统内置工具（Read/Grep/Glob/Bash/Edit）
-│       │   ├── memoryManager.ts      # Memory 管理（prefetch / remember）
-│       │   ├── skillManager.ts       # Skill 管理（listing / discovery）
-│       │   ├── transcriptStore.ts    # 对话转录存储（接口预留，暂未持久化）
-│       │   ├── types.ts              # 核心类型（AgentMessage / ToolDefinition / PromptSection）
-│       │   └── ...                   # 序列化、决策适配、工具目录等辅助模块
+│       │   ├── tools/_shared/        # 工具注册中心、网关、策略、类型
+│       │   │   ├── toolRegistry.ts
+│       │   │   ├── toolGateway.ts
+│       │   │   ├── toolPolicy.ts
+│       │   │   └── types.ts
+│       │   ├── tools/system/         # 系统内置工具
+│       │   ├── tools/domain/         # 业务域工具
+│       │   ├── memoryManager.ts      # Memory 接口
+│       │   ├── sessionSummaryMemoryManager.ts # 会话摘要记忆实现
+│       │   ├── skillManager.ts       # Skill 管理（listing / discovery / prompt 注入）
+│       │   ├── transcriptStore.ts    # 转录存储（DB 持久化实现）
+│       │   ├── fileLogger.ts         # turn 级文件日志
+│       │   └── types.ts              # 核心类型
 │       ├── dashboard/            # Dashboard 聚合查询（事件 / 洞察 / 订阅 / 任务等）
+│       ├── info-center/          # 信息中心查询与导出
 │       ├── ais/                  # AIS 船舶数据（aisstream.io WebSocket → DB replaceAll）
 │       │   ├── client.ts         # WebSocket 连接 + 60s 全球数据累积
 │       │   ├── ingestion.ts      # 原始 PositionReport → DB schema 归一化
 │       │   ├── repository.ts     # replaceAll: DELETE + batch INSERT（事务）
 │       │   ├── queue.ts          # BullMQ hourly cron 队列
-│       │   └── worker.ts         # BullMQ worker（lockDuration 120s）
-│       ├── opensky/              # ADS-B 航空器数据（OpenSky API → DB replaceAll）
-│       │   ├── client.ts         # REST API 拉取
-│       │   ├── ingestion.ts      # 状态归一化
-│       │   ├── repository.ts     # replaceAll 事务
-│       │   ├── queue.ts          # BullMQ hourly cron
 │       │   └── worker.ts         # BullMQ worker
-│       
+│       └── opensky/              # ADS-B 航空器数据（OpenSky API → DB replaceAll）
+│           ├── client.ts         # REST API 拉取
+│           ├── ingestion.ts      # 状态归一化
+│           ├── repository.ts     # replaceAll 事务
+│           ├── queue.ts          # BullMQ hourly cron
+│           └── worker.ts         # BullMQ worker
 │
 ├── packages/shared/              # 共享类型包 (pnpm workspace)
 │   └── src/types/                # task / plan / action / maritime 类型
 │
+├── skills/                       # Agent-loop 技能目录
+│   ├── ais-region-query/
+│   ├── aircraft-region-query/
+│   ├── daily-report/
+│   ├── fire-investigation/
+│   ├── flood-assessment/
+│   ├── earthquake-assessment/
+│   ├── oil-spill-tracing/
+│   ├── disaster-satellite-query/
+│   ├── border-defense-qa/
+│   ├── alarm-disposal-orchestrator/
+│   ├── csv-profile/
+│   └── conventional-commit-helper/
+│
+├── api/scripts/                  # 后端脚本
+│   └── agent-loop/               # Agent Loop smoke / 测试脚本
+│
 ├── docker/                       # Docker 编排配置
 │   ├── docker-compose.yaml       # 完整服务编排
-│   ├── docker-compose.infra.yaml # 仅基础设施 (DB + Redis)
+│   ├── docker-compose.infra.yaml # 仅基础设施 (DB + Redis + PostGIS)
 │   ├── Dockerfile                # 多阶段构建
 │   └── entrypoint.sh             # 容器入口脚本
 │
@@ -137,10 +186,14 @@ S:/Projects/projects_new/
 │
 ├── docs/                         # 文档
 │   ├── adr/                      # 架构决策记录
-│   └── agents/                   # Agent 规范
+│   ├── agents/                   # Agent 规范
+│   ├── plan/                     # 实施计划
+│   └── templates/                # 模板
 │
-└── api/issues/                   # 问题追踪
-    └── frontend-performance-trace-*.md
+├── api/issues/                   # 问题追踪
+│   └── frontend-performance-trace-*.md
+├── start-local.sh                # 本地一键启动脚本
+└── start-local-api.sh            # 本地 API 启动脚本
 ```
 
 ## Agent 编排架构
@@ -203,16 +256,44 @@ ContextProvider ──→ PromptManager ──→ ContextWindowManager ──→
 | `ToolRegistry` | ✅ 已完成 | 工具注册 + alias 解析 |
 | `ToolGateway` | ✅ 已完成 | 权限策略、并发调度、结果截断、readOnly 去重 |
 | `ModelClient` | ✅ 已完成 | DeepSeek API 调用 + 工具调用解析 |
-| `MemoryManager` | 🔄 接口预留 | `noopMemoryManager`，待实现 prefetch/remember |
+| `MemoryManager` | ✅ 已实现 | `SessionSummaryMemoryManager`：基于 `agent_transcript_entries` 召回近期同用户任务摘要；`pipelineMemory.ts` 组装生产环境默认实现 |
 | `SkillManager` | ✅ 已完成 | `LocalSkillManager`：frontmatter 解析、条件激活、discovery、prompt 注入 |
-| `TranscriptStore` | 🔄 接口预留 | `disabledTranscriptStore`，待实现数据库持久化 |
+| `TranscriptStore` | ✅ 已实现 | `createDbTranscriptStore`：Drizzle ORM 持久化到 `agent_transcript_entries`；`pipeline.ts` 默认启用并包装为 best-effort store |
 
-**Agent Loop 计划**：
-- ✅ [Context Provider & Window Manager Phase 1](api/plan/context-provider-window-manager-plan.md)
-- ✅ [Context Window Phase 2](api/plan/context-window-phase2-plan.md)
-- ✅ [Prompt / System Prompt Phase 1](api/plan/prompt-system-prompt-phase1-plan.md)
-- 🔄 [Context Provider Phase 2](api/plan/context-provider-phase2-plan.md) — 待执行
-- ⏳ Phase 3: LLM Compact + Transcript 持久化 — 依赖 transcript 表
+**已实现的 Agent Loop 业务 Skills**（`skills/` 目录，由 `SkillManager` 动态加载）：
+
+| Skill | 说明 |
+|-------|------|
+| `ais-region-query` | 区域船舶/AIS 查询（结合 `RegionResolve`/`RegionMark`/`SqlQuery`） |
+| `aircraft-region-query` | 区域航空器/ADS-B 查询（结合 `RegionResolve`/`RegionMark`/`SqlQuery`） |
+| `daily-report` | 边防日报生成（调用 `DailyReport` 域工具） |
+| `fire-investigation` | Kensai 火情研判演示（mock 工具链） |
+| `flood-assessment` | 洪涝灾害评估演示 |
+| `earthquake-assessment` | 地震灾情评估演示 |
+| `oil-spill-tracing` | 油污漂移溯源演示 |
+| `disaster-satellite-query` | 灾害卫星数据查询 |
+| `border-defense-qa` | 边防问答（MySQL 知识库查询） |
+| `alarm-disposal-orchestrator` | 告警处置编排（外部 Python 脚本） |
+| `csv-profile` | CSV 数据画像 |
+| `conventional-commit-helper` | Commit message 辅助 |
+
+**已实现的 Agent Loop 工具**（系统工具 + 域工具）：
+
+系统工具：`Bash`、`Glob`、`Grep`、`Read`、`Write`、`Edit`、`TodoWrite`、`Sleep`、`WebSearch`、`WebFetch`。
+
+域工具：
+
+| 工具 | 说明 |
+|------|------|
+| `SqlQuerySchema` / `SqlQuery` | PostgreSQL 数据库 schema 查询与 SQL 执行 |
+| `MysqlQuerySchema` / `MysqlQuery` | 边防 QA MySQL 知识库查询 |
+| `WeatherFetch` | 天气数据获取 |
+| `DisasterQuery` | 灾害查询 |
+| `SatelliteImageSearch` | 卫星影像查询 |
+| `ImageAnalysis` | 影像分析 |
+| `RegionResolve` / `RegionMark` | 区域解析与地图标记 |
+| `DailyReport` | 日报生成 |
+| 火情研判 mock 工具链 | `FireDetectMock`、`FireSatelliteMock`、`FireAssessmentMock`、`FireReportMock`、`BorderPushMock` |
 
 ## 前后端数据流
 
@@ -234,24 +315,30 @@ ContextProvider ──→ PromptManager ──→ ContextWindowManager ──→
 | GET | `/tasks/:taskId` | 查询任务详情 |
 | GET | `/tasks/:taskId/stream` | SSE 实时流 |
 
-### 资源管理 (CRUD)
-| 路由 | 说明 |
-|------|------|
-| `/jobs` | 可执行任务列表 |
-| `/events` | 事件列表 |
-| `/subscriptions` | 订阅任务管理 |
-| `/requirements` | 定制需求管理 |
-| `/insights` | AI 洞察列表 |
-| `/info-center` | 信息中心 (list + export) |
+### 资源管理 (Dashboard 路由，挂载在 `/`)
+| 方法 | 路由 | 说明 |
+|------|------|------|
+| GET | `/jobs` | 可执行任务列表 |
+| GET | `/events` | 事件列表 |
+| GET | `/events/:id` | 事件详情 |
+| PATCH | `/events/:id` | 标记事件已读/未读 |
+| GET | `/subscriptions` | 订阅任务管理 |
+| PATCH | `/subscriptions/:id` | 更新订阅状态（running/paused） |
+| GET | `/requirements` | 定制需求管理 |
+| GET | `/insights` | AI 洞察列表 |
+| GET | `/insights/:id` | AI 洞察详情 |
+
+### 信息中心
+| 方法 | 路由 | 说明 |
+|------|------|------|
+| GET | `/info-center` | 信息列表 |
+| GET | `/info-center/export` | 导出 |
 
 ### 实时数据
 | 路由 | 说明 |
 |------|------|
-| `/ais/data` | AIS 船舶实时数据 |
-| `/ais/geojson` | AIS 船舶 GeoJSON |
-| `/ais/shipdt-area` | ShipDT 区域船舶查询 |
-| `/ads/data` | ADS-B 航空器实时数据 |
-| `/ads/geojson` | ADS-B 航空器 GeoJSON |
+| `/ais/data` | AIS 船舶实时数据（读取 `ais_current_states`） |
+| `/ads/data` | ADS-B 航空器实时数据（读取 `aircraft_current_states`） |
 | `/sse/global` | 全局 SSE 实时推送 |
 | `/health` | 健康检查 |
 | `/agent/callback/slice` | 卫星切片回调 |
@@ -310,34 +397,72 @@ docker exec ds_postgis psql -U postgres -d show_room -c "SELECT 'international' 
 复制 `api/.env.example` 为 `api/.env`，配置数据库连接和 API 密钥：
 
 ```bash
+# API 服务配置
+API_PORT=3001
+NODE_ENV=development
+CALLBACK_HOST=192.168.0.193       # 外部系统回调地址，公网/局域网部署时改为可访问 IP
+
 # 数据库 & 缓存
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/datasource
 REDIS_URL=redis://localhost:6379
 
-# AI 服务 (至少配置一个)
-DEEPSEEK_API_KEY=your_key        # Planner / Router
-DIFY_PLANNER_API_KEY=your_key    # 遗留 Planner
-DIFY_ROUTER_API_KEY=your_key     # 遗留 Router
-DIFY_INSIGHT_API_KEY=your_key    # Insight 生成
-DIFY_MARITIME_API_KEY=your_key   # 海域态势
-DIFY_NEWS_API_KEY=your_key       # 新闻分析
-QWEN_API_KEY=your_key            # Qwen 模型
-VOLCANO_SEARCH_API_KEY=your_key  # 搜索增强
+# Dify API 配置（旧 Planner / Router / Insight / Maritime / News）
+DIFY_PLANNER_API_KEY=your_key
+DIFY_PLANNER_API_URL=https://api.dify.ai/v1
+DIFY_ROUTER_API_KEY=your_key
+DIFY_ROUTER_API_URL=https://api.dify.ai/v1
+DIFY_INSIGHT_API_KEY=your_key
+DIFY_INSIGHT_API_URL=https://api.dify.ai/v1
+DIFY_MARITIME_API_KEY=your_key
+DIFY_MARITIME_API_URL=https://api.dify.ai/v1
+DIFY_NEWS_API_KEY=your_key
+DIFY_NEWS_API_URL=https://api.dify.ai/v1
 
-# Agent Loop 上下文（可选，有默认值）
-AGENT_WORKSPACE_ROOT=../..       # 工作区根目录（工具路径解析基准）
-AGENT_TIMEZONE=Asia/Shanghai     # 时区
-AGENT_CONTEXT_WINDOW_CHARS=120000      # 上下文窗口字符预算
-AGENT_CONTEXT_SUMMARY_RESERVE_CHARS=12000  # 摘要预留字符
-AGENT_TOOL_MESSAGE_MAX_CHARS=16000     # 工具消息默认截断长度
-AGENT_TOOL_READ_MAX_CHARS=18000        # Read 工具截断长度
-AGENT_TOOL_BASH_MAX_CHARS=12000        # Bash 工具截断长度
+# AI 模型
+DEEPSEEK_API_KEY=your_key
+DEEPSEEK_API_URL=https://api.deepseek.com/chat/completions
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_API_TIMEOUT_MS=120000
+
+QWEN_API_KEY=your_key
+QWEN_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+QWEN_MODEL=qwen3.5-27b
+
+# 搜索增强
+VOLCANO_SEARCH_API_KEY=your_key
+VOLCANO_SEARCH_URL=https://open.feedcoopapi.com/search_api/web_search
+WEBSEARCH_TIMEOUT_MS=30000
+
+# Agent Loop / 系统工具配置
+AGENT_WORKSPACE_ROOT=/absolute/path/to/workspace
+AGENT_TIMEZONE=Asia/Shanghai
+WEBFETCH_TIMEOUT_MS=30000
+WEBFETCH_MAX_CHARS=20000
+WEBFETCH_USER_AGENT=DSI-AgentLoop/0.1
+
+# Agent Loop 上下文窗口（可选，有代码内默认值）
+AGENT_CONTEXT_WINDOW_CHARS=120000
+AGENT_CONTEXT_SUMMARY_RESERVE_CHARS=12000
+AGENT_TOOL_MESSAGE_MAX_CHARS=16000
+AGENT_TOOL_READ_MAX_CHARS=18000
+AGENT_TOOL_BASH_MAX_CHARS=12000
+
+# Agent Harness 开关（已弃用，保留兼容）
+# 当前 pipeline.ts 已固定走 Agent Loop，该变量不再生效
+AGENT_HARNESS_ENABLED=false
 
 # 数据源
 AISSTREAM_API_KEY=your_key       # AIS 实时流
-SHIPDT_API_KEY=your_key          # ShipDT 船舶数据
-OPENSKY_CLIENT_ID=your_id      # OpenSky ADS-B
+OPENSKY_CLIENT_ID=your_id        # OpenSky ADS-B
 OPENSKY_CLIENT_SECRET=your_secret
+
+# 需求管理平台网关
+GATEWAY_BASE_URL=http://192.168.0.136
+GATEWAY_ACCESS_KEY=
+
+# Mock 模式
+MOCK_PLANNER=false
+MOCK_ROUTER=false
 ```
 
 ### 启动开发环境
@@ -383,18 +508,17 @@ pnpm start:prod
 |------|------|------|
 | PostgreSQL | 数据持久化 | 必需 |
 | Redis | 缓存 + 队列 + Pub/Sub | 必需 |
-| DeepSeek API | Planner / Router LLM 推理 | 推荐 |
-| Dify | LLM Agent 服务 (Planner/Router/Insight/Maritime/News) | 未配置时降级为 Mock |
+| DeepSeek API | Agent Loop LLM 推理 | 推荐 |
+| Dify | LLM Agent 服务 (旧 Planner/Router/Insight/Maritime/News) | 未配置时降级为 Mock |
 | Qwen API | 阿里百练模型 | 可选 |
 | 火山引擎搜索 | 搜索增强 | 可选 |
 | AISStream | AIS 实时船舶数据 (WebSocket → 每小时 DB 注入) | 可选 |
-| ShipDT | AIS 船舶静态数据 / 区域聚合查询 | 可选 |
 | OpenSky | ADS-B 航空器数据 | 可选 |
 | AWS S3 | 对象存储 | 可选 |
 
 ## 路线图与计划
 
-### Agent Loop 运行时（进行中）
+### Agent Loop 运行时
 
 | 阶段 | 状态 | 文档 |
 |------|------|------|
@@ -402,8 +526,10 @@ pnpm start:prod
 | Phase 1: Context Provider + Prompt Manager + Window Manager | ✅ 已完成 | [plan](api/plan/context-provider-window-manager-plan.md) |
 | Phase 2: Window Manager 增强（token 估算、优先级、per-tool 预算） | ✅ 已完成 | [plan](api/plan/context-window-phase2-plan.md) |
 | Phase 1: System Prompt 结构化 | ✅ 已完成 | [plan](api/plan/prompt-system-prompt-phase1-plan.md) |
-| Phase 2: Context Provider 增强 | 🔄 待执行 | [plan](api/plan/context-provider-phase2-plan.md) |
-| Phase 3: Memory + Transcript 持久化 | ⏳ 规划中 | — |
+| Phase 2: Context Provider 增强 | ✅ 已完成 | [plan](api/plan/context-provider-phase2-plan.md) |
+| Phase 3: Context Provider + Transcript 持久化 | ✅ 已完成 | [closeout](api/plan/context-provider-phase3-closeout.md) |
+| Memory MVP | ✅ 已实现 | [plan](api/plan/memory-mvp-plan.md) |
+| Prompt Versioning | 🔄 进行中 | [plan](api/plan/prompt-versioning-plan.md) |
 
 ### 数据注入（已完成）
 
@@ -411,9 +537,10 @@ pnpm start:prod
 |--------|------|------|
 | OpenSky ADS-B 每小时注入 | ✅ 已完成 | `api/src/modules/opensky/` — REST API → DB replaceAll |
 | AISStream 每小时注入 | ✅ 已完成 | `api/src/modules/ais/` — WebSocket 60s → DB replaceAll |
-| Dashboard ADS 查询 | ✅ 已完成 | `getAdsData()` 查询 `aircraft_current_states`，limit 3000 |
-| Dashboard AIS 查询 | ✅ 已完成 | `getAisData()` 查询 `ais_current_states`，limit 1000 |
+| Dashboard ADS 查询 | ✅ 已完成 | `getAdsData()` 查询 `aircraft_current_states` |
+| Dashboard AIS 查询 | ✅ 已完成 | `getAisData()` 查询 `ais_current_states` |
 | Agent-loop AIS skill 查询 | ✅ 已完成 | `skills/ais-region-query/` — SqlQuery bbox 查询 |
+| Agent-loop Aircraft skill 查询 | ✅ 已完成 | `skills/aircraft-region-query/` — SqlQuery bbox 查询 |
 
 ### 前端性能（P0）
 
@@ -427,9 +554,9 @@ pnpm start:prod
 
 ## 注意事项
 
-1. **AI 服务降级**：当 Dify / DeepSeek API Key 未配置时，Planner/Router 自动降级为 Mock 模式
-2. **AIS/ADS-B 数据**：已接入真实数据源 — OpenSky（ADS-B 航空器）+ AISStream（船舶实时流）→ 每小时注入 DB；ShipDT 提供区域聚合和静态数据补充。未配置时 Dashboard 返回空数据，Agent-loop 通过 skill 查询 DB
+1. **AI 服务降级**：当 Dify / DeepSeek API Key 未配置时，相关调用自动降级为 Mock 模式
+2. **AIS/ADS-B 数据**：已接入真实数据源 — OpenSky（ADS-B 航空器）+ AISStream（船舶实时流）→ 每小时注入 DB；未配置时 Dashboard 返回空数据，Agent-loop 通过 skill 查询 DB
 3. **用户认证**：当前仅使用 localStorage 简单登录状态，无真实认证系统
-4. **性能**：Cesium 3D 地图在大量实体（1000+）时需注意性能；ADS 已放开到 3000 条，AIS 保持 1000 条。参考 `api/issues/frontend-performance-trace-*.md`
-5. **日志**：各服务日志统一输出到 `logs/` 目录
-6. **Agent Loop**：当前为 `agent-loop` 分支的功能，已全面替代旧 Pipeline 成为唯一的 Agent 编排入口
+4. **性能**：Cesium 3D 地图在大量实体（1000+）时需注意性能；ADS 已放开到 20000 条，AIS 保持 1000 条。参考 `api/issues/frontend-performance-trace-*.md`
+5. **日志**：各服务日志统一输出到 `logs/` 目录；Agent Loop 同时生成 turn 级 JSONL 文件日志
+6. **Agent Loop**：`api/src/modules/tasks/pipeline.ts` 已替换为 Agent Loop 编排入口，是当前唯一的 Agent 任务执行路径；`AGENT_HARNESS_ENABLED` 环境变量已弃用，保留在 `.env.example` 仅作兼容

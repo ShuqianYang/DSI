@@ -5,10 +5,22 @@ import type {
   ToolRiskLevel,
 } from "./types.js";
 
+function isSkillDirectoryWrite(input: unknown, context: ToolExecutionContext): boolean {
+  const filePath = (input as { file_path?: string }).file_path;
+  if (!filePath) return false;
+  const normalized = filePath.replace(/\\/g, "/");
+  // Allow relative paths like "skills/<skill-name>/..." and absolute paths
+  // like "S:/Projects/projects_new/skills/<skill-name>/...".
+  const isUnderSkillsDir =
+    normalized.startsWith("skills/") || normalized.includes("/skills/");
+  if (!isUnderSkillsDir) return false;
+  return context.toolUseContext?.skillAllowedToolNames?.has("Write") ?? false;
+}
+
 export function decideDefaultToolPolicy<Input>(
   tool: ToolDefinition<Input>,
   input: Input,
-  _context: ToolExecutionContext,
+  context: ToolExecutionContext,
 ): ToolPermissionDecision<Input> {
   if (tool.name === "Bash") {
     return {
@@ -20,6 +32,9 @@ export function decideDefaultToolPolicy<Input>(
 
   const destructive = safeBooleanCall(tool.isDestructive, input);
   if (destructive || tool.name === "Write" || tool.name === "Edit") {
+    if (tool.name === "Write" && isSkillDirectoryWrite(input, context)) {
+      return { behavior: "allow" };
+    }
     return {
       behavior: "ask",
       message: `${tool.name} may modify workspace files. Allow this tool call?`,

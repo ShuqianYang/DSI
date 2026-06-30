@@ -2,7 +2,7 @@
 name: alarm-disposal-orchestrator
 description: Use when the user reports a portable smart device alarm or border intrusion warning and needs to drive the patrol resource dispatch workflow from alarm intake through trajectory prediction to a suggested allocation plan.
 argument-hint: "[alarm JSON from portable device or natural language alarm description, optionally with patrol personnel positions]"
-allowed-tools: Read, Bash
+allowed-tools: Read, Bash, Write
 ---
 
 # Alarm Disposal Orchestrator
@@ -56,7 +56,9 @@ If the user says there are no personnel, record that explicitly as an empty arra
 
 ## Patrol personnel supplement
 
-Before calling dispatch, the skill must ask the user for any on-site patrol personnel that can be allocated. The expected format is an array:
+Before calling dispatch, check whether the user has already provided on-site patrol personnel positions in the input. If provided, use them directly. **Only ask** if personnel information is missing.
+
+The expected format is an array:
 
 ```json
 [
@@ -153,18 +155,25 @@ Set `USE_BOUNDARY_DATA=false` to disable this enrichment entirely.
 
 1. Parse the alarm. If any required field is missing, enter **form mode** and ask the user to fill in the blanks.
 2. Validate `longitude`, `latitude`, `eventTime`, and `currentDeviceId`.
-3. Ask the user for patrol personnel positions via the personnel form (if not provided).
-4. Call the orchestrator script via Bash:
+3. If patrol personnel positions are not already in the input, ask the user via the personnel form. If already provided (or the user says there are none), use that array directly.
+4. Create the input JSON files with the `Write` tool, then call the orchestrator script via Bash.
+
+   **Important:** Do **not** use Bash redirection (`>` / `>>`) or `python -c` to create files. The agent-loop sandbox blocks shell redirection, and Python may not be installed or may still be initializing. Use the `Write` tool to create the following files with exact absolute paths:
+
+   - `S:/Projects/projects_new/skills/alarm-disposal-orchestrator/alarm.json`
+   - `S:/Projects/projects_new/skills/alarm-disposal-orchestrator/personnel.json`
+
+   If the user said there are no patrol personnel, write `[]` to `personnel.json`.
+
+   Then run the script via the workspace wrapper script (it hardcodes the Python interpreter path to avoid the agent-loop Bash sandbox's PyManager issue):
 
    ```bash
-   python "S:/Projects/projects_new/skills/alarm-disposal-orchestrator/scripts/orchestrate.py" --alarm '<JSON>' --personnel '<JSON_ARRAY>'
+   cd "S:/Projects/projects_new/skills/alarm-disposal-orchestrator" && run-orchestrate.cmd --alarm-file "S:/Projects/projects_new/skills/alarm-disposal-orchestrator/alarm.json" --personnel-file "S:/Projects/projects_new/skills/alarm-disposal-orchestrator/personnel.json"
    ```
 
-   **On Windows (or any shell where single-quote JSON is not stripped), prefer the file flags** to avoid quote-escaping failures. Write the JSON with the `Write` tool, then pass the paths:
+   **Do not** call `python scripts/orchestrate.py` directly from the agent-loop Bash sandbox, because the sandbox cannot resolve the PyManager Python runtime.
 
-   ```bash
-   python "S:/Projects/.../scripts/orchestrate.py" --alarm-file alarm.json --personnel-file personnel.json
-   ```
+   If you need to force a specific resource source, add `--resource-source simulator` or pass `--static-resources-file <path>` instead of `--resource-source`.
 
    The script expects:
    - `--alarm`: a single JSON object with the portable alarm. Optional when `--event-id` is given.

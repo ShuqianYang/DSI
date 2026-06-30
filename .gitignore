@@ -60,6 +60,15 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .yarn/build-state.yml
 .yarn/install-state.gz
 node-compile-cache/
+# Python launcher/runtime local cache
+Python/
+**/Python/
+
+# alarm-disposal-orchestrator runtime I/O files
+skills/alarm-disposal-orchestrator/alarm.json
+skills/alarm-disposal-orchestrator/personnel.json
+skills/alarm-disposal-orchestrator/output.json
+skills/alarm-disposal-orchestrator/summarize_result.py
 
 # Editor directories and files
 .vscode/*
