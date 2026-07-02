@@ -680,7 +680,189 @@ async def daily_report(request: DailyReportRequest):
 
 ---
 
-## 10. 落地方案选择（需要你最后确认）
+## 10. 架构选型讨论与最终建议
+
+### 10.1 Skill 是否一定要配合 Agent Loop？
+
+**不是。**
+
+Skill 只是“能力说明书 + 配套工具集”，表示遇到某类问题时应该调用哪些工具、按什么流程处理。它可以用多种方式调度：
+
+| 调度方式 | 说明 | 是否适合本场景 |
+|----------|------|----------------|
+| **完整 Agent Loop** | 模型自主决定调用哪个 tool，根据结果再决定下一步，循环直到给出最终答案 | 适合复杂多步推理任务，对 QA/日报 有点重 |
+| **意图路由 + 固定流程** | 先识别意图，再按预定流程执行 tool，最后总结 | ✅ **非常适合 QA/日报** |
+| **Function Calling 单次调用** | 模型一次选择 tool 并生成参数，执行后直接回答 | 适合简单查询 |
+| **规则路由** | 关键词/正则匹配直接路由 | 适合意图非常明确的场景 |
+
+本项目的 `agent-loop` 是一个较重的通用循环框架，适合 GIS、灾害、油污溯源等多工具协作场景。
+
+但 QA 和日报本质上是**单领域、流程明确的任务**：
+
+- QA：理解问题 → 生成 SQL → 查数据库 →（可选图表）→ 回答
+- 日报：解析日期/类型 → 执行固定 SQL → 生成图表 → LLM 写报告
+
+因此，**不需要复刻本项目的完整 Agent Loop**，采用“意图路由 + 短流程/固定流程”更轻、更快、更可控。
+
+### 10.2 是否使用 LangChain / LangGraph？
+
+**不推荐。**
+
+虽然 LangChain / LangGraph 是成熟的 Python Agent 框架，但引入它们会带来的问题：
+
+- 学习成本和版本碎片化
+- 框架抽象层较厚，调试时需要理解其内部状态流转
+- 对于 QA/日报 这种固定流程任务，属于“杀鸡用牛刀”
+
+更合适的做法是：
+
+```text
+FastAPI
+  └── Router（按接口路由到 QA / DailyReport）
+        └── SkillExecutor（加载 SKILL.md，组装 system prompt）
+              └── ToolExecutor（MysqlQuery / ChartGenerate / LLM Generate）
+                    └── Redis Memory（可选）
+```
+
+如果需要让模型连续调用两次 tool（如 QA 中“先查 schema 再查数据”），可以实现一个**非常短的循环（最多 2-3 轮）**，无需引入完整 Agent Loop 框架。
+
+### 10.3 Skill + Tool 架构比多 Agent 效果更好吗？
+
+**对于 QA 和日报这两个任务，是的。**
+
+原项目采用的是多 Agent 设计：
+
+```text
+用户
+  ├── QA Agent ──→ SQL Tool / Chart Tool
+  ├── Daily Report Agent ──→ SQL Template ──→ 子绘图 Agent
+  └── 子绘图 Agent ──→ matplotlib
+```
+
+这种设计存在的问题：
+
+| 问题 | 说明 |
+|------|------|
+| **子 Agent 增加不稳定性** | 日报里用子 Agent 画图，多了一层模型调用，容易出错、耗时 |
+| **上下文管理复杂** | 多 Agent 之间共享状态需要 GlobalDataStore，容易混乱 |
+| **调试困难** | 一个任务跨多个 Agent，日志分散 |
+| **过度设计** | 画图其实不需要 Agent，直接函数调用即可 |
+
+重构后的 Skill + Tool 架构：
+
+```text
+用户
+  └── 一个执行器
+        ├── QA Skill ──→ MysqlQuery / ChartGenerate
+        └── Daily Report Skill ──→ SQL Template / ChartGenerate / LLM
+```
+
+优势：
+
+- 流程简单直接，一个任务只走一个 skill
+- 每个 tool 独立可测试
+- 减少模型调用次数，降低延迟和成本
+- 更适合“工具调用 + 总结”型任务
+
+**什么时候多 Agent 更好？**
+
+当任务需要多个角色协作、多轮协商、复杂分支时，例如：
+
+- “先查天气，再查航班，再订酒店，再发邮件”
+- “一个 agent 分析数据，一个 agent 写报告，一个 agent 审稿”
+
+QA 和日报不属于这类场景。
+
+### 10.4 最终推荐架构
+
+综合以上讨论，最终推荐：
+
+```text
+轻量 Skill + Tool 架构
+  ├── Skill：用 Markdown 管理提示词和路由规则
+  ├── Tool：独立可执行的 Domain Tool
+  ├── Router：按接口/意图路由到对应 Skill
+  ├── Executor：加载 Skill，调用 Tool，最多 2-3 轮短循环
+  └── Memory：Redis Session 记忆（可选）
+```
+
+调整后的目录结构（去掉了过重的 `agents/loop.py`）：
+
+```text
+app/  或  xinjiang-agent-python/
+├── skills/
+│   ├── border_defense_qa/SKILL.md
+│   └── daily_report/SKILL.md
+├── tools/
+│   ├── __init__.py
+│   ├── base.py               # ToolDefinition 基类/协议
+│   ├── registry.py           # ToolRegistry
+│   ├── gateway.py            # ToolGateway：校验、执行、截断
+│   ├── mysql_query.py        # MysqlQuery / MysqlQuerySchema
+│   ├── chart_generate.py     # ChartGenerate（生成 ECharts option）
+│   └── daily_report.py       # DailyReport（本地 SQL + LLM）
+├── core/
+│   ├── skill_loader.py       # 加载 SKILL.md
+│   ├── skill_executor.py     # Skill 执行器（替代完整 Agent Loop）
+│   ├── model_client.py       # LLM 调用封装
+│   ├── memory_manager.py     # Redis Session 记忆
+│   └── date_parser.py        # 自然语言日期解析
+├── router/
+│   ├── qa_router.py          # /intelligent-qa
+│   └── daily_report_router.py# /daily-report
+├── sql/
+│   └── daily_report/         # 日报 SQL 模板
+├── utils/
+│   ├── echarts_builder.py    # ECharts option 生成器
+│   └── response_formatter.py # 结果格式化、空值处理
+├── config.py
+└── app.py                    # FastAPI 入口
+```
+
+### 10.5 流程说明
+
+**QA 流程：**
+
+```text
+POST /intelligent-qa
+  ├── 读取 session 历史（Redis）
+  ├── 组装 system prompt = SKILL.md + 表结构 + 规则
+  ├── 调用 LLM 判断：自我介绍？无关问题？SQL查询？
+  ├── 如果是 SQL 查询：
+  │     ├── LLM 生成 SQL（如需先调用 MysqlQuerySchema 确认字段）
+  │     ├── 执行 MysqlQuery
+  │     ├──（可选）生成 ECharts option
+  │     └── LLM 总结为 Markdown
+  └── 保存 session 历史
+```
+
+**Daily Report 流程：**
+
+```text
+POST /daily-report
+  ├── 解析日期和 report_type
+  ├── 执行对应 SQL 模板
+  ├── 生成 ECharts option（饼图、柱状图）
+  ├── 组装数据和图表给 LLM
+  └── LLM 生成 Markdown 日报
+```
+
+### 10.6 最终选型结论
+
+| 选型 | 结论 |
+|------|------|
+| Skill 机制 | ✅ 保留，用 Markdown 管理 |
+| 完整 Agent Loop | ❌ 不需要，用意图路由 + 短流程替代 |
+| LangChain / LangGraph | ❌ 不需要，自研轻量框架足够 |
+| 多 Agent | ❌ 不需要，合并为单执行器 + 多 Tool |
+| 图表 | ✅ ECharts option 由后端生成，前端渲染 |
+| 日报 | ✅ 本地 SQL + LLM，不调用外部服务 |
+| 记忆 | ✅ Redis Session 记忆保留 |
+| 技术栈 | ✅ Python 后端 + 原有前端 |
+
+---
+
+## 11. 落地方案选择（需要你最后确认）
 
 基于以上设计，还有两个实施位置需要你来定：
 
@@ -702,7 +884,7 @@ async def daily_report(request: DailyReportRequest):
 
 ---
 
-## 11. 下一步行动
+## 12. 下一步行动
 
 1. 确认落地方案（A 在原项目重构 / B 在本项目新建 Python 目录）。
 2. 确认后，我会立即输出详细目录结构和第一批代码骨架：
