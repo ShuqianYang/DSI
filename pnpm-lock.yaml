@@ -209,9 +209,6 @@ importers:
       '@react-dev-inspector/babel-plugin':
         specifier: ^2.0.1
         version: 2.0.1
-      '@react-dev-inspector/middleware':
-        specifier: ^2.0.1
-        version: 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
       '@swc/helpers':
         specifier: 0.5.15
         version: 0.5.15
@@ -239,9 +236,6 @@ importers:
       only-allow:
         specifier: ^1.2.2
         version: 1.2.2
-      react-dev-inspector:
-        specifier: ^2.0.1
-        version: 2.0.1(@types/react@19.2.10)(eslint@9.39.2(jiti@2.6.1))(react@19.2.3)(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
       shadcn:
         specifier: latest
         version: 3.7.0(@cfworker/json-schema@4.1.1)(@types/node@20.19.30)(hono@4.11.7)(typescript@5.9.3)
@@ -272,6 +266,9 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
+      drizzle-kit:
+        specifier: ^0.31.8
+        version: 0.31.8
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@types/pg@8.16.0)(mysql2@3.22.5(@types/node@20.19.39))(pg@8.17.2)
@@ -330,9 +327,6 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
-      drizzle-kit:
-        specifier: ^0.31.8
-        version: 0.31.8
       eventsource:
         specifier: ^4.1.0
         version: 4.1.0

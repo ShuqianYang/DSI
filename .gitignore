@@ -27,6 +27,8 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*
+!docker/.env.example
 
 # Logs
 logs/*.log
