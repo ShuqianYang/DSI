@@ -10,11 +10,25 @@ skills/
 │   └── SKILL.md
 ├── ais-region-query/
 │   └── SKILL.md
+├── alarm-disposal-orchestrator/
+│   └── SKILL.md
+├── border-defense-qa/
+│   └── SKILL.md
 ├── conventional-commit-helper/
 │   └── SKILL.md
 ├── csv-profile/
 │   └── SKILL.md
-└── disaster-satellite-query/
+├── daily-report/
+│   └── SKILL.md
+├── disaster-satellite-query/
+│   └── SKILL.md
+├── earthquake-assessment/
+│   └── SKILL.md
+├── fire-investigation/
+│   └── SKILL.md
+├── flood-assessment/
+│   └── SKILL.md
+└── oil-spill-tracing/
     └── SKILL.md
 ```
 
