@@ -23,8 +23,8 @@
     "agent:skills:real": "tsx scripts/agent-loop/agent-loop-real-skill-tests.ts",
     "agent:aircraft:real": "tsx tests/test-aircraft-agent-real.mjs",
     "agent:capability-probe": "tsx tests/agent-loop/test-agent-loop-capability-probe.mjs",
-    "agent:smoke:daily-report": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario daily-report --mock-api",
-    "agent:smoke:daily-report:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario daily-report",
+    "agent:smoke:daily-report": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario daily-report",
+    "agent:smoke:daily-report:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario daily-report --real-model",
     "agent:smoke:oil-spill-mock": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario oil-spill-mock --mock-api --max-turns 20 --turn-delay-ms 5000",
     "agent:smoke:oil-spill-mock:real": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario oil-spill-mock --real-model --max-turns 20 --turn-delay-ms 5000",
     "agent:smoke:fire-investigation": "tsx scripts/agent-loop/agent-loop-smoke.ts --scenario fire-investigation --mock-api --max-turns 20 --turn-delay-ms 5000",
@@ -38,6 +38,8 @@
     "agent:test:border-defense-qa": "tsx tests/agent-loop/test-border-defense-qa-tool.mjs",
     "agent:test:border-defense-qa:skill": "tsx tests/agent-loop/test-border-defense-qa-skill-load.mjs",
     "agent:test:border-defense-qa:integration": "tsx tests/agent-loop/test-border-defense-qa-integration.mjs",
+    "agent:test:daily-report": "tsx tests/agent-loop/test-daily-report-tool.mjs",
+    "agent:test:daily-report:v2": "tsx tests/agent-loop/test-daily-report-tool-v2.mjs",
     "lint": "eslint src/"
   },
   "dependencies": {

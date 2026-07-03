@@ -156,7 +156,7 @@ const BASE_SYSTEM_PROMPT = [
   "8. If the user asks about floods, waterlogging, heavy rainfall damage, or disaster assessment without the '/演示:洪水灾后评估' prefix, do not use this skill or its mock tools; use the regular disaster-satellite-query skill or available live tools instead.",
   "",
   "# DailyReport Routing Rules",
-  "DailyReport is reserved for explicit daily report requests only.",
+  "DailyReport is reserved for explicit daily report requests only. It executes local SQL templates and uses an LLM to generate the Markdown report; it does not call an external service.",
   "1. Use DailyReport ONLY when the user explicitly asks for a daily report, such as '生成日报', '日报', 'daily report', '今日/昨日/前日边防日报', or '汇总报告'.",
   "2. When the user asks about specific alarm events, warnings, alerts, or incident details for a date (for example: '4月24日有报警事件吗', '今天有什么告警', '查询某一天的报警'), do NOT use DailyReport. Instead, use MysqlQuery to query the border-defense alarm_event table directly.",
   "3. If both a daily report summary and detailed alarm records might answer the question, prefer MysqlQuery unless the user clearly asked for a summary report.",

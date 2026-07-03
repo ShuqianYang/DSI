@@ -7,7 +7,9 @@ allowed-tools: DailyReport
 
 # Daily Report
 
-Use this skill when the user asks for a border-defense daily report, security report, weekly report, or special-topic report. The skill calls the `DailyReport` domain tool, which forwards the request to the daily-report service and returns generated report content.
+Use this skill when the user asks for a border-defense daily report, security report, weekly report, or special-topic report.
+
+The `DailyReport` domain tool now executes **local SQL templates** and uses an LLM to generate the report content. It no longer forwards the request to an external daily-report service.
 
 ## Required Input
 
@@ -24,9 +26,9 @@ If the user only mentions "日报" or "daily report" without a date, default to 
 
 1. Extract the date from the user's query.
 2. Determine the report type:
-   - 总体, 综合, overview, general -> `"report_type": "总体"`
-   - 设备监控, 设备, 监控 -> `"report_type": "设备监控"`
-   - 预警事态, 预警, 事态, alerts, warnings -> `"report_type": "预警事态"`
+   - 总体, 综合, overview, general -> `"report_type": "all"`
+   - 设备监控, 设备, 监控, 卡口 -> `"report_type": "buckle"`
+   - 预警事态, 预警, 事态, alerts, warnings -> `"report_type": "event"`
    - unspecified -> `"report_type": "all"`
 3. Call `DailyReport` with the normalized input:
 
@@ -40,19 +42,21 @@ If the user only mentions "日报" or "daily report" without a date, default to 
 ```json
 {
   "query": "昨天",
-  "report_type": "预警事态"
+  "report_type": "event"
 }
 ```
 
-4. The tool returns `report_content`. Summarize the key points in Chinese for the user; do not paste the full raw content unless explicitly requested.
-5. Include the resolved `date` and `report_type` in the response.
+4. The tool returns `report_content` (Markdown) and `charts` (recharts-ready data).
+5. Summarize the key points in Chinese for the user; do not paste the full raw content unless explicitly requested.
+6. Include the resolved `date` and `report_type` in the response.
 
 ## Rules
 
 - Do not invent report content. Only summarize what the `DailyReport` tool returns.
-- If the daily-report service fails, report the failure and do not fabricate a report.
+- If the `DailyReport` tool fails, report the failure and do not fabricate a report.
 - If the user's query contains no usable date, default to today.
 - Keep the summary concise. Mention the number of sections or key highlights if the report is long.
+- If the user asks for specific alarm events or detailed records for a date (e.g. "4月24日有报警事件吗", "今天有什么告警"), do NOT use `DailyReport`. Use `MysqlQuery` to query the `alarm_event` table directly.
 
 ## Response
 
