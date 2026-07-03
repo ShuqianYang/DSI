@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { ChatMessage, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
@@ -16,6 +16,10 @@ import {
   extractGisPushesFromTaskResult,
   type AgentLoopGisPush,
 } from '@/lib/agentLoopGisBridge';
+import {
+  extractChartsFromAgentLoopEvent,
+  extractChartsFromTaskResult,
+} from '@/lib/agentLoopCharts';
 import { formatAgentLoopThinkingUpdate } from '@/lib/agentLoopStepFormatter';
 import {
   buildAgentLoopTaskResultFromStop,
@@ -258,6 +262,7 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
     }
 
     const resultMarkdown = formatTaskResult(result);
+    const resultCharts = extractChartsFromTaskResult(result);
     const resultLogFilePath =
       typeof result.logFilePath === 'string' ? result.logFilePath : undefined;
     if (resultLogFilePath) {
@@ -269,12 +274,16 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
       );
       if (idx === -1) return prev;
       const next = [...prev];
+      const existing = prev[idx].charts || [];
+      const existingIds = new Set(existing.map((c) => c.chart_id));
+      const newCharts = resultCharts.filter((c) => !existingIds.has(c.chart_id));
       next[idx] = {
         ...prev[idx],
         content:
           result.mode === 'agent_loop'
             ? chooseAgentLoopDisplayContent(prev[idx].content, resultMarkdown)
             : resultMarkdown,
+        charts: [...existing, ...newCharts],
         agentLoopLogFilePath: resultLogFilePath || prev[idx].agentLoopLogFilePath,
       };
       return next;
@@ -379,6 +388,20 @@ export function useTaskChat({ onGisDataRequest, onGisOperation, onTaskCreate, on
       if (operations?.length) {
         console.log('[useTaskChat] Received GIS operations (agent-loop):', operations);
         onGisOperation?.(operations);
+      }
+
+      const eventCharts = extractChartsFromAgentLoopEvent(event);
+      if (eventCharts.length > 0) {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
+          if (idx === -1) return prev;
+          const next = [...prev];
+          const existing = next[idx].charts || [];
+          const existingIds = new Set(existing.map((c) => c.chart_id));
+          const newCharts = eventCharts.filter((c) => !existingIds.has(c.chart_id));
+          next[idx] = { ...next[idx], charts: [...existing, ...newCharts] };
+          return next;
+        });
       }
 
       return;

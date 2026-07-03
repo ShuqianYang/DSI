@@ -2,12 +2,19 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ChartRenderer, type ChartRenderData } from './ChartRenderer';
 
 interface MarkdownContentProps {
   content: string;
+  charts?: ChartRenderData[];
 }
 
-export default function MarkdownContent({ content }: MarkdownContentProps) {
+function findChartById(charts: ChartRenderData[] | undefined, chartId: string): ChartRenderData | undefined {
+  if (!charts || charts.length === 0) return undefined;
+  return charts.find((chart) => chart.chart_id === chartId);
+}
+
+export default function MarkdownContent({ content, charts }: MarkdownContentProps) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -42,6 +49,21 @@ export default function MarkdownContent({ content }: MarkdownContentProps) {
         ol: ({ children }) => <ol className="list-decimal pl-4 my-2">{children}</ol>,
         li: ({ children }) => <li className="text-sm text-[#EAEAEA] mb-1">{children}</li>,
         hr: () => <hr className="border-[#3A3A4E] my-3" />,
+        img: ({ src, alt }) => {
+          if (typeof src === 'string' && src.startsWith('chart://')) {
+            const chartId = src.slice('chart://'.length);
+            const chartData = findChartById(charts, chartId);
+            if (chartData) {
+              return <ChartRenderer chartData={chartData} />;
+            }
+            return (
+              <div className="text-sm text-[#8888AA] italic my-2">
+                [图表 {chartId} 暂无数据]
+              </div>
+            );
+          }
+          return <img src={src} alt={alt} className="max-w-full rounded" />;
+        },
         table: ({ children }) => (
           <table className="w-full text-sm border-collapse my-2">{children}</table>
         ),

@@ -40,6 +40,7 @@
     "agent:test:border-defense-qa:integration": "tsx tests/agent-loop/test-border-defense-qa-integration.mjs",
     "agent:test:daily-report": "tsx tests/agent-loop/test-daily-report-tool.mjs",
     "agent:test:daily-report:v2": "tsx tests/agent-loop/test-daily-report-tool-v2.mjs",
+    "agent:test:chart-render-data": "tsx tests/agent-loop/test-chart-render-data.mjs",
     "lint": "eslint src/"
   },
   "dependencies": {

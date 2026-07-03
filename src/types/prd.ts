@@ -33,6 +33,20 @@ export interface ThinkingStep {
   toolCallId?: string;
 }
 
+export interface ChartData {
+  chart_type: 'bar' | 'line' | 'pie';
+  title: string;
+  chart_id: string;
+  data: Record<string, unknown>[];
+  config: {
+    x_axis?: string;
+    y_axis?: string;
+    label_key?: string;
+    value_key?: string;
+    series_keys?: string[];
+  };
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -40,6 +54,7 @@ export interface ChatMessage {
   timestamp: number;
   hasGisData?: boolean;
   gisData?: GisData;
+  charts?: ChartData[];       // 后端返回的图表数据
   taskId?: string;            // 关联的后端 Agent 任务 ID
   thinking?: string;          // 智能体思考过程文本
   thinkingSteps?: ThinkingStep[]; // 分步思考/规划步骤

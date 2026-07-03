@@ -331,6 +331,10 @@ data_detail_latitude:  纬度
 | `api/src/modules/agent-loop/tools/domain/index.ts` | 修改 | 注册 `ChartRenderData`（**不新增独立明细查询 tool**） |
 | `api/src/app/api/agent/intelligent-qa/route.ts` | 新增 | QA 同步接口 |
 | `src/components/chat/ChartRenderer.tsx` | 新增 | 解析 chart:// 占位符并渲染 recharts |
+| `src/components/chat/MarkdownContent.tsx` | 修改 | 识别 chart:// 并渲染 ChartRenderer |
+| `src/hooks/useTaskChat.ts` | 修改 | 从 agent loop 事件和任务结果中提取 charts |
+| `src/lib/agentLoopCharts.ts` | 新增 | 从事件/结果中提取图表数据 |
+| `src/types/prd.ts` | 修改 | `ChatMessage` 新增 `charts` 字段 |
 
 ---
 
@@ -518,12 +522,12 @@ GET /tasks/:taskId/daily-report/download
 - [x] 更新 `promptManager.ts` 路由提示
 - [x] 添加 smoke test 与单元测试
 
-### 里程碑 2：图表工具与前端渲染
+### 里程碑 2：图表工具与前端渲染（已完成）
 
-- [ ] 新增 `ChartRenderData` domain tool
-- [ ] 增强 `skills/border-defense-qa/SKILL.md` 图表规则
-- [ ] 前端 `ChartRenderer.tsx` 解析 chart:// 占位符
-- [ ] 测试 QA 图表链路
+- [x] 新增 `ChartRenderData` domain tool
+- [x] 增强 `skills/border-defense-qa/SKILL.md` 图表规则
+- [x] 前端 `ChartRenderer.tsx` 解析 chart:// 占位符
+- [x] 测试 QA 图表链路
 
 ### 里程碑 3：同 task 多轮对话
 

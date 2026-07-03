@@ -2,7 +2,7 @@
 name: border-defense-qa
 description: Use when the user asks about border defense data, including alarm events, warning levels, checkpoint access records, devices, departments, patrol records, or statistical analysis of these data.
 argument-hint: "[user border defense query in Chinese]"
-allowed-tools: Read, MysqlQuerySchema, MysqlQuery
+allowed-tools: Read, MysqlQuerySchema, MysqlQuery, ChartRenderData
 ---
 
 # Border Defense QA
@@ -442,7 +442,42 @@ Attendance records. PK: `record_id`.
    {"database":"border-defense","sql":"SELECT event_level_name, COUNT(*) AS cnt FROM alarm_event WHERE event_time >= '2026-06-01' AND is_deleted = 0 GROUP BY event_level_name"}
    ```
 
-5. Summarize the result in Markdown. Include a brief data table when helpful.
+5. If the query has chart/visualization intent, call `ChartRenderData` after `MysqlQuery`.
+6. Summarize the result in Markdown. Include a brief data table when helpful.
+
+## Chart rules
+
+When the user asks for charts, statistics, distributions, trends, rankings, or visualizations, follow this workflow:
+
+1. Generate and execute the `SELECT` SQL with `MysqlQuery` as usual.
+2. Call `ChartRenderData` with the rows returned by `MysqlQuery`.
+3. Use `chart_type: "auto"` unless the user explicitly asks for a specific chart type.
+
+Input example for `ChartRenderData`:
+
+```json
+{
+  "chart_type": "auto",
+  "data": [
+    {"event_level_name": "一级预警", "cnt": 12},
+    {"event_level_name": "二级预警", "cnt": 34},
+    {"event_level_name": "三级预警", "cnt": 56}
+  ],
+  "title": "预警等级分布",
+  "x_key": "event_level_name",
+  "y_key": "cnt"
+}
+```
+
+In the final Markdown answer, embed the chart using:
+
+```markdown
+![预警等级分布](chart://<chart_id>)
+```
+
+The `<chart_id>` must match the `chart_id` returned by `ChartRenderData`.
+
+Chart intent keywords: 图, 图表, 柱状图, 饼图, 折线图, 可视化, 统计, 分布, 占比, 趋势, 排名, Top N, 最多, 最少.
 
 ## Tool calling rule
 
