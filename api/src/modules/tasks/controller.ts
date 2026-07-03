@@ -2,9 +2,11 @@ import type { Request, Response } from "express";
 import * as taskService from "./service.js";
 import { runAgentPipeline } from "./pipeline.js";
 import type { CreateTaskRequest } from "@datasourceintelligence/shared";
+import { extractRequestMetadata } from "../observability/requestMetadata.js";
 
 export async function createTask(req: Request, res: Response) {
   const body = req.body as CreateTaskRequest;
+  const requestMetadata = extractRequestMetadata(req);
 
   // 1. 创建任务记录并立即返回
   const task = await taskService.createTask(body);
@@ -15,7 +17,7 @@ export async function createTask(req: Request, res: Response) {
   });
 
   // 2. 异步执行 Agent Pipeline（不阻塞 HTTP 响应）
-  runAgentPipeline(task.id, body).catch((err) => {
+  runAgentPipeline(task.id, body, requestMetadata).catch((err) => {
     console.error(`[createTask] Pipeline error for task ${task.id}:`, err);
   });
 }

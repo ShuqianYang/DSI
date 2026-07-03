@@ -93,6 +93,35 @@ export const agentTranscriptEntries = pgTable(
   ]
 );
 
+export const agentLoopLogFiles = pgTable(
+  "agent_loop_log_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    sessionId: text("session_id"),
+    requestId: text("request_id"),
+    userId: text("user_id"),
+    filePath: text("file_path").notNull(),
+    mode: text("mode", { enum: ["debug", "operational"] }).notNull(),
+    status: text("status", { enum: ["running", "completed", "failed"] })
+      .notNull()
+      .default("running"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("agent_loop_log_files_task_id_idx").on(table.taskId),
+    index("agent_loop_log_files_file_path_idx").on(table.filePath),
+    index("agent_loop_log_files_status_idx").on(table.status),
+    index("agent_loop_log_files_created_at_idx").on(table.createdAt),
+  ]
+);
+
 // ============================================
 // OpenSky 飞机当前状态（外部数据源读模型）
 // ============================================
@@ -284,6 +313,8 @@ export type TaskStep = typeof taskSteps.$inferSelect;
 export type NewTaskStep = typeof taskSteps.$inferInsert;
 export type AgentTranscriptEntry = typeof agentTranscriptEntries.$inferSelect;
 export type NewAgentTranscriptEntry = typeof agentTranscriptEntries.$inferInsert;
+export type AgentLoopLogFile = typeof agentLoopLogFiles.$inferSelect;
+export type NewAgentLoopLogFile = typeof agentLoopLogFiles.$inferInsert;
 export type JobTask = typeof jobTasks.$inferSelect;
 export type NewJobTask = typeof jobTasks.$inferInsert;
 export type Event = typeof events.$inferSelect;

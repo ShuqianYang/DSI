@@ -15,7 +15,10 @@ export interface AgentLoopFileLogger {
 export interface CreateAgentLoopFileLoggerOptions {
   taskId: string;
   query: string;
+  metadata?: Record<string, unknown>;
 }
+
+type AgentLoopLogMode = "debug" | "operational";
 
 export function withAgentLoopLogFilePath(
   result: AgentLoopResult,
@@ -31,21 +34,25 @@ export function withAgentLoopLogFilePath(
 export async function createAgentLoopFileLogger(
   options: CreateAgentLoopFileLoggerOptions
 ): Promise<AgentLoopFileLogger> {
-  const logDir = resolveAgentLoopLogDir();
+  const now = new Date();
+  const baseLogDir = resolveAgentLoopLogDir();
+  const sessionFolder = safeSessionFolder(options.metadata?.sessionId);
+  const logDir = path.join(baseLogDir, formatDateFolder(now), sessionFolder);
   await mkdir(logDir, { recursive: true });
 
   const filePath = path.join(
     logDir,
-    `agent-loop-${safeFilePart(options.taskId)}-${formatTimestampForFile(new Date())}.jsonl`
+    `agent-loop-${safeFilePart(options.taskId)}-${formatTimestampForFile(now)}.jsonl`
   );
   const stream = fs.createWriteStream(filePath, { flags: "wx", encoding: "utf8" });
-  const logger = new JsonlAgentLoopFileLogger(filePath, stream);
+  const logger = new JsonlAgentLoopFileLogger(filePath, stream, resolveAgentLoopLogMode());
 
   logger.writeLine({
     kind: "run_start",
     timestamp: new Date().toISOString(),
     taskId: options.taskId,
     query: options.query,
+    metadata: sanitizeForJson(options.metadata ?? {}),
   });
 
   return logger;
@@ -54,11 +61,15 @@ export async function createAgentLoopFileLogger(
 class JsonlAgentLoopFileLogger implements AgentLoopFileLogger {
   public readonly filePath: string;
   private readonly stream: fs.WriteStream;
+  private readonly mode: AgentLoopLogMode;
+  private seq = 0;
+  private readonly startedAtMs = Date.now();
   private closed = false;
 
-  constructor(filePath: string, stream: fs.WriteStream) {
+  constructor(filePath: string, stream: fs.WriteStream, mode: AgentLoopLogMode) {
     this.filePath = filePath;
     this.stream = stream;
+    this.mode = mode;
   }
 
   logEvent(event: AgentLoopEvent): void {
@@ -66,7 +77,7 @@ class JsonlAgentLoopFileLogger implements AgentLoopFileLogger {
       kind: "agent_loop_event",
       timestamp: new Date().toISOString(),
       message: formatAgentLoopLogMessage(event),
-      event: sanitizeForJson(event),
+      event: sanitizeEventForMode(event, this.mode),
     });
   }
 
@@ -82,7 +93,8 @@ class JsonlAgentLoopFileLogger implements AgentLoopFileLogger {
     this.writeLine({
       kind: "run_stop",
       timestamp: new Date().toISOString(),
-      result: sanitizeForJson(result),
+      durationMs: Date.now() - this.startedAtMs,
+      result: sanitizeResultForMode(result, this.mode),
     });
     await this.close();
   }
@@ -91,6 +103,7 @@ class JsonlAgentLoopFileLogger implements AgentLoopFileLogger {
     this.writeLine({
       kind: "run_error",
       timestamp: new Date().toISOString(),
+      durationMs: Date.now() - this.startedAtMs,
       error: sanitizeForJson(error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : error),
     });
     await this.close();
@@ -98,7 +111,8 @@ class JsonlAgentLoopFileLogger implements AgentLoopFileLogger {
 
   writeLine(value: Record<string, unknown>): void {
     if (this.closed) return;
-    this.stream.write(`${JSON.stringify(value)}\n`);
+    this.seq += 1;
+    this.stream.write(`${JSON.stringify({ seq: this.seq, ...value })}\n`);
   }
 
   private async close(): Promise<void> {
@@ -164,6 +178,124 @@ function resolveAgentLoopLogDir(): string {
   return path.join(workspaceRoot, "logs");
 }
 
+function resolveAgentLoopLogMode(): AgentLoopLogMode {
+  return process.env.AGENT_LOOP_LOG_MODE === "operational" ? "operational" : "debug";
+}
+
+function sanitizeEventForMode(event: AgentLoopEvent, mode: AgentLoopLogMode): unknown {
+  if (mode === "debug") return sanitizeForJson(event);
+
+  switch (event.type) {
+    case "agent_turn":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        maxTurns: event.maxTurns,
+        message: event.message,
+      };
+    case "model_request":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        messageCount: event.messages.length,
+      };
+    case "assistant_message":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        toolCallCount: event.message.toolCalls?.length ?? 0,
+        message: formatAgentLoopLogMessage(event),
+      };
+    case "tool_calls":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        count: event.count,
+        tools: event.tools,
+        message: formatAgentLoopLogMessage(event),
+      };
+    case "tool_batch":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        mode: event.mode,
+        tools: event.tools,
+        message: formatAgentLoopLogMessage(event),
+      };
+    case "tool_call":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        displayName: event.displayName,
+        message: formatAgentLoopLogMessage(event),
+      };
+    case "tool_progress":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        displayName: event.displayName,
+        stage: event.stage,
+        percent: event.percent,
+        message: formatAgentLoopLogMessage(event),
+      };
+    case "tool_observation":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        displayName: event.displayName,
+        ok: event.ok,
+        message: formatAgentLoopLogMessage(event),
+      };
+    case "tool_message":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        message: formatAgentLoopLogMessage(event),
+      };
+    case "loop_stop":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        stoppedBy: event.result.stoppedBy,
+        turns: event.result.turns,
+        observationCount: event.result.observations.length,
+        message: formatAgentLoopLogMessage(event),
+      };
+    default:
+      return assertNeverAgentLoopEvent(event);
+  }
+}
+
+function sanitizeResultForMode(result: AgentLoopResult, mode: AgentLoopLogMode): unknown {
+  if (mode === "debug") return sanitizeForJson(result);
+  return {
+    stoppedBy: result.stoppedBy,
+    turns: result.turns,
+    observationCount: result.observations.length,
+    hasLogFilePath: typeof result.logFilePath === "string",
+  };
+}
+
+function assertNeverAgentLoopEvent(event: never): never {
+  throw new Error(`Unhandled AgentLoopEvent type: ${JSON.stringify(event)}`);
+}
+
 function extractGisDataType(output: unknown): string | undefined {
   const record = isRecord(output) ? output : {};
   const top = record.gisData;
@@ -178,6 +310,14 @@ function extractGisDataType(output: unknown): string | undefined {
 
 function safeFilePart(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
+}
+
+function safeSessionFolder(value: unknown): string {
+  return typeof value === "string" && value.trim() ? safeFilePart(value) : "no-session";
+}
+
+function formatDateFolder(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 function formatTimestampForFile(date: Date): string {

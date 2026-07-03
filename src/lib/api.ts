@@ -3,6 +3,16 @@ import type { ScenarioId } from "@datasourceintelligence/shared";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 export const AGENT_LOOP_FIXED_USER_ID = "agent-loop-local-user";
+const AGENT_LOOP_SESSION_STORAGE_KEY = "agent-loop-session-id";
+
+function getAgentLoopSessionId(): string {
+  if (typeof window === "undefined") return "server-session";
+  const existing = window.sessionStorage.getItem(AGENT_LOOP_SESSION_STORAGE_KEY);
+  if (existing) return existing;
+  const sessionId = crypto.randomUUID();
+  window.sessionStorage.setItem(AGENT_LOOP_SESSION_STORAGE_KEY, sessionId);
+  return sessionId;
+}
 
 async function fetchJson<T>(path: string, options?: RequestInit, retries = 1): Promise<T> {
   const separator = path.includes("?") ? "&" : "?";
@@ -174,7 +184,13 @@ export async function createAgentTask(
 }> {
   return fetchJson("/tasks", {
     method: "POST",
-    body: JSON.stringify({ query, userId: AGENT_LOOP_FIXED_USER_ID, scenarioId: options.scenarioId }),
+    body: JSON.stringify({
+      query,
+      userId: AGENT_LOOP_FIXED_USER_ID,
+      sessionId: getAgentLoopSessionId(),
+      clientRequestId: crypto.randomUUID(),
+      scenarioId: options.scenarioId,
+    }),
   });
 }
 

@@ -10,10 +10,12 @@ import {
 const logDir = path.join(os.tmpdir(), `agent-loop-log-path-${Date.now()}`);
 process.env.AGENT_LOOP_LOG_DIR = logDir;
 
+const dateBefore = new Date().toISOString().slice(0, 10);
 const logger = await createAgentLoopFileLogger({
   taskId: "task-log-path-test",
   query: "直接回答",
 });
+const dateAfter = new Date().toISOString().slice(0, 10);
 
 const result = withAgentLoopLogFilePath(
   {
@@ -27,6 +29,15 @@ const result = withAgentLoopLogFilePath(
 
 assert.equal(result.finalAnswer, "done");
 assert.match(result.logFilePath, /agent-loop-task-log-path-test-.*\.jsonl$/);
+
+const relativePath = path.relative(logDir, result.logFilePath).split(path.sep);
+assert.equal(relativePath.length, 3);
+assert.ok(
+  relativePath[0] === dateBefore || relativePath[0] === dateAfter,
+  `expected date folder, got ${relativePath[0]}`,
+);
+assert.equal(relativePath[1], "no-session");
+assert.match(relativePath[2], /^agent-loop-task-log-path-test-.*\.jsonl$/);
 
 await logger.finish(result);
 

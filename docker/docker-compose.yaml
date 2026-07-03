@@ -39,7 +39,7 @@ services:
 
   api:
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -79,7 +79,7 @@ services:
 
   worker:
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     build:
       context: ..
       dockerfile: docker/Dockerfile
