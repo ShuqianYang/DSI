@@ -87,8 +87,8 @@ assert(
   "Skill content should include detail query rules"
 );
 assert(
-  content.includes("RegionMark"),
-  "Skill content should mention RegionMark for map detail"
+  content.includes("longitude") && content.includes("latitude"),
+  "Skill content should mention longitude/latitude for map detail"
 );
 
 console.log(
@@ -103,7 +103,7 @@ console.log(
       hasIrrelevantResponse: content.includes("抱歉，这个问题超出了我的能力范围"),
       hasChartRules: content.includes("## Chart rules"),
       hasDetailQueryRules: content.includes("## Detail query rules"),
-      hasRegionMark: content.includes("RegionMark"),
+      hasMapCoordinates: content.includes("longitude") && content.includes("latitude"),
     },
     null,
     2

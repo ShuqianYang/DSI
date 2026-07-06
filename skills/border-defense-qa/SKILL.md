@@ -442,16 +442,22 @@ Attendance records. PK: `record_id`.
    {"database":"border-defense","sql":"SELECT event_level_name, COUNT(*) AS cnt FROM alarm_event WHERE event_time >= '2026-06-01' AND is_deleted = 0 GROUP BY event_level_name"}
    ```
 
-5. If the query has chart/visualization intent, call `ChartRenderData` after `MysqlQuery`.
+5. By default, after `MysqlQuery` returns non-empty rows, call `ChartRenderData` unless one of the skip conditions in the "Chart rules" section applies.
 6. Summarize the result in Markdown. Include a brief data table when helpful.
 
 ## Chart rules
 
-When the user asks for charts, statistics, distributions, trends, rankings, or visualizations, follow this workflow:
+The default behavior is to draw a chart whenever the query returns data that can be visualized.
 
-1. Generate and execute the `SELECT` SQL with `MysqlQuery` as usual.
-2. Call `ChartRenderData` with the rows returned by `MysqlQuery`.
-3. Use `chart_type: "auto"` unless the user explicitly asks for a specific chart type.
+1. After `MysqlQuery` returns non-empty rows, call `ChartRenderData` with those rows.
+2. Use `chart_type: "auto"` unless the user explicitly asks for a specific chart type.
+3. Embed the chart in the relevant analysis paragraph using `![描述](chart://<chart_id>)`; do **not** pile all charts at the end of the answer.
+
+Only skip `ChartRenderData` in these cases:
+- The user explicitly says they do not want a chart (e.g. "不要图", "只看文字", "用文字说明").
+- The query is a pure detail-list question and no statistical visualization is needed.
+- The result set is empty (0 rows).
+- The input is a self-introduction or completely irrelevant question.
 
 Input example for `ChartRenderData`:
 
@@ -477,11 +483,34 @@ In the final Markdown answer, embed the chart using:
 
 The `<chart_id>` must match the `chart_id` returned by `ChartRenderData`.
 
-Chart intent keywords: 图, 图表, 柱状图, 饼图, 折线图, 可视化, 统计, 分布, 占比, 趋势, 排名, Top N, 最多, 最少.
+Charts must be inserted into the related analysis section, not placed at the end of the answer. If no chart was generated, do **not** output or fabricate any image.
 
 ## Detail query rules
 
-When the user asks for detailed records, lists, or geographic locations (e.g. "列出", "明细", "详情", "哪些记录", "具体事件", "点位在哪里", "经纬度"), follow these rules:
+Detail queries are triggered by the entity type involved, not by keywords. The four detail entity types are:
+
+| Entity | Table(s) | Notes |
+|--------|----------|-------|
+| 预警事件 | `alarm_event` | 边防事件告警记录 |
+| 卡口 | `buckle_info`, `buckle_access_record` | 卡口元数据及通行记录 |
+| 部门 | `sys_dept` | 组织机构 |
+| 设备 | `tb_device` | 设备与传感器是同一概念 |
+
+### How to recognize a detail query
+
+After understanding the user's question, determine whether the target data involves any of the four detail entity types.
+
+- If it does **not** involve any of the four types, treat it as a normal statistic and terminate this rule.
+- If it does involve one of the four types, convert a statistical question into a query for the detail list of that entity.
+
+Examples:
+- "2026年1月13日告警事件的高发时段是哪三个小时？" → query the `alarm_event` detail records.
+- "1月以来，告警率最高的是哪个位置？请提供经纬度。" → query the `tb_device` detail records.
+- "目前在线率最低的设备类型是什么？" → query the `tb_device` detail records.
+- "上个月所有告警事件中，入侵和其他事件的占比各是多少？" → query the `alarm_event` detail records.
+- "最近一周，各类事件的平均预警研判时长（秒）是多少？" → query the `alarm_event` detail records.
+- "今天通过各卡口进入的车辆总数是多少？哪个卡口车流最大？" → query the `buckle_info` detail records.
+- "列出本周触发黑名单预警的所有车牌号及进入时间" → query the `buckle_info` detail records.
 
 ### List detail
 
@@ -506,7 +535,7 @@ LIMIT 20;
 
 ### Map detail
 
-If the user wants to see locations on the map, include `longitude` and `latitude` in the query. After `MysqlQuery` returns the rows, call `RegionMark` to display the points.
+If the user wants to see locations on the map, include `longitude` and `latitude` in the query, together with an identifier such as `event_id` or `dev_id`. Present the coordinates in the Markdown table so the user can view them.
 
 Example: "1月以来告警率最高的设备位置在哪里？"
 
@@ -521,7 +550,7 @@ ORDER BY alarm_count DESC
 LIMIT 1;
 ```
 
-Then call `RegionMark` with the returned `longitude`/`latitude`.
+> Note: Automatic map-point rendering requires the tool output to carry GIS entity data. Until that is enabled, return the coordinates in the Markdown table.
 
 ### Statistical + detail
 
@@ -529,7 +558,7 @@ For questions like "告警率最高的设备是哪些？", first aggregate to fi
 
 ### No standalone detail tool
 
-Do **not** use a separate `DataDetailQuery` tool. Do **not** force the output to return `data_detail_type`, `data_detail_pk`, `data_detail_longitude`, `data_detail_latitude` fields. Use `MysqlQuery` and `RegionMark` directly.
+Do **not** use a separate `DataDetailQuery` tool. Do **not** force the output to return `data_detail_type`, `data_detail_pk`, `data_detail_longitude`, `data_detail_latitude` fields. Use `MysqlQuery` directly and return coordinates in the Markdown answer when needed.
 
 ## Tool calling rule
 
@@ -712,4 +741,4 @@ ORDER BY alarm_count DESC
 LIMIT 1;
 ```
 
-Then call `RegionMark` with the returned `longitude`/`latitude`.
+Present the returned `longitude`/`latitude` in the Markdown answer.

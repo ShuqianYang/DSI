@@ -160,15 +160,15 @@ POST /tasks/:taskId/continue
 
 ### 4.1 功能点
 
-| 功能点 | 说明 |
-|--------|------|
-| 自然语言转 SQL | 用户用中文提问，模型生成 MySQL 查询 |
-| 表结构感知 | `MysqlQuerySchema` 先查 `information_schema.columns` |
-| 聚合统计 | 支持 COUNT/SUM/AVG/GROUP BY 等 |
-| 明细查询 | 支持返回具体记录列表 |
-| 图表展示 | 识别“统计”“分布”“趋势”等意图，调用 `ChartRenderData` |
-| 特殊回复拦截 | 自我介绍、无关问题、敏感词等直接 final_answer |
-| 同 task 多轮 | 通过 `POST /tasks/:taskId/continue` 实现追问 |
+| 功能点 | 说明 | 状态 |
+|--------|------|------|
+| 自然语言转 SQL | 用户用中文提问，模型生成 MySQL 查询 | 已完成 |
+| 表结构感知 | `MysqlQuerySchema` 先查 `information_schema.columns` | 已完成 |
+| 聚合统计 | 支持 COUNT/SUM/AVG/GROUP BY 等 | 已完成 |
+| 明细查询 | 支持返回具体记录列表 | 已完成 |
+| 图表展示 | `MysqlQuery` 返回数据后默认调用 `ChartRenderData` 生成图表，空数据或用户明确不需要时跳过 | 已完成 |
+| 特殊回复拦截 | 自我介绍、无关问题、敏感词等直接 final_answer | 已完成 |
+| 同 task 多轮 | 通过 `POST /tasks/:taskId/continue` 实现追问 | **尚未实现** |
 
 ### 4.2 Skill 设计
 
@@ -180,8 +180,9 @@ allowed-tools: MysqlQuerySchema, MysqlQuery, ChartRenderData
 
 #### 路由规则
 
-- 当用户问题包含“图”“柱状图”“饼图”“折线图”“可视化”“统计”“分布”“占比”“趋势”“排名”“Top N”等词时，SQL 查询执行后调用 `ChartRenderData`
-- 当用户要求具体明细（如“4月24日有报警吗”“列出最近一级预警”）时，使用 `MysqlQuery` 直接查询 `alarm_event`
+- 默认情况下，`MysqlQuery` 返回非空数据后调用 `ChartRenderData`，`chart_type` 用 `auto`
+- 以下情况跳过 `ChartRenderData`：用户明确说不要图、纯明细列表无需统计图、结果为空、自我介绍/无关问题
+- 当查询涉及明细实体（预警事件 `alarm_event`、卡口 `buckle_info`/通行记录、部门 `sys_dept`、设备 `tb_device`）时，使用 `MysqlQuery` 直接查询目标表
 - 当问题为自我介绍、无关问题、敏感词时，直接 final_answer，不调用工具
 
 #### 图表占位符
@@ -216,19 +217,24 @@ data_detail_latitude:  纬度
 
 #### 迁移思路：简化，复用现有 GIS 能力
 
-原方案为了把明细标到地图上，强制抽象出四字段。本项目中已有 `RegionMark` 等 GIS 工具，因此可以大幅简化：
+原方案为了把明细标到地图上，强制抽象出四字段。本项目中已有 `RegionMark` 等 GIS 工具，但 `RegionMark` 面向区域/多边形，不适合直接标注单点。因此当前方案先以文本表格返回坐标，地图联动作为后续增强。
 
 | 场景 | 新方案 | 工具 |
 |------|--------|------|
 | 列表明细（如“列出今天一级预警”） | `MysqlQuery` 直接查询相关字段，模型用 Markdown 表格呈现 | `MysqlQuery` |
-| 地图明细（如“高发预警点位在哪里”） | `MysqlQuery` 查 lat/lng + 业务字段，再调用 `RegionMark` 标注 | `MysqlQuery` + `RegionMark` |
+| 地图明细（如“高发预警点位在哪里”） | `MysqlQuery` 查 lat/lng + 业务字段，当前以 Markdown 表格输出坐标；自动地图渲染需后续GIS实体输出支持 | `MysqlQuery`（当前）/ GIS tool（后续） |
 | 统计+明细（如“告警率最高的设备是哪些”） | 先 `MysqlQuery` 聚合，再用 `MysqlQuery` 查 TOP N 明细 | `MysqlQuery` |
 
 #### 具体规则（写入 `skills/border-defense-qa/SKILL.md`）
 
 1. **识别明细意图**
-   - 关键词：“列出”“明细”“详情”“哪些记录”“具体事件”“点位在哪里”“经纬度”
-   - 例句：“列出本周触发黑名单预警的所有车牌号及进入时间”
+   - 明细查询由涉及的实体类型触发，而非关键词。四种明细实体为：
+     - 预警事件：`alarm_event`
+     - 卡口：`buckle_info` / `buckle_access_record`
+     - 部门：`sys_dept`
+     - 设备：`tb_device`（设备与传感器是同一概念）
+   - 如果用户问题涉及上述任一实体，把统计类问题转换为对该实体明细列表的查询
+   - 例句：“列出本周触发黑名单预警的所有车牌号及进入时间” → 涉及卡口通行记录，按明细列表查询
 
 2. **列表明细**
    - 直接用 `MysqlQuery` 查询目标表，返回用户需要的字段
@@ -329,12 +335,17 @@ data_detail_latitude:  纬度
 | `skills/border-defense-qa/SKILL.md` | 修改 | 增加图表规则、完整表结构、SQL 示例、特殊回复、**明细查询规则** |
 | `api/src/modules/agent-loop/tools/domain/chartRenderData/chartRenderData.ts` | 新增 | 将查询结果转为 recharts 结构化数据 |
 | `api/src/modules/agent-loop/tools/domain/index.ts` | 修改 | 注册 `ChartRenderData`（**不新增独立明细查询 tool**） |
-| `api/src/app/api/agent/intelligent-qa/route.ts` | 新增 | QA 同步接口 |
 | `src/components/chat/ChartRenderer.tsx` | 新增 | 解析 chart:// 占位符并渲染 recharts |
 | `src/components/chat/MarkdownContent.tsx` | 修改 | 识别 chart:// 并渲染 ChartRenderer |
 | `src/hooks/useTaskChat.ts` | 修改 | 从 agent loop 事件和任务结果中提取 charts |
 | `src/lib/agentLoopCharts.ts` | 新增 | 从事件/结果中提取图表数据 |
 | `src/types/prd.ts` | 修改 | `ChatMessage` 新增 `charts` 字段 |
+
+> 以下文件在当前阶段**尚未创建**，属于后续接口增强：
+> - `api/src/app/api/agent/intelligent-qa/route.ts`（QA 同步接口）
+> - `api/src/app/api/agent/daily-report/route.ts`（日报同步接口）
+> - `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportDownloader.ts`（Word 下载）
+> - `api/src/modules/agent-loop/tools/domain/chartRenderData/chartPngGenerator.ts`（后端 PNG 生成）
 
 ---
 
@@ -342,16 +353,16 @@ data_detail_latitude:  纬度
 
 ### 5.1 功能点
 
-| 功能点 | 说明 |
-|--------|------|
-| 日期解析 | 支持“今天/昨天/前天”、ISO 日期、中文日期 |
-| 报告类型 | `all`（总体）、`buckle`（设备监控/卡口）、`event`（预警事态） |
-| 本地 SQL 执行 | 直接连接 border-defense MySQL，执行 SQL 模板 |
-| 图表生成 | 自动生成预警等级饼图、卡口繁忙度 Top5 柱状图 |
-| LLM 生成报告 | 调用 Qwen 等模型生成标准 Markdown 日报 |
-| 无模型降级 | 未配置 API key 时，使用模板化报告 |
-| 报告保存 | Markdown 保存到 `api/tmp/agent-loop/reports/` |
-| Word 下载 | 后端生成 PNG 插入 docx |
+| 功能点 | 说明 | 状态 |
+|--------|------|------|
+| 日期解析 | 支持“今天/昨天/前天”、ISO 日期、中文日期 | 已完成 |
+| 报告类型 | `all`（总体）、`buckle`（设备监控/卡口）、`event`（预警事态） | 已完成 |
+| 本地 SQL 执行 | 直接连接 border-defense MySQL，执行 SQL 模板 | 已完成 |
+| 图表生成 | 自动生成预警等级饼图、卡口繁忙度 Top5 柱状图 | 已完成 |
+| LLM 生成报告 | 调用 Qwen 等模型生成标准 Markdown 日报 | 已完成 |
+| 无模型降级 | 未配置 API key 时，使用模板化报告 | 已完成 |
+| 报告保存 | Markdown 保存到 `api/tmp/agent-loop/reports/` | 部分完成 |
+| Word 下载 | 后端生成 PNG 插入 docx | **尚未实现** |
 
 ### 5.2 Skill 设计
 
@@ -449,6 +460,8 @@ async execute(input, context) {
 
 ### 5.6 报告保存与下载
 
+> **当前状态**：`DailyReport` tool 返回 `report_content` 和 `charts`，前端可直接渲染。后端文件保存与 Word 下载**尚未实现**，方案保留如下。
+
 #### 保存位置
 
 | 内容 | 保存路径 | 说明 |
@@ -481,38 +494,87 @@ GET /tasks/:taskId/daily-report/download
 | `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReport.ts` | 重写 | 本地 SQL + 图表 + LLM 报告 |
 | `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportSql.ts` | 新增 | all / buckle / event SQL 模板 |
 | `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportTypes.ts` | 新增 | 输入输出类型定义 |
-| `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportDownloader.ts` | 新增 | Word 下载 + PNG 生成 |
-| `api/src/modules/agent-loop/tools/domain/chartRenderData/chartPngGenerator.ts` | 新增 | 根据 chart data 生成 PNG |
 | `api/src/modules/agent-loop/tools/domain/index.ts` | 修改 | 注册重写后的 `DailyReport` |
-| `api/src/app/api/agent/daily-report/route.ts` | 新增 | 日报同步接口 |
+
+> 以下文件在当前阶段**尚未创建**，属于后续下载/同步接口增强：
+> - `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportDownloader.ts`（Word 下载 + PNG 生成）
+> - `api/src/modules/agent-loop/tools/domain/chartRenderData/chartPngGenerator.ts`（根据 chart data 生成 PNG）
+> - `api/src/app/api/agent/daily-report/route.ts`（日报同步接口）
 
 ---
 
-## 6. 关键设计决策确认
+## 6. 迁移状态与剩余缺口
+
+### 6.1 已完成的功能
+
+| 模块 | 功能 | 当前实现 |
+|------|------|----------|
+| QA | 自然语言转 SQL | `skills/border-defense-qa/SKILL.md` + `MysqlQuerySchema`/`MysqlQuery` |
+| QA | 自我介绍/无关问题拦截 | SKILL.md `Special responses` 规则 |
+| QA | 默认画图规则 | SKILL.md `Chart rules`：非空数据默认调用 `ChartRenderData` |
+| QA | 明细查询（列表） | SKILL.md `Detail query rules`：按实体类型触发，`MysqlQuery` 直接返回 |
+| QA | 图表数据准备 | `ChartRenderData` domain tool |
+| QA | 前端图表渲染 | `ChartRenderer.tsx` + `MarkdownContent.tsx` + `agentLoopCharts.ts` |
+| QA/Daily | 跨 task 记忆 | `sessionSummaryMemoryManager` + `pipelineMemory.ts`（需 `AGENT_MEMORY_SESSION_SUMMARY=1`） |
+| Daily | 日期/类型解析 | `DailyReport` tool 本地解析 |
+| Daily | 本地 SQL 模板 | `dailyReportSql.ts` |
+| Daily | 图表生成 | `dailyReport.ts` 内生成 chart data |
+| Daily | LLM 生成报告 | `dailyReport.ts` 调用 Qwen 等模型 |
+| Daily | 无模型降级 | `dailyReport.ts` fallback 模板 |
+
+### 6.2 尚未实现/待补齐
+
+| 模块 | 原项目功能 | 当前状态 | 影响 | 建议方案 |
+|------|-----------|----------|------|----------|
+| QA | `/intelligent-QA` 流式接口 | **未实现** | 前端当前走 `POST /tasks` + SSE，等价但路径不同 | 如需兼容原接口，新增 `/intelligent-QA` 路由内部调用 `runAgentLoop` |
+| QA | `/intelligent-QA-direct` 同步接口（Dify） | **未实现** | README 中列出的同步入口不存在 | 新增 `/api/agent/intelligent-qa` 同步路由 |
+| QA | Session 管理（`/sessions/*`） | **未实现** | 当前无 session CRUD 接口 | 原项目基于 Redis；如需保留，新增 `/sessions` 路由 + Redis/数据库存储 |
+| QA | 同 task 多轮对话（`POST /tasks/:taskId/continue`） | **未实现** | 每次 `POST /tasks` 都创建新 task | 扩展 `CreateTaskRequest` 支持 `session_id`，新增 continue 路由 |
+| QA | 明细地图联动（经纬度标到地图） | **部分实现** | 原项目返回 `data_detail_longitude`/`data_detail_latitude`；当前 `MysqlQuery` 仅返回表格，无 GIS 实体输出 | 为 `borderDefenseQa` 的 `MysqlQuery` 增加 `tryBuildGisDataFromRows`，或新增点标注 tool |
+| QA | 明细查询 agent（两套提示词 + 固定四字段） | **已简化** | 不再作为独立 agent；按实体类型直接查明细 | 当前方案已覆盖列表类明细，地图类需补齐 GIS 输出 |
+| QA | QA 报告保存为 `.md` 文件 | **未实现** | 当前结果存 `tasks.result` | 如需文件保存，在 pipeline 完成时写 `api/tmp/agent-loop/reports/` |
+| Daily | `/daily-report` 流式接口 | **未实现** | 当前走 `POST /tasks` + SSE | 如需兼容原接口，新增 `/daily-report` 路由 |
+| Daily | `/daily-report-direct` 同步接口（Dify） | **未实现** | README 中列出的同步入口不存在 | 新增 `/api/agent/daily-report` 同步路由 |
+| Daily | Word (.docx) 下载 + 后端 PNG | **未实现** | 仅返回 `report_content`/`charts` | 实现 `dailyReportDownloader.ts` + `chartPngGenerator.ts` + `GET /tasks/:taskId/daily-report/download` |
+| Daily | 报告文件定时清理 | **未实现** | 原项目每天 0 点清理过期文件 | 增加 `node-cron` 任务 |
+
+### 6.3 需要用户确认的问题
+
+1. **同步接口优先级**：是否需要立即实现 `/api/agent/intelligent-qa` 和 `/api/agent/daily-report` 供 Dify 调用？
+2. **Session 管理范围**：是否需要保留原项目的 Redis Session 管理（列表、消息历史、标题修改、删除），还是复用当前 `tasks` 表 + `AGENT_MEMORY_SESSION_SUMMARY` 即可？
+3. **地图联动方案**：明细查询的经纬度希望如何展示？
+   - A. 当前方案：Markdown 表格输出坐标；
+   - B. 增强 `MysqlQuery` 自动输出 GIS entity；
+   - C. 新增独立点标注 tool（如 `PointMark`）。
+4. **Word 下载优先级**：日报 Word 下载是否为当前里程碑必须？
+
+---
+
+## 7. 关键设计决策确认
 
 | 题号 | 问题 | 用户确认 |
 |------|------|----------|
 | 1 | 图表方案 | **A. 后端返回 recharts 结构化数据，前端渲染** |
-| 2 | QA 图表触发 | **主动判断**（识别“统计”“分布”“趋势”等意图） |
+| 2 | QA 图表触发 | **默认尽量画图**（空数据/用户明确不要/纯明细/自我介绍/无关问题跳过） |
 | 3 | 图表颜色 | **默认 recharts 配色** |
 | 4 | 日报 SQL 模板 | **是，直接复用原项目 `daily_report_sql.py`** |
 | 5 | 日报占位符 | **是，保留 `![图表描述](...)` 格式，但引用 chart data** |
-| 6 | 同步接口 | **是，需要支持外部系统/Dify 调用** |
+| 6 | 同步接口 | **是，需要支持外部系统/Dify 调用**（尚未实现） |
 | 7 | 自我介绍/无关问题拦截 | **是，保留** |
 | 8 | QA 明细查询 | **是，支持返回具体记录列表** |
 | 9 | QA 表结构/示例 | **是，完整迁移 `system_prompt_qa.py`** |
 | 10 | 记忆复用 | **是，`sessionSummaryMemoryManager` 足够** |
-| 11 | Session 记忆场景 | **A. 同 task 内多轮对话** |
-| 12 | 扩展 continue 接口 | **是，但希望了解具体含义** |
+| 11 | Session 记忆场景 | **同 task 内多轮对话**（`POST /tasks/:taskId/continue` 尚未实现） |
+| 12 | 扩展 continue 接口 | **是，但希望了解具体含义**（尚未实现） |
 | 13 | ChartRenderData 默认 chart_type | **A. `"auto"` 自动推荐** |
 | 14 | 前端图表交互 | **默认开启 tooltip/legend** |
-| 15 | 报告保存方式 | **B. 保存到 `api/tmp/agent-loop/reports/`** |
-| 16 | 下载格式 | **B. Word (.docx)** |
-| 17 | Word 中图表处理 | **B. 后端生成 PNG 插入 Word** |
+| 15 | 报告保存方式 | **B. 保存到 `api/tmp/agent-loop/reports/`**（尚未实现） |
+| 16 | 下载格式 | **B. Word (.docx)**（尚未实现） |
+| 17 | Word 中图表处理 | **B. 后端生成 PNG 插入 Word**（尚未实现） |
 
 ---
 
-## 7. 实施计划
+## 8. 实施计划
 
 ### 里程碑 1：日报本地 SQL + LLM（已完成）
 
@@ -542,18 +604,19 @@ GET /tasks/:taskId/daily-report/download
 - [ ] 新增 `GET /tasks/:taskId/daily-report/download`
 - [ ] 定时清理 `api/tmp/agent-loop/reports/`
 
-### 里程碑 5：边防 QA 完整迁移（已完成）
+### 里程碑 5：边防 QA 完整迁移（已完成主要规则，地图联动待增强）
 
 - [x] 完整迁移 `system_prompt_qa.py` 到 Skill
 - [x] 特殊回复拦截规则（自我介绍、无关问题）
-- [x] 明细查询支持（`MysqlQuery` + `RegionMark`，不新增独立 detail tool）
+- [x] 明细查询支持（按实体类型触发，`MysqlQuery` 直接返回，不新增独立 detail tool）
+- [ ] 明细地图联动（经纬度自动 GIS 实体输出）
 - [x] 数据一致性对比测试
 
 ---
 
-## 8. 核心代码骨架
+## 9. 核心代码骨架
 
-### 8.1 `skills/daily-report/SKILL.md`
+### 9.1 `skills/daily-report/SKILL.md`
 
 ```markdown
 ---
@@ -602,7 +665,7 @@ allowed-tools: DailyReport
 - 最终输出必须是标准 Markdown，图表占位符保留 `![图表标题](chart://<chart_id>)` 格式。
 ```
 
-### 8.2 `ChartRenderData` Tool
+### 9.2 `ChartRenderData` Tool
 
 ```typescript
 import { z } from "zod";
@@ -635,7 +698,7 @@ export function buildChartRenderDataTool(): ToolDefinition {
 }
 ```
 
-### 8.3 `DailyReport` Tool 核心结构
+### 9.3 `DailyReport` Tool 核心结构
 
 ```typescript
 export function buildDailyReportTool(): ToolDefinition {
@@ -689,7 +752,7 @@ export function ChartRenderer({ chartData }: { chartData: ChartData }) {
 
 ---
 
-## 9. 测试计划
+## 10. 测试计划
 
 | 测试 | 命令 | 说明 |
 |------|------|------|

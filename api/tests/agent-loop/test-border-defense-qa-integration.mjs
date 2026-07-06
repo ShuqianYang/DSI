@@ -64,7 +64,7 @@ assert.ok(
 );
 assert.deepEqual(
   skillObservation.output?.allowedTools?.sort(),
-  ["Read", "MysqlQuerySchema", "MysqlQuery"].sort(),
+  ["Read", "MysqlQuerySchema", "MysqlQuery", "ChartRenderData"].sort(),
   "Skill should restrict allowed tools"
 );
 
