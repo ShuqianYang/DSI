@@ -41,12 +41,15 @@
     "agent:test:daily-report": "tsx tests/agent-loop/test-daily-report-tool.mjs",
     "agent:test:daily-report:v2": "tsx tests/agent-loop/test-daily-report-tool-v2.mjs",
     "agent:test:chart-render-data": "tsx tests/agent-loop/test-chart-render-data.mjs",
+    "agent:test:daily-report:download": "tsx tests/agent-loop/test-daily-report-download.mjs",
     "lint": "eslint src/"
   },
   "dependencies": {
     "@datasourceintelligence/shared": "workspace:*",
     "bullmq": "^5.52.0",
+    "canvas": "^3.1.0",
     "cors": "^2.8.5",
+    "docx": "^9.5.0",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "drizzle-zod": "^0.8.3",

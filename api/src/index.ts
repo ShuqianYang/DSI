@@ -19,6 +19,7 @@ import {
   registerAisJob,
   shouldRegisterAisJob,
 } from "./modules/ais/queue.js";
+import { startReportCleanupJob } from "./modules/agent-loop/tools/domain/dailyReport/reportCleanupJob.js";
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || "3001", 10);
@@ -84,6 +85,9 @@ if (shouldRegisterAisJob()) {
 
 // Import AIS worker to ensure it is instantiated on startup
 import "./modules/ais/worker.js";
+
+// 启动报告文件定时清理
+startReportCleanupJob();
 
 app.listen(PORT, HOST, () => {
   console.log(`[API] Server listening on http://${HOST}:${PORT}`);

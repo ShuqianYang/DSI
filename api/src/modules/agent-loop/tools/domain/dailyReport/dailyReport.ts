@@ -1,3 +1,5 @@
+import path from "node:path";
+import fs from "node:fs/promises";
 import { z } from "zod";
 import { createConnection } from "mysql2/promise";
 import type { Connection, RowDataPacket } from "mysql2/promise";
@@ -492,6 +494,19 @@ ${chartPlaceholders}
   }
 }
 
+async function saveDailyReportMarkdown(report: DailyReportOutput, taskId: string): Promise<string | undefined> {
+  try {
+    await fs.mkdir(REPORT_OUTPUT_DIR, { recursive: true });
+    const filename = `${report.date}_${report.report_type}_${taskId}.md`;
+    const filePath = path.join(REPORT_OUTPUT_DIR, filename);
+    await fs.writeFile(filePath, report.report_content, "utf-8");
+    return filename;
+  } catch (err) {
+    console.error("[DailyReport] failed to save markdown:", (err as Error).message);
+    return undefined;
+  }
+}
+
 export function buildDailyReportTool(): ToolDefinition {
   return {
     name: "DailyReport",
@@ -549,7 +564,7 @@ export function buildDailyReportTool(): ToolDefinition {
           message: `${date} 的${reportType}日报生成完成`,
         });
 
-        return {
+        const output: DailyReportOutput = {
           date,
           report_type: reportType,
           report_content: reportContent,
@@ -557,6 +572,13 @@ export function buildDailyReportTool(): ToolDefinition {
           executionTime: Date.now() - start,
           source: "daily-report-local",
         };
+
+        const markdownFilename = await saveDailyReportMarkdown(output, context.taskId);
+        if (markdownFilename) {
+          (output as unknown as Record<string, unknown>).markdown_filename = markdownFilename;
+        }
+
+        return output;
       } catch (err) {
         throw new Error(`日报生成失败: ${(err as Error).message}`);
       }

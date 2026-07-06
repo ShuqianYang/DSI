@@ -344,8 +344,6 @@ data_detail_latitude:  纬度
 > 以下文件在当前阶段**尚未创建**，属于后续接口增强：
 > - `api/src/app/api/agent/intelligent-qa/route.ts`（QA 同步接口）
 > - `api/src/app/api/agent/daily-report/route.ts`（日报同步接口）
-> - `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportDownloader.ts`（Word 下载）
-> - `api/src/modules/agent-loop/tools/domain/chartRenderData/chartPngGenerator.ts`（后端 PNG 生成）
 
 ---
 
@@ -361,8 +359,8 @@ data_detail_latitude:  纬度
 | 图表生成 | 自动生成预警等级饼图、卡口繁忙度 Top5 柱状图 | 已完成 |
 | LLM 生成报告 | 调用 Qwen 等模型生成标准 Markdown 日报 | 已完成 |
 | 无模型降级 | 未配置 API key 时，使用模板化报告 | 已完成 |
-| 报告保存 | Markdown 保存到 `api/tmp/agent-loop/reports/` | 部分完成 |
-| Word 下载 | 后端生成 PNG 插入 docx | **尚未实现** |
+| 报告保存 | Markdown 保存到 `api/tmp/agent-loop/reports/` | 已完成 |
+| Word 下载 | 后端生成 PNG 插入 docx | 已完成 |
 
 ### 5.2 Skill 设计
 
@@ -460,7 +458,7 @@ async execute(input, context) {
 
 ### 5.6 报告保存与下载
 
-> **当前状态**：`DailyReport` tool 返回 `report_content` 和 `charts`，前端可直接渲染。后端文件保存与 Word 下载**尚未实现**，方案保留如下。
+> **当前状态**：`DailyReport` tool 返回 `report_content` 和 `charts`，前端可直接渲染；后端会保存 Markdown 文件到 `api/tmp/agent-loop/reports/`。Word 下载已实现。
 
 #### 保存位置
 
@@ -494,11 +492,12 @@ GET /tasks/:taskId/daily-report/download
 | `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReport.ts` | 重写 | 本地 SQL + 图表 + LLM 报告 |
 | `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportSql.ts` | 新增 | all / buckle / event SQL 模板 |
 | `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportTypes.ts` | 新增 | 输入输出类型定义 |
+| `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportDownloader.ts` | 新增 | Word 下载 + PNG 生成 |
+| `api/src/modules/agent-loop/tools/domain/chartRenderData/chartPngGenerator.ts` | 新增 | 根据 chart data 生成 PNG |
+| `api/src/modules/agent-loop/tools/domain/dailyReport/reportCleanupJob.ts` | 新增 | 定时清理报告文件 |
 | `api/src/modules/agent-loop/tools/domain/index.ts` | 修改 | 注册重写后的 `DailyReport` |
 
 > 以下文件在当前阶段**尚未创建**，属于后续下载/同步接口增强：
-> - `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReportDownloader.ts`（Word 下载 + PNG 生成）
-> - `api/src/modules/agent-loop/tools/domain/chartRenderData/chartPngGenerator.ts`（根据 chart data 生成 PNG）
 > - `api/src/app/api/agent/daily-report/route.ts`（日报同步接口）
 
 ---
@@ -535,8 +534,6 @@ GET /tasks/:taskId/daily-report/download
 | QA | QA 报告保存为 `.md` 文件 | **未实现** | 当前结果存 `tasks.result` | 如需文件保存，在 pipeline 完成时写 `api/tmp/agent-loop/reports/` |
 | Daily | `/daily-report` 流式接口 | **未实现** | 当前走 `POST /tasks` + SSE | 如需兼容原接口，新增 `/daily-report` 路由 |
 | Daily | `/daily-report-direct` 同步接口（Dify） | **未实现** | README 中列出的同步入口不存在 | 新增 `/api/agent/daily-report` 同步路由 |
-| Daily | Word (.docx) 下载 + 后端 PNG | **未实现** | 仅返回 `report_content`/`charts` | 实现 `dailyReportDownloader.ts` + `chartPngGenerator.ts` + `GET /tasks/:taskId/daily-report/download` |
-| Daily | 报告文件定时清理 | **未实现** | 原项目每天 0 点清理过期文件 | 增加 `node-cron` 任务 |
 
 ### 6.3 需要用户确认的问题
 
@@ -568,9 +565,9 @@ GET /tasks/:taskId/daily-report/download
 | 12 | 扩展 continue 接口 | **是，但希望了解具体含义**（尚未实现） |
 | 13 | ChartRenderData 默认 chart_type | **A. `"auto"` 自动推荐** |
 | 14 | 前端图表交互 | **默认开启 tooltip/legend** |
-| 15 | 报告保存方式 | **B. 保存到 `api/tmp/agent-loop/reports/`**（尚未实现） |
-| 16 | 下载格式 | **B. Word (.docx)**（尚未实现） |
-| 17 | Word 中图表处理 | **B. 后端生成 PNG 插入 Word**（尚未实现） |
+| 15 | 报告保存方式 | **B. 保存到 `api/tmp/agent-loop/reports/`**（已完成） |
+| 16 | 下载格式 | **B. Word (.docx)**（已完成） |
+| 17 | Word 中图表处理 | **B. 后端生成 PNG 插入 Word**（已完成） |
 
 ---
 
@@ -597,12 +594,13 @@ GET /tasks/:taskId/daily-report/download
 - [ ] 更新 `runAgentLoop` 支持 resume 模式
 - [ ] 测试多轮 QA 与日报追问
 
-### 里程碑 4：Word 下载与报告保存
+### 里程碑 4：Word 下载与报告保存（已完成）
 
-- [ ] 实现 `dailyReportDownloader.ts`
-- [ ] 实现 `chartPngGenerator.ts`
-- [ ] 新增 `GET /tasks/:taskId/daily-report/download`
-- [ ] 定时清理 `api/tmp/agent-loop/reports/`
+- [x] 实现 `dailyReportDownloader.ts`
+- [x] 实现 `chartPngGenerator.ts`
+- [x] 新增 `GET /tasks/:taskId/daily-report/download`
+- [x] 定时清理 `api/tmp/agent-loop/reports/`
+- [x] `DailyReport` tool 执行成功后保存 Markdown 到 reports 目录
 
 ### 里程碑 5：边防 QA 完整迁移（已完成主要规则，地图联动待增强）
 
