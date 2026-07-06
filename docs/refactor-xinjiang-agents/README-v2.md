@@ -361,6 +361,7 @@ data_detail_latitude:  纬度
 | 无模型降级 | 未配置 API key 时，使用模板化报告 | 已完成 |
 | 报告保存 | Markdown 保存到 `api/tmp/agent-loop/reports/` | 已完成 |
 | Word 下载 | 后端生成 PNG 插入 docx | 已完成 |
+| 定时清理 | 每天 00:00 清理超过 30 天的报告文件 | 已完成 |
 
 ### 5.2 Skill 设计
 
@@ -470,7 +471,9 @@ async execute(input, context) {
 
 #### 文件清理
 
-建议保留 **30 天**，与原有项目 `RETAIN_DAYS` 一致。可用 `node-cron` 定时清理。
+已使用 `node-cron` 实现定时清理，默认每天 00:00 执行，保留 **30 天**（与原有项目 `RETAIN_DAYS` 一致，可通过 `DAILY_REPORT_RETAIN_DAYS` 调整）。
+
+实现文件：`api/src/modules/agent-loop/tools/domain/dailyReport/reportCleanupJob.ts`，并在 `api/src/index.ts` 中随服务启动。
 
 #### Word 下载
 
@@ -502,6 +505,48 @@ GET /tasks/:taskId/daily-report/download
 
 ---
 
+## 5.8 日报迁移完成度结论
+
+**结论：日报（Daily Report）核心功能点已全部迁移完成。**
+
+### 已迁移的核心功能
+
+| 原项目文件/能力 | 当前实现 | 状态 |
+|-----------------|----------|------|
+| `daily/daily_report_sql.py` | `dailyReportSql.ts`（ALL / BUCKLE / EVENT SQL） | ✅ 已迁移 |
+| `daily/daily_report_system_prompt.py` | `dailyReport.ts` 内 `buildSystemPrompt()` | ✅ 已迁移 |
+| `daily/daily_report_agent.py` 主逻辑 | `dailyReport.ts` | ✅ 已迁移 |
+| 日期解析（今天/昨天/前天/具体日期） | `extractDate()` | ✅ 已迁移 |
+| 三种报告类型（all / buckle / event） | `DailyReportInputSchema` | ✅ 已迁移 |
+| SQL 执行与数据格式化 | `runMysqlQuery()` + `formatDataResult()` | ✅ 已迁移 |
+| 图表生成（饼图、柱状图） | `buildDailyReportCharts()` + `chartPngGenerator.ts` | ✅ 已迁移 |
+| LLM 生成 Markdown 报告 | `generateReportWithModel()` | ✅ 已迁移 |
+| 无模型降级（fallback 模板） | `dailyReport.ts` fallback | ✅ 已迁移 |
+| 报告保存为 Markdown | `saveDailyReportMarkdown()` | ✅ 已迁移 |
+| Word 下载 | `dailyReportDownloader.ts` + `GET /tasks/:taskId/daily-report/download` | ✅ 已迁移 |
+| 文件定时清理 | `reportCleanupJob.ts` | ✅ 已迁移 |
+
+### 与原项目的差异（非功能缺失）
+
+| 差异项 | 原项目 | 当前项目 | 说明 |
+|--------|--------|----------|------|
+| 调用入口 | 独立 FastAPI 接口 `/daily-report`、`/daily-report-direct` | 通过 `POST /tasks` + Skill 路由到 `DailyReport` tool | 架构差异，能力等价 |
+| Session 记忆 | Redis session + `save_round` | 复用 `tasks` 表 + `agent_transcript_entries` | 架构差异，结果已持久化 |
+| 图表文件接口 | `/figure/{filename}` 独立获取 PNG | PNG 仅在 Word 下载时生成，未暴露独立接口 | 当前设计已满足 Word 下载需求 |
+| 中间产物 | SQL 结果保存为 CSV | 不保存 CSV | 当前直接格式化后传给 LLM |
+| Word 样式 | 中文字体嵌入 + 表格样式 | 基础 docx 渲染 | 如需字体/表格样式增强，可后续优化 |
+
+### 尚未实现（可选增强）
+
+如需 100% 兼容原项目接口，可补充：
+
+1. `POST /daily-report` 流式接口（内部调用 `runAgentLoop`）
+2. `POST /daily-report-direct` 同步接口（供 Dify 调用）
+3. 独立的图表文件服务接口（如前端需要单独查看 PNG）
+4. Word 下载增加中文字体嵌入与表格样式
+
+---
+
 ## 6. 迁移状态与剩余缺口
 
 ### 6.1 已完成的功能
@@ -520,6 +565,7 @@ GET /tasks/:taskId/daily-report/download
 | Daily | 图表生成 | `dailyReport.ts` 内生成 chart data |
 | Daily | LLM 生成报告 | `dailyReport.ts` 调用 Qwen 等模型 |
 | Daily | 无模型降级 | `dailyReport.ts` fallback 模板 |
+| Daily | 报告文件定时清理 | `reportCleanupJob.ts` + `api/src/index.ts` |
 
 ### 6.2 尚未实现/待补齐
 
@@ -532,8 +578,9 @@ GET /tasks/:taskId/daily-report/download
 | QA | 明细地图联动（经纬度标到地图） | **部分实现** | 原项目返回 `data_detail_longitude`/`data_detail_latitude`；当前 `MysqlQuery` 仅返回表格，无 GIS 实体输出 | 为 `borderDefenseQa` 的 `MysqlQuery` 增加 `tryBuildGisDataFromRows`，或新增点标注 tool |
 | QA | 明细查询 agent（两套提示词 + 固定四字段） | **已简化** | 不再作为独立 agent；按实体类型直接查明细 | 当前方案已覆盖列表类明细，地图类需补齐 GIS 输出 |
 | QA | QA 报告保存为 `.md` 文件 | **未实现** | 当前结果存 `tasks.result` | 如需文件保存，在 pipeline 完成时写 `api/tmp/agent-loop/reports/` |
-| Daily | `/daily-report` 流式接口 | **未实现** | 当前走 `POST /tasks` + SSE | 如需兼容原接口，新增 `/daily-report` 路由 |
-| Daily | `/daily-report-direct` 同步接口（Dify） | **未实现** | README 中列出的同步入口不存在 | 新增 `/api/agent/daily-report` 同步路由 |
+| Daily | `/daily-report` 独立流式接口 | **未实现（架构差异）** | 当前日报已走 `POST /tasks` + SSE，能力等价 | 如需兼容原 FastAPI 接口，新增 `/daily-report` 路由内部调用 `runAgentLoop` |
+| Daily | `/daily-report-direct` 同步接口（Dify） | **未实现（架构差异）** | 当前无独立同步入口 | 如需兼容原 FastAPI 接口，新增 `/api/agent/daily-report` 同步路由 |
+| Daily | QA 式 Redis Session 记忆 | **未实现（架构差异）** | 日报作为 Agent Loop tool 执行，结果持久化在 `tasks` 表；无独立 Redis session 列表/消息/标题管理 | 如需保留原项目 session 管理，新增 `/sessions` 路由 + 存储 |
 
 ### 6.3 需要用户确认的问题
 
