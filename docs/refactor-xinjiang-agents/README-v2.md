@@ -542,12 +542,12 @@ GET /tasks/:taskId/daily-report/download
 - [ ] 新增 `GET /tasks/:taskId/daily-report/download`
 - [ ] 定时清理 `api/tmp/agent-loop/reports/`
 
-### 里程碑 5：边防 QA 完整迁移
+### 里程碑 5：边防 QA 完整迁移（已完成）
 
-- [ ] 完整迁移 `system_prompt_qa.py` 到 Skill
-- [ ] 特殊回复拦截规则（自我介绍、无关问题）
-- [ ] 明细查询支持（`MysqlQuery` + `RegionMark`，不新增独立 detail tool）
-- [ ] 数据一致性对比测试
+- [x] 完整迁移 `system_prompt_qa.py` 到 Skill
+- [x] 特殊回复拦截规则（自我介绍、无关问题）
+- [x] 明细查询支持（`MysqlQuery` + `RegionMark`，不新增独立 detail tool）
+- [x] 数据一致性对比测试
 
 ---
 
