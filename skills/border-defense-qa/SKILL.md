@@ -451,7 +451,9 @@ The default behavior is to draw a chart whenever the query returns data that can
 
 1. After `MysqlQuery` returns non-empty rows, call `ChartRenderData` with those rows.
 2. Use `chart_type: "auto"` unless the user explicitly asks for a specific chart type.
-3. Embed the chart in the relevant analysis paragraph using `![描述](chart://<chart_id>)`; do **not** pile all charts at the end of the answer.
+3. You **must** embed the chart in the final answer using exactly `![<title>](chart://<chart_id>)`, where `<chart_id>` is the exact value returned by `ChartRenderData`. Without this placeholder, the chart will not be rendered.
+4. Place the chart placeholder immediately after the data table or key numbers it illustrates; do **not** pile all charts at the end of the answer.
+5. If multiple charts are generated, insert each placeholder in the section it belongs to.
 
 Only skip `ChartRenderData` in these cases:
 - The user explicitly says they do not want a chart (e.g. "不要图", "只看文字", "用文字说明").
@@ -579,6 +581,14 @@ Do **not** use a separate `DataDetailQuery` tool. Do **not** force the output to
 - Do not invent table names or column names. Use `MysqlQuerySchema` to confirm.
 - Do not assume military activity, intrusion, or collision risk from location data alone.
 - If `ONLY_FULL_GROUP_BY` is enabled, non-aggregated columns in `SELECT` must be wrapped with `ANY_VALUE()` or placed in `GROUP BY`. Prefer subqueries to avoid ambiguity.
+- When grouping by a descriptive name column (e.g. `event_level_name`), include the corresponding code column (e.g. `event_level`) in both `SELECT` and `GROUP BY`, and sort by the code column. Example:
+  ```sql
+  SELECT event_level, event_level_name, COUNT(*) AS cnt
+  FROM alarm_event
+  WHERE is_deleted = 0
+  GROUP BY event_level, event_level_name
+  ORDER BY event_level;
+  ```
 - "上周" = past 7 days (CURRENT_DATE - 7 to CURRENT_DATE); "自然周" = previous Monday to previous Sunday.
 - 术语区分：用户所说的"处置"对应 `dispose_xxx` 字段；"处理"对应 `handle_xxx` 字段，两者不可混淆。
 - 平均处理时长 = `handle_time - event_time`, unit can be minutes.
