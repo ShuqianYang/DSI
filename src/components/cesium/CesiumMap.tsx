@@ -11,6 +11,7 @@ import {
 } from 'react';
 import * as Cesium from 'cesium';
 import { Entity, Trajectory, Region, GisData } from '@/types/prd';
+import { apiUrl, getApiBase } from '@/lib/api';
 import { getStyleById } from './ImageryManager';
 import { createLocalImageryProvider, getLocalConfigById } from './LocalTileProvider';
 import { collectFireGroundSpecs, syncFireGroundPulseRings } from './fireGroundEffect';
@@ -543,6 +544,12 @@ function toEventOverlaySpec(
     tileHeight: overlay.tileHeight,
     outlineColor: overlay.outlineColor,
   };
+}
+
+function resolveBackendImageUrl(rawImg: string | undefined): string | undefined {
+  if (!rawImg) return undefined;
+  if (rawImg.startsWith('http')) return rawImg;
+  return apiUrl(rawImg);
 }
 
 function builtinBillboardGlowSvgUri(): string {
@@ -1516,9 +1523,7 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
       .map((entity) => {
         const color = getStatusColor(entity.status, false, undefined, entity.type, (entity as any).dataSource);
         const rawImg = (entity as Record<string, unknown>).imageUrl as string | undefined;
-        const resolvedImageUrl = rawImg
-          ? (rawImg.startsWith('http') || rawImg.startsWith('/') ? rawImg : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}${rawImg}`)
-          : undefined;
+        const resolvedImageUrl = resolveBackendImageUrl(rawImg);
         const display: PointDisplayItem = {
           ...entity,
           color,
@@ -1542,9 +1547,7 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
         (payload as Record<string, unknown>).dataSource as string | undefined
       );
       const rawImg = (payload as Record<string, unknown>).imageUrl as string | undefined;
-      const resolvedImageUrl = rawImg
-        ? (rawImg.startsWith('http') ? rawImg : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}${rawImg}`)
-        : undefined;
+      const resolvedImageUrl = resolveBackendImageUrl(rawImg);
       const display: PointDisplayItem = {
         ...payload,
         color,
@@ -2180,7 +2183,7 @@ const CesiumMap = forwardRef<CesiumMapRef, CesiumMapProps>(function CesiumMap({
     }
   }, [currentStyle]);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+  const API_BASE = getApiBase();
 
   const eventImageOverlays = useMemo(() => {
     const overlays = collectEventSingleTileOverlays(eventGisDataList, API_BASE);

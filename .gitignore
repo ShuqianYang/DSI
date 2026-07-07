@@ -31,10 +31,8 @@ coverage/
 !docker/.env.example
 
 # Logs
-logs/*.log
-logs/*.out
-logs/*.jsonl
-!.gitkeep
+logs/*
+!logs/.gitkeep
 *.log
 npm-debug.log*
 yarn-debug.log*

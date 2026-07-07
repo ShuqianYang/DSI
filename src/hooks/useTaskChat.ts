@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { ScenarioId } from '@datasourceintelligence/shared';
 import { ChatMessage, ChatSession, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
-import { createAgentTask, getTask } from '@/lib/api';
+import { createAgentTask, eventSourceUrl, getTask } from '@/lib/api';
 import { chooseAgentLoopDisplayContent } from '@/lib/agentLoopContent';
 import { formatTaskResult } from '@/lib/taskResultFormatter';
 import { getMockResponse } from '@/lib/taskMock';
@@ -153,7 +153,7 @@ export function useTaskChat({
 
   // 全局 SSE：监听 subscription_triggered_task 等跨任务事件
   useEffect(() => {
-    const es = new EventSource('http://localhost:3001/sse/global');
+    const es = new EventSource(eventSourceUrl('/sse/global'));
     globalSseRef.current = es;
 
     es.onmessage = (event) => {
@@ -225,7 +225,7 @@ export function useTaskChat({
     if (sseConnections.current.has(taskId)) return;
     taskStreamModeTrackerRef.current.preferNative(taskId);
 
-    const evtSource = new EventSource(`http://localhost:3001/tasks/${taskId}/stream`);
+    const evtSource = new EventSource(eventSourceUrl(`/tasks/${taskId}/stream`));
     sseConnections.current.set(taskId, evtSource);
 
     evtSource.onmessage = (event) => {

@@ -50,8 +50,8 @@ services:
     image: datasourceintelligence-api:local
     container_name: ds_api
     restart: unless-stopped
-    ports:
-      - "${API_PORT:-3001}:3001"
+    expose:
+      - "3001"
     environment:
       NODE_ENV: production
       API_HOST: 0.0.0.0
@@ -74,6 +74,8 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    labels:
+      autoheal: "true"
     networks:
       - ds_network
 
@@ -111,18 +113,18 @@ services:
       args:
         NPM_REGISTRY: "${NPM_REGISTRY:-https://registry.npmmirror.com}"
         PNPM_VERSION: "${PNPM_VERSION:-9.0.0}"
-        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:3001}"
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
     image: datasourceintelligence-web:local
     container_name: ds_web
     restart: unless-stopped
-    ports:
-      - "${WEB_PORT:-5000}:5000"
+    expose:
+      - "5000"
     environment:
       NODE_ENV: production
       COZE_PROJECT_ENV: PROD
       HOSTNAME: 0.0.0.0
       PORT: 5000
-      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:3001}"
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
     depends_on:
       api:
         condition: service_healthy
@@ -130,12 +132,56 @@ services:
       test:
         [
           "CMD-SHELL",
-          "node -e \"fetch('http://127.0.0.1:5000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+          "node -e \"fetch('http://127.0.0.1:5000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
         ]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 20s
+    labels:
+      autoheal: "true"
+    networks:
+      - ds_network
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ds_nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1/api/health >/dev/null && wget -qO- http://127.0.0.1/health >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    labels:
+      autoheal: "true"
+    networks:
+      - ds_network
+
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    container_name: ds_autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: "${AUTOHEAL_INTERVAL:-10}"
+      AUTOHEAL_START_PERIOD: "${AUTOHEAL_START_PERIOD:-60}"
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: "${AUTOHEAL_DEFAULT_STOP_TIMEOUT:-10}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - ds_network
 

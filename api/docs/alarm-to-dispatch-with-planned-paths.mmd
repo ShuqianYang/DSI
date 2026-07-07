@@ -1,0 +1,85 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'background': '#ffffff' }} }%%
+graph LR
+    %% 外部告警输入
+    subgraph 外部告警 [外部告警源]
+        ALARM1["外部系统告警接口<br/>radar / videoAI / 第三方平台"]
+    end
+
+    ALARM1 --> A["报警事件聚合<br/>POST /external/suspect/events"]
+
+    %% 事件准备
+    A --> B["创建/复用嫌疑人事件<br/>校验来源 / 去重 / 状态初始化"]
+    B --> C["更新事件状态<br/>PUT /suspect/events/{id}/status → processing"]
+    C --> D["获取历史轨迹<br/>GET /suspect/events/{id}"]
+
+    %% 外部数据库输入
+    subgraph 外部数据库 [外部数据库 / 持久化数据]
+        DB1[(摄像头<br/>patrol_cameras)]
+        DB2[(边境线<br/>patrol_boundaries)]
+        DB3[(特殊区域<br/>special_areas)]
+        DB4[(历史轨迹<br/>suspect_event)]
+    end
+
+    DB1 --> G["获取环境数据<br/>GET /patrol/cameras<br/>GET /patrol/boundaries"]
+    DB2 --> G
+    DB3 --> G
+    DB4 --> D
+
+    %% 轨迹增强
+    D --> E["盲区轨迹补全<br/>POST /prediction/blind_spot_completion"]
+    E --> F["补全后轨迹"]
+    E -.-> NOTE_E["局限：依赖历史轨迹密度与地形模式<br/>完全陌生区域或稀疏采样时效果下降"]
+
+    %% 预测
+    F --> I["轨迹预测<br/>POST /prediction/trajectory_forecast"]
+    G --> I
+    I --> J["candidate_points<br/>嫌疑人未来可能位置"]
+    I -.-> NOTE_I["局限：点式外推，假设运动模式延续<br/>预测时长越长不确定性越大"]
+
+    %% 目标点自动选择
+    J --> K["自动选择最佳目标点<br/>当前点 + candidate_points 评分<br/>取拦截概率最高 / ETA 最优"]
+    K --> K2{"是否需要多目标?"}
+    K2 -->|是| K3["生成多个 target_points"]
+    K2 -->|否| K4["生成单一 target_point"]
+    K3 --> N
+    K4 --> N
+    subgraph 外部接口 [外部接口 / 智能设备]
+        API2["便携设备接口<br/>portable-device"]
+    end
+
+    API2 --> M["resources_available<br/>{id, type, current_pos, speed, capability}"]
+
+    %% 调度决策 + 路径规划
+    K --> N["资源调度<br/>POST /dispatch/resource_allocation"]
+    M --> N
+    N --> O["SchedulerGA 评估<br/>距离 ÷ 速度 + 地形/规则"]
+    O --> P["启峻南路径规划<br/>_enrich_allocation_paths"]
+    P --> Q["planned_path<br/>[{lng, lat, altitude?}, ...]"]
+    P --> R{"方案可行?"}
+    P -.-> NOTE_P["局限：基于静态地图/路网规划，未实时感知<br/>动态障碍物；需外部循环重触发才能更新"]
+
+    %% 结果：直接输出，不落地 active_allocation
+    R -->|是| S["直接输出 dispatch plan<br/>resourceId / type / etaSeconds /<br/>targetLng / targetLat /<br/>action / plannedPath"]
+    R -->|否| T["返回拦截不可行"]
+
+    S --> OUT["外部设备驱动方<br/>接收 plan 并驱动智能设备"]
+    OUT --> W["前端展示<br/>调度路径 + 预计到达时间（可选）"]
+
+    %% 说明：新流程不再写入 patrol_allocation / Redis，也不走 GET /allocation/active
+
+    %% 样式
+    style A fill:#ffcccc,stroke:#333
+    style 外部告警 fill:#fff0f0,stroke:#666
+    style K fill:#d4edda,stroke:#333,stroke-width:2px
+    style K3 fill:#d4edda,stroke:#333
+    style K4 fill:#d4edda,stroke:#333
+    style N fill:#ffe6b3,stroke:#333,stroke-width:2px
+    style P fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style S fill:#ccffcc,stroke:#333,stroke-width:2px
+    style OUT fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style T fill:#ffcccc,stroke:#333
+    style NOTE_E fill:#fffacd,stroke:#999
+    style NOTE_I fill:#fffacd,stroke:#999
+    style NOTE_P fill:#fffacd,stroke:#999
+    style 外部数据库 fill:#f0f0f0,stroke:#666
+    style 外部接口 fill:#f0f0f0,stroke:#666

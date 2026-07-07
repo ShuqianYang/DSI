@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/table';
 import { useState } from 'react';
 import { AlertCircle, Eye, Terminal, Copy, Check } from 'lucide-react';
-import type { InfoItem } from '@/lib/api';
+import { apiUrl, type InfoItem } from '@/lib/api';
 
 interface InfoTableProps {
   items: InfoItem[];
@@ -21,9 +21,8 @@ interface InfoTableProps {
 function ApiModal({ item, onClose }: { item: InfoItem; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-  const detailUrl = `${apiBase}/tasks/${item.id}`;
-  const listUrl = `${apiBase}/info-center`;
+  const detailUrl = apiUrl(`/tasks/${item.id}`);
+  const listUrl = apiUrl('/info-center');
 
   const copy = (text: string) => {
     navigator.clipboard.writeText(text);

@@ -18,7 +18,7 @@ import { Entity, Insight, GisData, Task, TaskEvent, ThinkingStep, SubTask, Traje
 import { mockUser } from '@/data/mockData';
 
 const EMPTY_REGIONS: Region[] = [];
-import { getAisData, getAdsData } from '@/lib/api';
+import { eventSourceUrl, getAisData, getAdsData } from '@/lib/api';
 import type { ApiAisData, ApiAdsData } from '@/lib/api';
 import type { GisOperation, CesiumMapRef } from '@/components/cesium/CesiumMap';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
@@ -247,7 +247,7 @@ export default function HomePage() {
     if (!sseTaskId) return;
 
     console.log('[page] Auto-connecting SSE for task:', sseTaskId);
-    const evtSource = new EventSource(`http://localhost:3001/tasks/${sseTaskId}/stream`);
+    const evtSource = new EventSource(eventSourceUrl(`/tasks/${sseTaskId}/stream`));
 
     evtSource.onmessage = (event) => {
       try {
@@ -463,7 +463,7 @@ export default function HomePage() {
       refresh();
       taskStreamModeTrackerRef.current.preferNative(taskId);
 
-      const evtSource = new EventSource(`http://localhost:3001/tasks/${taskId}/stream`);
+      const evtSource = new EventSource(eventSourceUrl(`/tasks/${taskId}/stream`));
       console.log('[page] SSE connected for task', taskId);
 
       evtSource.onmessage = (event) => {

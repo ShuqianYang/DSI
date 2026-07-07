@@ -1,7 +1,28 @@
 // API 客户端 - 对接后端展示数据接口
 import type { ScenarioId } from "@datasourceintelligence/shared";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+export function getApiBase(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    return "";
+  }
+
+  return "http://api:3001";
+}
+
+export function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${getApiBase()}${normalizedPath}`;
+}
+
+export function eventSourceUrl(path: string): string {
+  return apiUrl(path);
+}
+
 export const AGENT_LOOP_FIXED_USER_ID = "agent-loop-local-user";
 const AGENT_LOOP_SESSION_STORAGE_KEY = "agent-loop-session-id";
 
@@ -16,7 +37,7 @@ function getAgentLoopSessionId(): string {
 
 async function fetchJson<T>(path: string, options?: RequestInit, retries = 1): Promise<T> {
   const separator = path.includes("?") ? "&" : "?";
-  const url = `${API_BASE}${path}${separator}_t=${Date.now()}`;
+  const url = `${apiUrl(path)}${separator}_t=${Date.now()}`;
   try {
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
@@ -311,7 +332,9 @@ export async function exportInfoCenter(params: {
   if (params.endTime) qs.set("endTime", params.endTime);
   if (params.taskId) qs.set("taskId", params.taskId);
   if (params.search) qs.set("search", params.search);
-  const res = await fetch(`${API_BASE}/info-center/export?${qs.toString()}`, {
+  const query = qs.toString();
+  const exportUrl = query ? `${apiUrl("/info-center/export")}?${query}` : apiUrl("/info-center/export");
+  const res = await fetch(exportUrl, {
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
   });

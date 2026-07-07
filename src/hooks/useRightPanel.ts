@@ -10,6 +10,7 @@ import {
   GisData,
 } from '@/types/prd';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
+import { eventSourceUrl } from '@/lib/api';
 import type { ApiRequirement } from '@/lib/api';
 import { buildAgentLoopTaskView } from '@/lib/agentLoopTaskView';
 import {
@@ -68,7 +69,7 @@ export function useRightPanel({
       refresh();
       taskStreamModeTrackerRef.current.preferNative(taskId);
 
-      const evtSource = new EventSource(`http://localhost:3001/tasks/${taskId}/stream`);
+      const evtSource = new EventSource(eventSourceUrl(`/tasks/${taskId}/stream`));
       console.log('[useRightPanel] SSE connected for task', taskId);
       evtSource.onmessage = (event) => {
         try {

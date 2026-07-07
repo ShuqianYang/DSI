@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import { getTasks } from '@/lib/api';
+import { eventSourceUrl, getTasks } from '@/lib/api';
 import {
   shouldCloseInfoCenterStreamForEvent,
   shouldRefreshInfoCenterForStreamEvent,
@@ -27,7 +27,7 @@ export function useInfoCenterStream({ refresh, enabled = true }: UseInfoCenterSt
     (agentTaskId: string) => {
       if (connectionsRef.current.has(agentTaskId)) return;
 
-      const evtSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks/${agentTaskId}/stream`);
+      const evtSource = new EventSource(eventSourceUrl(`/tasks/${agentTaskId}/stream`));
       connectionsRef.current.set(agentTaskId, evtSource);
       console.log('[InfoCenterStream] SSE connected for task', agentTaskId);
 
