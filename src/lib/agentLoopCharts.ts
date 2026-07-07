@@ -43,6 +43,11 @@ function readChartsFromOutput(output: Record<string, unknown>): ChartData[] {
     }
   }
 
+  // 3. The output itself is a chart (ChartRenderData returns a single chart object)
+  if (isChartData(output)) {
+    charts.push(output);
+  }
+
   return charts;
 }
 
@@ -61,8 +66,6 @@ export function extractChartsFromTaskResult(result: Record<string, unknown>): Ch
     if (actionId === 'logFilePath') continue;
     if (!isRecord(stepResult)) continue;
 
-    const data = asRecord(stepResult.data);
-    charts.push(...readChartsFromOutput(data));
     charts.push(...readChartsFromOutput(stepResult));
   }
 

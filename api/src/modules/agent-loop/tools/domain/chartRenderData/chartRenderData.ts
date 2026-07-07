@@ -8,7 +8,7 @@ export const ChartRenderDataInputSchema = z.strictObject({
     "图表类型：auto（自动推荐）、bar（柱状图）、line（折线图）、pie（饼图）"
   ),
   data: z
-    .array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.date()])))
+    .array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])))
     .min(1)
     .describe("来自 MysqlQuery 的结果行数据"),
   title: z.string().min(1).describe("图表标题"),

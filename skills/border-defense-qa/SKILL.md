@@ -584,6 +584,7 @@ Do **not** use a separate `DataDetailQuery` tool. Do **not** force the output to
 - 平均处理时长 = `handle_time - event_time`, unit can be minutes.
 - For "高发时间段" questions, usually return the top 3 periods.
 - String values must be wrapped in single quotes. Chinese aliases/column names/table names in SQL must be wrapped in backticks.
+- Use **English punctuation only** in SQL: comma `,`, semicolon `;`, parentheses `(` `)`. Never use Chinese commas `，` or Chinese parentheses `（` `）`.
 - SQL must end with `;` so the database executes it.
 
 ## Device name matching rule (important)
