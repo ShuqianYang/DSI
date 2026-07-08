@@ -21,11 +21,12 @@ graph LR
     G --> H["expected_point<br/>{ targetLng, targetLat, confidence }"]
     G -.-> NOTE_G["基于最新点位重新预测<br/>不再使用规划阶段的旧候选点"]
 
-    %% 调用智能设备驱动
-    H --> I["调用智能设备驱动接口<br/>POST /device/dispatch"]
-    I -.-> NOTE_I["只传目标点 { targetLng, targetLat }<br/>不传路径，设备自行规划路径"]
+    %% 外部平台轮询调度 + 内部设备平台调用
+    H --> I1["外部平台轮询调度<br/>POST /dispatch/dispatch<br/>（建议每分钟一次）"]
+    I1 -.-> NOTE_I["本系统内部调用设备平台接口<br/>POST /Remote/send<br/>字段：requester / orderType / deviceID /<br/>longitude / latitude / elevation"]
+    I1 --> I2["调用设备平台<br/>POST /Remote/send"]
 
-    I --> J{"设备驱动响应成功?"}
+    I2 --> J{"设备平台响应成功?"}
     J -->|否| K["返回：指令下发失败 + 原因"]
     J -->|是| L["记录指令下发状态<br/>更新 allocation / 指令日志"]
 
@@ -37,7 +38,8 @@ graph LR
     style CONFIRM fill:#ffcccc,stroke:#333
     style A fill:#ffe6b3,stroke:#333,stroke-width:2px
     style G fill:#e6f3ff,stroke:#333,stroke-width:2px
-    style I fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style I1 fill:#ffe6b3,stroke:#333,stroke-width:2px
+    style I2 fill:#e6f3ff,stroke:#333,stroke-width:2px
     style L fill:#ccffcc,stroke:#333,stroke-width:2px
     style M fill:#ccffcc,stroke:#333,stroke-width:2px
     style D fill:#ffcccc,stroke:#333
