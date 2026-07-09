@@ -13,6 +13,11 @@ import type { AgentTranscriptStore } from "../agent-loop/transcriptStore.js";
 import { createDbRecentTaskLister } from "../agent-loop/sessionSummaryMemoryManager.js";
 import { createPipelineMemoryManager } from "./pipelineMemory.js";
 import type { MemoryManager } from "../agent-loop/memoryManager.js";
+import { createEmbeddingClient } from "../agent-loop/embeddingClient.js";
+import { createEpisodeExtractor } from "../agent-loop/episodeExtractor.js";
+import { createSessionMemoryTriggerFromEnv } from "../agent-loop/sessionMemoryTrigger.js";
+import { createMidTaskCheckpointWriter } from "../agent-loop/midTaskCheckpoint.js";
+import type { MidTaskCheckpointWriter } from "../agent-loop/midTaskCheckpoint.js";
 import type { Task } from "../../db/schema.js";
 import {
   bestEffortManifestWrite,
@@ -70,6 +75,9 @@ export interface RunAgentPipelineDependencies {
     typeof createPipelineMemoryManager
   >[0]["listRecentCompletedTasks"];
   manifestStore?: AgentLoopLogManifestStore;
+  createMidTaskCheckpointWriter?: (input: {
+    userId: string | null;
+  }) => MidTaskCheckpointWriter | undefined;
   notifyTaskUpdate(taskId: string, event: unknown): void;
   logger: Pick<Console, "log" | "warn" | "error">;
 }
@@ -84,13 +92,26 @@ async function createDefaultRunAgentPipelineDependencies(): Promise<RunAgentPipe
     import("./service.js"),
   ]);
   const transcriptStore = createDbTranscriptStore(db);
+  const embeddingClient = createEmbeddingClient();
+  const episodeExtractor = createEpisodeExtractor();
   return {
     taskService,
     createFileLogger: createAgentLoopFileLogger,
     runAgentLoop,
     createTranscriptStore: () => transcriptStore,
     createBestEffortTranscriptStore,
-    createMemoryManager: createPipelineMemoryManager,
+    createMemoryManager: (input) =>
+      createPipelineMemoryManager({ ...input, db, embeddingClient, episodeExtractor }),
+    createMidTaskCheckpointWriter: (input: { userId: string | null }) => {
+      const trigger = createSessionMemoryTriggerFromEnv();
+      if (!trigger) return undefined;
+      return createMidTaskCheckpointWriter({
+        db,
+        trigger,
+        userId: input.userId,
+        logger: console,
+      });
+    },
     listRecentCompletedTasks: createDbRecentTaskLister(db),
     manifestStore: createDbAgentLoopLogManifestStore(db),
     notifyTaskUpdate,
@@ -189,6 +210,9 @@ export async function runAgentPipelineWithDependencies(
         transcriptStore,
         listRecentCompletedTasks: dependencies.listRecentCompletedTasks,
         logger: dependencies.logger,
+      }),
+      midTaskCheckpointWriter: dependencies.createMidTaskCheckpointWriter?.({
+        userId: body.userId ?? null,
       }),
     });
 

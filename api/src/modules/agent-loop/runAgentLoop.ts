@@ -15,6 +15,9 @@ import { createModelClient, type ModelClient } from "./modelClient.js";
 import { defaultPromptManager, type PromptManager } from "./promptManager.js";
 import { buildPromptVersionMetadata } from "./promptVersioning.js";
 import { buildMemoryRecallDecisionSection } from "./memoryRecallDecision.js";
+import { buildMemoryGovernanceSection } from "./memoryGovernance.js";
+import { estimateMessagesTokens } from "./tokenEstimator.js";
+import type { MidTaskCheckpointWriter } from "./midTaskCheckpoint.js";
 import {
   safeJsonStringify,
   sanitizeForJson,
@@ -78,6 +81,7 @@ export interface RunAgentLoopOptions {
   onEvent?: (event: AgentLoopEvent) => void;
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
   turnDelayMs?: number;
+  midTaskCheckpointWriter?: MidTaskCheckpointWriter;
 }
 
 export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentLoopResult> {
@@ -289,10 +293,12 @@ export async function* runAgentLoopEvents(
         memorySections,
       });
       const memoryDiagnosticsSection = buildMemoryDiagnosticsSection(memoryManager);
+      const memoryGovernanceSection = buildMemoryGovernanceSection();
       const promptMemorySections = [
         ...memorySections,
         ...(memoryRecallDecisionSection ? [memoryRecallDecisionSection] : []),
         ...(memoryDiagnosticsSection ? [memoryDiagnosticsSection] : []),
+        memoryGovernanceSection,
       ];
       const promptInput = {
         query: options.query,
@@ -479,6 +485,7 @@ export async function* runAgentLoopEvents(
         message: assistantMessage,
       });
 
+      const obsCountBeforeBatches = observations.length;
       const batches = partitionToolCalls(registry, toolCallsWithDisplayName, maxConcurrentToolCalls);
       for (const batch of batches) {
         const batchObservations = yield* executeToolBatch({
@@ -528,6 +535,34 @@ export async function* runAgentLoopEvents(
         memorySections = [...memorySections, ...nextMemorySections];
       }
 
+      // --- Mid-task checkpoint (Part C: 超长任务中途提取) ---
+      if (options.midTaskCheckpointWriter) {
+        const cpw = options.midTaskCheckpointWriter;
+        const tokenEstimate = estimateMessagesTokens([
+          ...initialMessages, ...conversationMessages,
+        ]);
+        cpw.trigger.updateTokenEstimate(tokenEstimate.totalTokens);
+        cpw.trigger.recordToolCalls(observations.length - obsCountBeforeBatches);
+
+        if (cpw.trigger.shouldTrigger({
+          currentTurn: turn,
+          isNaturalBreakpoint: true,
+        })) {
+          cpw
+            .writeCheckpoint({
+              taskId: options.taskId,
+              userId: cpw.userId,
+              query: options.query,
+              messages: [...initialMessages, ...conversationMessages],
+              observations,
+              turn,
+            })
+            .catch(() => {
+              // best-effort: silently ignore errors
+            });
+        }
+      }
+
       const postToolMessages = [...initialMessages, ...conversationMessages];
       pendingSkillPrefetch = skillManager.startSkillDiscoveryPrefetch(
         null,
@@ -561,6 +596,16 @@ export async function* runAgentLoopEvents(
     observations,
     stoppedBy: "max_turns",
   };
+  if (memoryManager.remember) {
+    await memoryManager.remember({
+      query: options.query,
+      finalAnswer,
+      result,
+      messages: [...initialMessages, ...conversationMessages],
+      observations,
+      toolUseContext,
+    });
+  }
   const resultWithLogFilePath = withAgentLoopLogFilePath(result, fileLogger);
   yield emitEvent({
     type: "loop_stop",

@@ -29,6 +29,13 @@
       "when": 1783044308385,
       "tag": "0003_minor_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784000000000,
+      "tag": "0004_memory_p0_p1",
+      "breakpoints": true
     }
   ]
 }

@@ -8,7 +8,20 @@ import {
   boolean,
   doublePrecision,
   index,
+  customType,
 } from "drizzle-orm/pg-core";
+
+// ============================================
+// pgvector 自定义类型（drizzle-orm 无原生支持）
+// ============================================
+const vector1536 = customType<{
+  data: string;
+  driverData: string;
+}>({
+  dataType() {
+    return "vector(1536)";
+  },
+});
 
 // ============================================
 // Agent 编排任务表（核心工作流）
@@ -119,6 +132,67 @@ export const agentLoopLogFiles = pgTable(
     index("agent_loop_log_files_file_path_idx").on(table.filePath),
     index("agent_loop_log_files_status_idx").on(table.status),
     index("agent_loop_log_files_created_at_idx").on(table.createdAt),
+  ]
+);
+
+// ============================================
+// 记忆系统表 (P0+P1)
+// ============================================
+
+// 任务对话快照（P0-3: O(1) 查询替代 transcript 重建；Part C: 中途检查点）
+export const taskConversationSnapshot = pgTable(
+  "task_conversation_snapshot",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    query: text("query").notNull(),
+    finalAnswer: text("final_answer").notNull(),
+    messages: jsonb("messages").notNull(),
+    toolSummary: jsonb("tool_summary").default([]),
+    summary: text("summary"),
+    turns: integer("turns").notNull(),
+    stoppedBy: text("stopped_by").notNull(),
+    scenario: text("scenario"),
+    entities: text("entities").array().default([]),
+    embedding: vector1536("embedding"),
+    isCheckpoint: boolean("is_checkpoint").notNull().default(false),
+    checkpointTurn: integer("checkpoint_turn"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("task_conv_snapshot_task_id_idx").on(table.taskId),
+    index("task_conv_snapshot_user_id_idx").on(table.userId),
+    index("task_conv_snapshot_checkpoint_idx").on(table.taskId, table.isCheckpoint),
+  ]
+);
+
+// 情节记忆 (P1-2: 结构化情节 + 向量语义召回)
+export const episodicMemories = pgTable(
+  "episodic_memories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    scene: text("scene"),
+    userQuery: text("user_query").notNull(),
+    toolSequence: jsonb("tool_sequence").default([]),
+    finalResult: text("final_result"),
+    importance: doublePrecision("importance").default(0.5),
+    tags: text("tags").array().default([]),
+    relatedEntities: text("related_entities").array().default([]),
+    embedding: vector1536("embedding"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("episodic_memories_user_id_idx").on(table.userId),
+    index("episodic_memories_scene_idx").on(table.scene),
   ]
 );
 
@@ -325,6 +399,10 @@ export type Requirement = typeof requirements.$inferSelect;
 export type NewRequirement = typeof requirements.$inferInsert;
 export type Insight = typeof insights.$inferSelect;
 export type NewInsight = typeof insights.$inferInsert;
+export type TaskConversationSnapshot = typeof taskConversationSnapshot.$inferSelect;
+export type NewTaskConversationSnapshot = typeof taskConversationSnapshot.$inferInsert;
+export type EpisodicMemory = typeof episodicMemories.$inferSelect;
+export type NewEpisodicMemory = typeof episodicMemories.$inferInsert;
 // ============================================
 // AIS 船舶当前状态（外部数据源读模型）
 // ============================================

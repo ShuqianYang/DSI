@@ -17,6 +17,10 @@ export interface MemoryRecallDecision {
 export interface BuildMemoryRecallDecisionInput {
   query: string;
   memorySections: PromptSection[];
+  /** Optional vector similarity scores keyed by section ID (P1-6). */
+  vectorScores?: Map<string, number>;
+  /** Optional entities extracted from the query (P1-6). */
+  queryEntities?: string[];
 }
 
 interface ScoredMemorySection {
@@ -24,13 +28,21 @@ interface ScoredMemorySection {
   taskId: string;
   score: number;
   overlapCount: number;
+  vectorScore: number;
+  entityScore: number;
 }
 
 const MEMORY_RECALL_DECISION_SECTION_ID = "memory.recall_decision";
 const SESSION_MEMORY_SECTION_PREFIX = "memory.session_summary.";
+const VECTOR_MEMORY_SECTION_PREFIX = "memory.vector.";
 const MIN_ANSWER_SCORE = 0.28;
 const MIN_ANSWER_OVERLAP = 2;
 const MAX_CONTENT_CHARS_PER_SECTION = 8_000;
+
+// Hybrid scoring weights (P1-6)
+const DEFAULT_VECTOR_WEIGHT = 0.6;
+const DEFAULT_KEYWORD_WEIGHT = 0.3;
+const DEFAULT_ENTITY_WEIGHT = 0.1;
 
 const FRESHNESS_REQUIRED_PATTERNS = [
   /最新/,
@@ -83,23 +95,25 @@ const DOMAIN_TERMS = [
 export function buildMemoryRecallDecisionSection(
   input: BuildMemoryRecallDecisionInput
 ): PromptSection | undefined {
-  const sessionMemorySections = getSessionMemorySections(input.memorySections);
-  if (sessionMemorySections.length === 0) return undefined;
+  const recallSections = getRecallableMemorySections(input.memorySections);
+  if (recallSections.length === 0) return undefined;
 
   return {
     id: MEMORY_RECALL_DECISION_SECTION_ID,
     content: safeJsonStringify(
       buildMemoryRecallDecision({
         query: input.query,
-        memorySections: sessionMemorySections,
+        memorySections: recallSections,
+        vectorScores: input.vectorScores,
+        queryEntities: input.queryEntities,
       })
     ),
   };
 }
 
 export function buildMemoryRecallDecision(input: BuildMemoryRecallDecisionInput): MemoryRecallDecision {
-  const sessionMemorySections = getSessionMemorySections(input.memorySections);
-  if (sessionMemorySections.length === 0) {
+  const recallSections = getRecallableMemorySections(input.memorySections);
+  if (recallSections.length === 0) {
     return {
       source: "memory_recall_decision",
       decision: "insufficient",
@@ -112,7 +126,7 @@ export function buildMemoryRecallDecision(input: BuildMemoryRecallDecisionInput)
     };
   }
 
-  const scored = scoreMemorySections(input.query, sessionMemorySections);
+  const scored = scoreMemorySections(input.query, recallSections, input.vectorScores, input.queryEntities);
   const best = scored[0];
   const freshnessRequired = requiresFreshness(input.query);
   const coveredBy = best ? [best.taskId] : [];
@@ -158,23 +172,62 @@ export function buildMemoryRecallDecision(input: BuildMemoryRecallDecisionInput)
   };
 }
 
-function getSessionMemorySections(sections: PromptSection[]): PromptSection[] {
-  return sections.filter((section) => section.id.startsWith(SESSION_MEMORY_SECTION_PREFIX));
+function getRecallableMemorySections(sections: PromptSection[]): PromptSection[] {
+  return sections.filter(
+    (section) =>
+      section.id.startsWith(SESSION_MEMORY_SECTION_PREFIX) ||
+      section.id.startsWith(VECTOR_MEMORY_SECTION_PREFIX)
+  );
 }
 
-function scoreMemorySections(query: string, sections: PromptSection[]): ScoredMemorySection[] {
+function scoreMemorySections(
+  query: string,
+  sections: PromptSection[],
+  vectorScores?: Map<string, number>,
+  queryEntities?: string[]
+): ScoredMemorySection[] {
   const queryTerms = extractTerms(query);
+  const entitySet = queryEntities
+    ? new Set(queryEntities.map((e) => e.toLowerCase()))
+    : new Set<string>();
+  const hasVectorScores = vectorScores && vectorScores.size > 0;
+
   return sections
     .map((section) => {
       const memoryText = `${section.id}\n${truncateText(section.content, MAX_CONTENT_CHARS_PER_SECTION)}`;
       const memoryTerms = extractTerms(memoryText);
       const overlapCount = [...queryTerms].filter((term) => memoryTerms.has(term)).length;
-      const score = queryTerms.size === 0 ? 0 : overlapCount / queryTerms.size;
+      const keywordScore = queryTerms.size === 0 ? 0 : overlapCount / queryTerms.size;
+
+      // Vector score from the optional map (defaults to 0 when not provided)
+      const vectorScore = vectorScores?.get(section.id) ?? 0;
+
+      // Entity match score
+      let entityScore = 0;
+      if (entitySet.size > 0) {
+        const memoryLower = memoryText.toLowerCase();
+        let entityMatches = 0;
+        for (const entity of entitySet) {
+          if (memoryLower.includes(entity)) entityMatches += 1;
+        }
+        entityScore = entityMatches / entitySet.size;
+      }
+
+      // Hybrid scoring: vector * 0.6 + keyword * 0.3 + entity * 0.1
+      // When no vector scores are available, falls back to pure keyword scoring
+      const score = hasVectorScores
+        ? vectorScore * DEFAULT_VECTOR_WEIGHT +
+          keywordScore * DEFAULT_KEYWORD_WEIGHT +
+          entityScore * DEFAULT_ENTITY_WEIGHT
+        : keywordScore;
+
       return {
         section,
         taskId: extractTaskId(section),
         score,
         overlapCount,
+        vectorScore,
+        entityScore,
       };
     })
     .sort((left, right) => {
