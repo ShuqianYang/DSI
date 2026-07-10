@@ -13,6 +13,7 @@ import type { AgentTranscriptStore } from "../agent-loop/transcriptStore.js";
 import { createDbRecentTaskLister } from "../agent-loop/sessionSummaryMemoryManager.js";
 import { createPipelineMemoryManager } from "./pipelineMemory.js";
 import type { MemoryManager } from "../agent-loop/memoryManager.js";
+import { buildRecentTaskContext } from "../agent-loop/referenceResolver.js";
 import { createEmbeddingClient } from "../agent-loop/embeddingClient.js";
 import { createEpisodeExtractor } from "../agent-loop/episodeExtractor.js";
 import { createSessionMemoryTriggerFromEnv } from "../agent-loop/sessionMemoryTrigger.js";
@@ -192,10 +193,35 @@ export async function runAgentPipelineWithDependencies(
 
     const transcriptStore = dependencies.createTranscriptStore();
     const currentTask = await dependencies.taskService.getTaskById(taskId);
+
+    // ---- 构建前序任务上下文，用于指代消解 ----
+    let recentTaskContext: string | undefined;
+    if (body.userId) {
+      try {
+        const recentTasks = await dependencies.listRecentCompletedTasks({
+          userId: body.userId,
+          excludeTaskId: taskId,
+          limit: 2,
+        });
+        if (recentTasks.length > 0) {
+          recentTaskContext = buildRecentTaskContext(
+            recentTasks.map((t) => ({ query: t.query }))
+          );
+        }
+      } catch (error) {
+        // 获取上下文的失败不应阻塞主流程
+        dependencies.logger.warn(
+          "[Pipeline] Failed to fetch recent task context for reference resolution:",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+
     const loopResult = await dependencies.runAgentLoop({
       taskId,
       query: body.query,
       scenarioId: body.scenarioId,
+      recentTaskContext,
       fileLogger,
       turnDelayMs: isDemoQuery(body.query) ? DEMO_TURN_DELAY_MS : undefined,
       maxTurns: isDemoQuery(body.query) ? DEMO_MAX_TURNS : undefined,

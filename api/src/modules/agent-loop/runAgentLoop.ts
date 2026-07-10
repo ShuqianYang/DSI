@@ -16,6 +16,7 @@ import { defaultPromptManager, type PromptManager } from "./promptManager.js";
 import { buildPromptVersionMetadata } from "./promptVersioning.js";
 import { buildMemoryRecallDecisionSection } from "./memoryRecallDecision.js";
 import { buildMemoryGovernanceSection } from "./memoryGovernance.js";
+import { resolveQueryReferences } from "./referenceResolver.js";
 import { estimateMessagesTokens } from "./tokenEstimator.js";
 import type { MidTaskCheckpointWriter } from "./midTaskCheckpoint.js";
 import {
@@ -82,6 +83,8 @@ export interface RunAgentLoopOptions {
   onToolProgress?: (event: Extract<AgentLoopEvent, { type: "tool_progress" }>) => void;
   turnDelayMs?: number;
   midTaskCheckpointWriter?: MidTaskCheckpointWriter;
+  /** 前序任务上下文摘要，用于指代消解。由 pipeline 层传入。 */
+  recentTaskContext?: string;
 }
 
 export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentLoopResult> {
@@ -163,6 +166,25 @@ export async function* runAgentLoopEvents(
     await fileLogger?.fail(error);
     throw error;
   };
+
+  // ---- 上下文指代消解：在召回前将"上一轮说的XX"替换为实际指代 ----
+  if (options.recentTaskContext) {
+    try {
+      const { resolvedQuery, wasResolved } = await resolveQueryReferences({
+        query: options.query,
+        recentTaskContext: options.recentTaskContext,
+      });
+      if (wasResolved) {
+        options.query = resolvedQuery;
+      }
+    } catch (error) {
+      // 消解失败时降级使用原始 query，不影响主流程
+      console.warn(
+        "[AgentLoop] Reference resolution failed, using original query:",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
 
   const observations: ToolObservation[] = [];
   const conversationMessages: AgentMessage[] = [];
