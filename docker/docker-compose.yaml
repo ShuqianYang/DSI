@@ -38,6 +38,53 @@ services:
     networks:
       - ds_network
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ds_ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_NUM_PARALLEL: 2
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - ds_network
+
+  ollama-init:
+    image: curlimages/curl:latest
+    container_name: ds_ollama_init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "[ollama-init] Waiting for Ollama API..."
+        until curl -s http://ollama:11434/api/tags > /dev/null 2>&1; do sleep 2; done
+        echo "[ollama-init] Checking model: gte-Qwen2-1.5B..."
+        if curl -s http://ollama:11434/api/tags | grep -q "gte-Qwen2-1.5B"; then
+          echo "[ollama-init] Model already exists, skipping pull."
+        else
+          echo "[ollama-init] Pulling gte-Qwen2-1.5B (this may take a few minutes)..."
+          curl -N -X POST http://ollama:11434/api/pull -d '{"name":"gte-Qwen2-1.5B"}'
+          echo "[ollama-init] Model pull complete!"
+        fi
+    networks:
+      - ds_network
+
   api:
     env_file:
       - ${ENV_FILE:-.env}
@@ -60,10 +107,13 @@ services:
       DB_PUSH_ON_START: "${DB_PUSH_ON_START:-true}"
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/datasource
       REDIS_URL: redis://redis:6379
+      GTE_API_BASE: "${GTE_API_BASE:-http://ollama:11434/v1}"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     healthcheck:
       test:
@@ -98,10 +148,13 @@ services:
       DB_PUSH_ON_START: "false"
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/datasource
       REDIS_URL: redis://redis:6379
+      GTE_API_BASE: "${GTE_API_BASE:-http://ollama:11434/v1}"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     networks:
       - ds_network
@@ -189,6 +242,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ollama_data:
 
 networks:
   ds_network:

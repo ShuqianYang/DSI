@@ -39,6 +39,31 @@ services:
     networks:
       - ds_network
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ds_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_NUM_PARALLEL: 2
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ds_network
+
   postgis:
     image: postgis/postgis:17-3.5
     platform: linux/amd64
@@ -63,6 +88,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ollama_data:
   postgis_data:
 
 networks:
