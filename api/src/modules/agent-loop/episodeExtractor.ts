@@ -1,13 +1,16 @@
 /**
  * Episode Extractor (P1-4) - LLM-based structured episode extraction.
  *
- * Uses gte-Qwen2-1.5B's instruction-following capability to extract structured
- * episode information from completed agent conversations. Falls back to rule-based
- * extraction when the LLM is unavailable or returns invalid output.
+ * Uses the main LLM (DeepSeek) instruction-following capability to extract
+ * structured episode information from completed agent conversations. Falls back
+ * to rule-based extraction when the LLM is unavailable or returns invalid output.
+ *
+ * Model responsibilities are decoupled: episode extraction uses DeepSeek chat
+ * (DEEPSEEK_*), while vectorization uses the Ollama embedding model (GTE_*).
  *
  * Flow:
  * 1. Format conversation as text
- * 2. POST to /chat/completions with JSON Schema + few-shot examples, temperature=0.1
+ * 2. POST to DeepSeek chat/completions with JSON Schema + few-shot examples, temperature=0.1
  * 3. Parse returned JSON, validate schema
  * 4. If JSON parse fails, retry once with "请只输出JSON" instruction
  * 5. If still fails, rule-based fallback
@@ -43,7 +46,8 @@ export interface EpisodeExtractor {
 }
 
 export interface CreateEpisodeExtractorInput {
-  apiBase?: string;
+  /** Full chat completions URL. Defaults to DEEPSEEK_API_URL. */
+  apiUrl?: string;
   apiKey?: string;
   model?: string;
   timeoutMs?: number;
@@ -54,8 +58,9 @@ export interface CreateEpisodeExtractorInput {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MODEL = "gte-Qwen2-1.5B";
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_CHAT_URL = "https://api.deepseek.com/chat/completions";
+const DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_FINAL_RESULT_CHARS = 300;
 const MAX_OUTPUT_SUMMARY_CHARS = 200;
 const MAX_CONVERSATION_CHARS = 8000;
@@ -134,17 +139,17 @@ const RETRY_SUFFIX = "\n\n请只输出JSON，不要输出任何其他内容。";
 export function createEpisodeExtractor(
   input?: CreateEpisodeExtractorInput
 ): EpisodeExtractor | undefined {
-  const apiBase = input?.apiBase ?? process.env.GTE_API_BASE;
-  if (!apiBase || apiBase.trim() === "") return undefined;
+  const apiKey = input?.apiKey ?? process.env.DEEPSEEK_API_KEY ?? "";
+  if (!apiKey || apiKey.trim() === "") return undefined;
 
-  const apiKey = input?.apiKey ?? process.env.GTE_API_KEY ?? "";
-  const model = input?.model ?? process.env.GTE_MODEL ?? DEFAULT_MODEL;
+  const chatUrl =
+    input?.apiUrl ?? process.env.DEEPSEEK_API_URL ?? DEFAULT_CHAT_URL;
+  const model = input?.model ?? process.env.DEEPSEEK_MODEL ?? DEFAULT_MODEL;
   const timeoutMs = parsePositiveInt(
-    input?.timeoutMs ?? process.env.GTE_API_TIMEOUT_MS,
+    input?.timeoutMs ?? process.env.DEEPSEEK_API_TIMEOUT_MS,
     DEFAULT_TIMEOUT_MS
   );
   const logger = input?.logger ?? console;
-  const chatUrl = joinUrl(apiBase, "/chat/completions");
 
   return new LlmEpisodeExtractor(chatUrl, apiKey, model, timeoutMs, logger);
 }
@@ -438,12 +443,6 @@ interface ChatCompletionResponse {
   choices?: Array<{
     message?: { content?: string };
   }>;
-}
-
-function joinUrl(base: string, path: string): string {
-  const trimmedBase = base.replace(/\/+$/, "");
-  const trimmedPath = path.replace(/^\/+/, "");
-  return `${trimmedBase}/${trimmedPath}`;
 }
 
 function parsePositiveInt(value: string | number | undefined, fallback: number): number {

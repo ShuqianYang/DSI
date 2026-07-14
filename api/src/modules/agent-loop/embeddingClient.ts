@@ -1,7 +1,7 @@
 /**
- * Embedding Client for gte-Qwen2-1.5B (OpenAI-compatible API).
+ * Embedding Client for qwen3-embedding:0.6b (OpenAI-compatible API).
  *
- * Generates 1536-dim vectors via a local/intranet deployment of gte-Qwen2-1.5B.
+ * Generates 1024-dim vectors via a local Ollama deployment of qwen3-embedding:0.6b.
  * Gracefully degrades to `undefined` when GTE_API_BASE is not configured.
  */
 
@@ -17,7 +17,7 @@ export interface CreateEmbeddingClientInput {
   timeoutMs?: number;
 }
 
-const DEFAULT_MODEL = "gte-Qwen2-1.5B";
+const DEFAULT_MODEL = "qwen3-embedding:0.6b";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export function createEmbeddingClient(

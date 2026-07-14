@@ -14,12 +14,12 @@ import {
 // ============================================
 // pgvector 自定义类型（drizzle-orm 无原生支持）
 // ============================================
-const vector1536 = customType<{
+const vector1024 = customType<{
   data: string;
   driverData: string;
 }>({
   dataType() {
-    return "vector(1536)";
+    return "vector(1024)";
   },
 });
 
@@ -157,7 +157,7 @@ export const taskConversationSnapshot = pgTable(
     stoppedBy: text("stopped_by").notNull(),
     scenario: text("scenario"),
     entities: text("entities").array().default([]),
-    embedding: vector1536("embedding"),
+    embedding: vector1024("embedding"),
     isCheckpoint: boolean("is_checkpoint").notNull().default(false),
     checkpointTurn: integer("checkpoint_turn"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -185,7 +185,7 @@ export const episodicMemories = pgTable(
     importance: doublePrecision("importance").default(0.5),
     tags: text("tags").array().default([]),
     relatedEntities: text("related_entities").array().default([]),
-    embedding: vector1536("embedding"),
+    embedding: vector1024("embedding"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

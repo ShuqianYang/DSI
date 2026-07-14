@@ -39,7 +39,7 @@ services:
       - ds_network
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.31.2
     container_name: ds_ollama
     restart: unless-stopped
     ports:
@@ -64,24 +64,19 @@ services:
       - ds_network
 
   ollama-init:
-    image: curlimages/curl:latest
+    image: ollama/ollama:0.31.2
     container_name: ds_ollama_init
     depends_on:
       ollama:
         condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        echo "[ollama-init] Waiting for Ollama API..."
-        until curl -s http://ollama:11434/api/tags > /dev/null 2>&1; do sleep 2; done
-        echo "[ollama-init] Checking model: gte-Qwen2-1.5B..."
-        if curl -s http://ollama:11434/api/tags | grep -q "gte-Qwen2-1.5B"; then
-          echo "[ollama-init] Model already exists, skipping pull."
-        else
-          echo "[ollama-init] Pulling gte-Qwen2-1.5B (this may take a few minutes)..."
-          curl -N -X POST http://ollama:11434/api/pull -d '{"name":"gte-Qwen2-1.5B"}'
-          echo "[ollama-init] Model pull complete!"
-        fi
+        echo "[ollama-init] Pulling embedding model qwen3-embedding:0.6b..."
+        ollama pull qwen3-embedding:0.6b
+        echo "[ollama-init] Embedding model ready!"
     networks:
       - ds_network
 
