@@ -1,0 +1,56 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'background': '#ffffff' }} }%%
+graph LR
+    %% 触发
+    A["外部报警触发<br/>便携设备 / 雷达 / 视频AI / 人工"] --> B["创建/复用嫌疑人事件<br/>POST /external/suspect/events"]
+
+    %% 事件准备
+    B --> C["更新事件状态<br/>PUT /suspect/events/{id}/status → processing"]
+    C --> D["获取历史轨迹<br/>GET /suspect/events/{id}"]
+
+    %% 轨迹增强
+    D --> E["盲区轨迹补全<br/>POST /prediction/blind_spot_completion"]
+    E --> F["补全后轨迹"]
+    E -.-> NOTE_E["局限：依赖历史轨迹密度与地形模式<br/>完全陌生区域或稀疏采样时效果下降"]
+
+    %% 环境数据
+    C --> G["读取环境数据<br/>patrol_boundaries / patrol_cameras / special_areas"]
+    G --> H["地形约束 special_areas"]
+
+    %% 预测
+    F --> I["轨迹预测<br/>POST /prediction/trajectory_forecast"]
+    H --> I
+    I --> J["candidate_points<br/>嫌疑人未来可能位置"]
+    I -.-> NOTE_I["局限：点式外推，假设运动模式延续<br/>预测时长越长不确定性越大"]
+
+    %% 目标点
+    J --> K["确定目标点<br/>当前点 + 最佳预测点"]
+
+    %% 资源
+    L["获取可用资源<br/>listPatrolResources / portable / simulator"] --> M["resources_available<br/>{id, type, current_pos, speed}"]
+
+    %% 调度决策 + 路径规划
+    K --> N["资源调度<br/>POST /dispatch/resource_allocation"]
+    M --> N
+    N --> O["SchedulerGA 评估<br/>距离 ÷ 速度 + 地形/规则"]
+    O --> P["路径规划<br/>_enrich_allocation_paths<br/>POST /qijingnan/api/v1/dispatch/intent_path_planning"]
+    P --> Q["path_waypoints<br/>每个被调度资源的可行驶路径"]
+    P -.-> NOTE_P["局限：基于静态地图/路网规划，未实时感知<br/>动态障碍物；需外部循环重触发才能更新"]
+
+    %% 结果
+    Q --> R{"方案可行?"}
+    R -->|是| S["写入 active_allocation<br/>DB patrol_allocation + Redis"]
+    R -->|否| T["返回拦截不可行"]
+
+    S --> U["查询调度结果<br/>GET /dispatch/allocation/active"]
+    U --> V["dispatch plan<br/>resourceId / type / etaSeconds /<br/>targetLng / targetLat /<br/>action / path_waypoints"]
+    V --> W["前端展示<br/>调度路径 + 预计到达时间"]
+
+    %% 样式
+    style A fill:#ffcccc,stroke:#333
+    style N fill:#ffe6b3,stroke:#333,stroke-width:2px
+    style P fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style V fill:#ccffcc,stroke:#333,stroke-width:2px
+    style T fill:#ffcccc,stroke:#333
+    style NOTE_E fill:#fffacd,stroke:#999
+    style NOTE_I fill:#fffacd,stroke:#999
+    style NOTE_P fill:#fffacd,stroke:#999

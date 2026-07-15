@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ScenarioIdSchema } from "../scenarios.js";
 import type { Plan } from "./plan.js";
 import type { Action } from "./action.js";
 
@@ -20,6 +21,10 @@ export type StepStatus = z.infer<typeof StepStatus>;
 
 export const CreateTaskRequest = z.object({
   query: z.string().min(1),
+  userId: z.string().min(1).optional(),
+  sessionId: z.string().min(1).optional(),
+  clientRequestId: z.string().min(1).optional(),
+  scenarioId: ScenarioIdSchema.optional(),
   context: z.record(z.string(), z.any()).optional(),
 });
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;

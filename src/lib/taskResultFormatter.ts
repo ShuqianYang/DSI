@@ -131,6 +131,12 @@ export function formatTaskResult(result: Record<string, unknown> | null): string
     return '任务执行完成，暂无详细结果。';
   }
 
+  // Agent loop 模式：result.message 已经是 LLM 生成的 markdown，直接展示
+  if (result.mode === 'agent_loop') {
+    const message = result.message as string;
+    return message?.trim() || '任务执行完成。';
+  }
+
   const parts: string[] = [];
   for (const [actionId, actionResult] of Object.entries(result)) {
     const r = actionResult as Record<string, unknown>;

@@ -1,53 +1,53 @@
 'use client';
 
+import React from 'react';
 import { Send } from 'lucide-react';
 
 interface ChatInputProps {
   inputValue: string;
   isLoading: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
+  placeholder: string;
+  leftSlot?: React.ReactNode;
   onChange: (value: string) => void;
   onSend: () => void;
 }
 
-export default function ChatInput({ inputValue, isLoading, inputRef, onChange, onSend }: ChatInputProps) {
+export default function ChatInput({
+  inputValue,
+  isLoading,
+  inputRef,
+  placeholder,
+  leftSlot,
+  onChange,
+  onSend,
+}: ChatInputProps) {
   return (
-    <div className="p-4 border-t border-[#3A3A4E]">
+    <div className="border-t border-[#3A3A4E] p-4">
       <div className="flex items-center gap-2">
+        {leftSlot}
         <input
           ref={inputRef}
           type="text"
           value={inputValue}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onSend();
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onSend();
           }}
-          placeholder="输入您的问题..."
-          className="flex-1 bg-[#2A2A3E] border border-[#3A3A4E] rounded-lg px-4 py-2.5 text-sm text-[#EAEAEA] placeholder-[#8888AA] focus:outline-none focus:border-[#00E0FF] transition-colors"
+          placeholder={placeholder}
+          className="flex-1 rounded-lg border border-[#3A3A4E] bg-[#2A2A3E] px-4 py-2.5 text-sm text-[#EAEAEA] transition-colors placeholder-[#8888AA] focus:border-[#00E0FF] focus:outline-none"
         />
-        {/* 暂时注释：语音输入按钮
-        <button
-          onClick={() => {}}
-          className="p-2.5 rounded-lg bg-[#2A2A3E] hover:bg-[#3A3A4E] transition-colors text-[#8888AA] hover:text-[#EAEAEA]"
-          title="语音输入"
-        >
-          <Mic className="w-5 h-5" />
-        </button>
-        */}
         <button
           onClick={onSend}
           disabled={!inputValue.trim() || isLoading}
-          className="p-2.5 rounded-lg bg-[#00E0FF] hover:bg-[#00E0FF]/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[#121212]"
+          className="rounded-lg bg-[#00E0FF] p-2.5 text-[#121212] transition-colors hover:bg-[#00E0FF]/80 disabled:cursor-not-allowed disabled:opacity-50"
           title="发送"
         >
-          <Send className="w-5 h-5" />
+          <Send className="h-5 w-5" />
         </button>
       </div>
       <div className="mt-2 flex items-center justify-between text-xs text-[#8888AA]">
         <span>按 Enter 发送，Shift + Enter 换行</span>
-        {/* 暂时注释：订阅此需求按钮
-        <button className="text-[#00E0FF] hover:underline">订阅此需求</button>
-        */}
       </div>
     </div>
   );

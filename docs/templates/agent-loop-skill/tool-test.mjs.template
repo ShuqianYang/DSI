@@ -1,0 +1,147 @@
+import assert from "node:assert/strict";
+
+const {
+  build<ToolName>Tool,
+} = await import("../../src/modules/agent-loop/tools/domain/<skill-name>/<skill-name>.ts");
+const {
+  create<ToolName>SmokeModelClient,
+  installMock<ToolName>Fetch,
+  validate<ToolName>Smoke,
+} = await import("../../scripts/agent-loop/agent-loop-smoke-<skill-name>.ts");
+
+function createContext() {
+  return {
+    taskId: "<skill-name>-test-task",
+    query: "<example query>",
+    observations: [],
+  };
+}
+
+// Tool registration
+{
+  const tool = build<ToolName>Tool();
+  assert.equal(tool.name, "<ToolName>");
+  assert.ok(tool.aliases?.includes("<tool-alias>"));
+  assert.equal(tool.kind, "domain");
+  assert.equal(tool.isReadOnly?.({ param1: "value", param2: "option1" }), true);
+}
+
+// Input schema validation
+{
+  const tool = build<ToolName>Tool();
+
+  const valid = tool.inputSchema.safeParse({ param1: "value", param2: "option1" });
+  assert.equal(valid.success, true, "<ToolName> should accept valid input");
+
+  const defaulted = tool.inputSchema.safeParse({ param1: "value" });
+  assert.equal(defaulted.success, true);
+  assert.equal(defaulted.data.param2, "option1");
+
+  const missingParam = tool.inputSchema.safeParse({ param2: "option1" });
+  assert.equal(missingParam.success, false, "<ToolName> requires param1");
+}
+
+// Successful tool execution with mocked API
+{
+  const tool = build<ToolName>Tool();
+  const restoreFetch = installMock<ToolName>Fetch({ response: { result: "mock result" } });
+
+  try {
+    const output = await tool.execute({ param1: "value", param2: "option1" }, createContext());
+
+    assert.equal(output.param1, "value");
+    assert.equal(output.param2, "option1");
+    assert.equal(output.result, "mock result");
+    assert.equal(output.source, "<source-name>");
+    assert.ok(output.executionTime >= 0);
+  } finally {
+    restoreFetch();
+  }
+}
+
+// Network failure handling
+{
+  const tool = build<ToolName>Tool();
+  const restoreFetch = installMock<ToolName>Fetch({ networkError: true });
+
+  try {
+    await assert.rejects(
+      () => tool.execute({ param1: "value", param2: "option1" }, createContext()),
+      /<ToolName> failed/,
+      "<ToolName> should surface API failures"
+    );
+  } finally {
+    restoreFetch();
+  }
+}
+
+// Fake model client: first decision calls the tool
+{
+  const client = create<ToolName>SmokeModelClient();
+  const firstDecision = await client.decide({
+    messages: [],
+    tools: [],
+    query: "<example query>",
+    observations: [],
+    callId: "call-1",
+  });
+
+  assert.equal(firstDecision.type, "tool_calls");
+  assert.equal(firstDecision.toolCalls.length, 1);
+  assert.equal(firstDecision.toolCalls[0].toolName, "<ToolName>");
+}
+
+// Fake model client: second decision produces final answer
+{
+  const client = create<ToolName>SmokeModelClient();
+  const finalDecision = await client.decide({
+    messages: [],
+    tools: [],
+    query: "<example query>",
+    observations: [
+      {
+        toolCallId: "<skill-name>-call-1",
+        toolName: "<ToolName>",
+        ok: true,
+        output: { result: "mock result" },
+      },
+    ],
+    callId: "call-2",
+  });
+
+  assert.equal(finalDecision.type, "final_answer");
+  assert.match(finalDecision.content, /mock result/);
+}
+
+// Smoke validation
+{
+  const report = validate<ToolName>Smoke({
+    rawEvents: [
+      {
+        type: "tool_observation",
+        taskId: "task",
+        turn: 1,
+        toolCallId: "<skill-name>-call-1",
+        toolName: "<ToolName>",
+        ok: true,
+        observation: {
+          toolCallId: "<skill-name>-call-1",
+          toolName: "<ToolName>",
+          ok: true,
+          output: { result: "mock result" },
+        },
+      },
+    ],
+    projectedResult: {
+      message: "ok",
+      mode: "agent_loop",
+      turns: 2,
+      stoppedBy: "final_answer",
+      observations: [],
+    },
+  });
+
+  assert.deepEqual(report.toolOrder, ["<ToolName>"]);
+}
+
+console.log("<skill-name> tool and smoke model client tests passed");

@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { asyncHandler } from "../../middleware/errorHandler.js";
-import { listInfoCenter, exportInfoCenter } from "./controller.js";
+import { listTaskResults, exportTaskResults } from "./controller.js";
 
-const router = Router();
+const router: Router = Router();
 
-router.get("/", asyncHandler(listInfoCenter));
-router.get("/export", asyncHandler(exportInfoCenter));
+router.get("/", asyncHandler(listTaskResults));
+router.get("/export", asyncHandler(exportTaskResults));
 
 export default router;

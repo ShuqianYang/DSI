@@ -1,39 +1,89 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { ChatMessage as ChatMessageType, ThinkingStep, GisData, Task } from '@/types/prd';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { getScenarioProfile, type ScenarioId, type ScenarioProfile } from '@datasourceintelligence/shared';
+import { ThinkingStep, GisData, Task } from '@/types/prd';
+import type { SkillCatalogItem, SkillCatalogResponse } from '@/types/skillCatalog';
 import { useTaskChat } from '@/hooks/useTaskChat';
 import ChatHeader from './chat/ChatHeader';
 import ChatHistory from './chat/ChatHistory';
 import ChatMessageList from './chat/ChatMessageList';
 import ChatInput from './chat/ChatInput';
+import ScenarioTabs from './chat/ScenarioTabs';
+import ScenarioSkillButton from './chat/ScenarioSkillButton';
 
 interface ChatPanelProps {
+  userId?: string;
+  scenario?: ScenarioProfile;
+  onScenarioChange?: (scenarioId: ScenarioId) => void;
   onSendMessage: (message: string) => void;
-  onGisDataRequest?: (gisData: GisData) => void;
   onTaskCreate?: (task: Task, steps: ThinkingStep[], gisData?: GisData) => void;
   onTaskFinished?: (taskId: string, status: 'completed' | 'failed') => void;
-  onFireDetected?: () => void;
-  onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
 }
 
-export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreate, onTaskFinished, onFireDetected, onGisOperation }: ChatPanelProps) {
+export default function ChatPanel({
+  userId,
+  scenario: scenarioProp,
+  onScenarioChange = () => undefined,
+  onSendMessage,
+  onTaskCreate,
+  onTaskFinished,
+}: ChatPanelProps) {
+  const scenario = scenarioProp ?? getScenarioProfile();
   const {
     messages,
     inputValue,
     isLoading,
     setInputValue,
     sendMessage,
+    addSystemMessage,
     deleteMessage,
     clearAll,
     toggleThinkingExpanded,
-  } = useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, onTaskCreate, onTaskFinished });
+  } = useTaskChat({
+    userId,
+    scenarioId: scenario.id,
+    onTaskCreate,
+    onTaskFinished,
+  });
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [skillItems, setSkillItems] = useState<SkillCatalogItem[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSkillsLoading(true);
+    setSkillsError(null);
+
+    fetch(`/api/skills?_t=${Date.now()}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as SkillCatalogResponse;
+        if (!cancelled) setSkillItems(data.items);
+      })
+      .catch((loadError) => {
+        if (!cancelled) setSkillsError(loadError instanceof Error ? loadError.message : 'Skill 加载失败');
+      })
+      .finally(() => {
+        if (!cancelled) setSkillsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scenario.id]);
+
+  const scenarioSkills = useMemo(() => {
+    const skillIdSet = new Set(scenario.skillIds);
+    return skillItems.filter((item) => skillIdSet.has(item.name));
+  }, [skillItems, scenario.skillIds]);
+
   const handleContinue = (chatId: string) => {
-    const chat = messages.find((m) => m.id === chatId);
+    const chat = messages.find((message) => message.id === chatId);
     if (chat) {
       setInputValue(chat.content);
       inputRef.current?.focus();
@@ -64,8 +114,14 @@ export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreat
   };
 
   return (
-    <div className="h-full flex flex-col glass-panel rounded-lg overflow-hidden">
-      <ChatHeader onHistoryToggle={() => setIsHistoryOpen(!isHistoryOpen)} />
+    <div className="flex h-full flex-col overflow-hidden rounded-lg glass-panel">
+      <ChatHeader
+        title={scenario.chatTitle}
+        subtitle={scenario.chatSubtitle}
+        onHistoryToggle={() => setIsHistoryOpen(!isHistoryOpen)}
+      />
+
+      <ScenarioTabs scenario={scenario} onScenarioChange={onScenarioChange} />
 
       {isHistoryOpen && (
         <ChatHistory
@@ -80,6 +136,9 @@ export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreat
       <ChatMessageList
         messages={messages}
         isLoading={isLoading}
+        greetingTitle={scenario.greetingTitle}
+        greetingDescription={scenario.greetingDescription}
+        quickActions={scenario.quickActions}
         onToggleThinking={toggleThinkingExpanded}
         formatTime={formatTime}
         onSuggestion={(text) => {
@@ -92,6 +151,8 @@ export default function ChatPanel({ onSendMessage, onGisDataRequest, onTaskCreat
         inputValue={inputValue}
         isLoading={isLoading}
         inputRef={inputRef}
+        placeholder={scenario.inputPlaceholder}
+        leftSlot={<ScenarioSkillButton scenario={scenario} skills={scenarioSkills} loading={skillsLoading} error={skillsError} />}
         onChange={setInputValue}
         onSend={handleSendClick}
       />

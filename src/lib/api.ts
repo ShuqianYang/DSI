@@ -1,12 +1,46 @@
 // API 客户端 - 对接后端展示数据接口
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+import type { ScenarioId } from "@datasourceintelligence/shared";
+
+export function getApiBase(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    return "";
+  }
+
+  return "http://api:3001";
+}
+
+export function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${getApiBase()}${normalizedPath}`;
+}
+
+export function eventSourceUrl(path: string): string {
+  return apiUrl(path);
+}
+
+export const AGENT_LOOP_FIXED_USER_ID = "agent-loop-local-user";
+const AGENT_LOOP_SESSION_STORAGE_KEY = "agent-loop-session-id";
+
+function getAgentLoopSessionId(): string {
+  if (typeof window === "undefined") return "server-session";
+  const existing = window.sessionStorage.getItem(AGENT_LOOP_SESSION_STORAGE_KEY);
+  if (existing) return existing;
+  const sessionId = crypto.randomUUID();
+  window.sessionStorage.setItem(AGENT_LOOP_SESSION_STORAGE_KEY, sessionId);
+  return sessionId;
+}
 
 async function fetchJson<T>(path: string, options?: RequestInit, retries = 1): Promise<T> {
   const separator = path.includes("?") ? "&" : "?";
-  const url = `${API_BASE}${path}${separator}_t=${Date.now()}`;
+  const url = `${apiUrl(path)}${separator}_t=${Date.now()}`;
   try {
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json; charset=utf-8" },
       cache: "no-store",
       ...options,
     });
@@ -34,6 +68,7 @@ export interface ApiTask {
   status: "running" | "completed" | "partial" | "failed";
   dataCount: number;
   agentTaskId?: string;
+  result?: Record<string, unknown> | null;
   subTasks?: ApiSubTask[];
 }
 
@@ -161,13 +196,22 @@ export async function getRequirements(): Promise<{ requirements: ApiRequirement[
 }
 
 // ========== Agent 编排任务（创建新任务入口） ==========
-export async function createAgentTask(query: string): Promise<{
+export async function createAgentTask(
+  query: string,
+  options: { scenarioId?: ScenarioId } = {},
+): Promise<{
   taskId: string;
   status: string;
 }> {
   return fetchJson("/tasks", {
     method: "POST",
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({
+      query,
+      userId: AGENT_LOOP_FIXED_USER_ID,
+      sessionId: getAgentLoopSessionId(),
+      clientRequestId: crypto.randomUUID(),
+      scenarioId: options.scenarioId,
+    }),
   });
 }
 
@@ -197,54 +241,6 @@ export interface ApiAisData {
 
 export async function getAisData(): Promise<ApiAisData> {
   return fetchJson("/ais/data");
-}
-
-// ========== ShipDT 区域查询 ==========
-export interface ApiShipdtAreaData {
-  status: number;
-  entities: Array<{
-    id: string;
-    name: string;
-    type: string;
-    coordinates: [number, number];
-    importance: string;
-    status: string;
-    description: string;
-    speed: number;
-    heading: number;
-  }>;
-  denseCells: Array<{
-    minLng: number;
-    maxLng: number;
-    minLat: number;
-    maxLat: number;
-    count: number;
-  }>;
-  sourceBreakdown: {
-    aisstream: number;
-    shipdt: number;
-    mock: number;
-  };
-  meta?: {
-    tilesQueried: number;
-    tilesFromCache: number;
-    shipsAdded: number;
-    shipsSkipped: number;
-  };
-}
-
-export async function getShipdtArea(
-  minLng: number,
-  maxLng: number,
-  minLat: number,
-  maxLat: number,
-  zoom: number,
-  signal?: AbortSignal
-): Promise<ApiShipdtAreaData> {
-  return fetchJson(
-    `/ais/shipdt-area?minLng=${minLng}&maxLng=${maxLng}&minLat=${minLat}&maxLat=${maxLat}&zoom=${zoom}`,
-    { signal }
-  );
 }
 
 // ========== ADS-B 实时数据 ==========
@@ -279,19 +275,12 @@ export async function getAdsData(): Promise<ApiAdsData> {
 // ========== 信息中心（聚合查询） ==========
 export interface InfoItem {
   id: string;
-  itemType: "event" | "insight";
-  title: string;
-  summary: string;
-  status: string;
-  category?: string;
-  sourceTaskId?: string;
-  sourceTaskName?: string;
-  sourceTaskType?: "instant" | "subscription";
-  agentTaskId?: string;
-  timestamp: string;
-  meta?: {
-    gisEnabled?: boolean;
-  };
+  query: string;
+  status: "completed" | "failed";
+  result: Record<string, unknown> | null;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
 }
 
 export interface InfoCenterResult {
@@ -343,7 +332,9 @@ export async function exportInfoCenter(params: {
   if (params.endTime) qs.set("endTime", params.endTime);
   if (params.taskId) qs.set("taskId", params.taskId);
   if (params.search) qs.set("search", params.search);
-  const res = await fetch(`${API_BASE}/info-center/export?${qs.toString()}`, {
+  const query = qs.toString();
+  const exportUrl = query ? `${apiUrl("/info-center/export")}?${query}` : apiUrl("/info-center/export");
+  const res = await fetch(exportUrl, {
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
   });

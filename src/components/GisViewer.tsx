@@ -116,7 +116,6 @@ interface GisViewerProps {
   onViewportChange?: (viewport: { lat: number; lng: number; altitude: number }) => void;
   onSceneModeChange?: (mode: '2D' | '3D') => void;
   rightPanelOpen?: boolean;
-  fireOverlayVisible?: boolean;
   /** 底图之上的 SingleTile 影像层（PNG/JPEG 轴对齐矩形） */
   singleTileOverlays?: SingleTileOverlaySpec[];
   billboardGlowHighlight?: BillboardGlowHighlightOptions;
@@ -155,7 +154,6 @@ export default function GisViewer({
   onViewportChange,
   onSceneModeChange,
   rightPanelOpen = false,
-  fireOverlayVisible = false,
   singleTileOverlays,
   billboardGlowHighlight,
   pulseRingDemoAll,
@@ -203,15 +201,6 @@ export default function GisViewer({
   );
   const internalCesiumMapRef = useRef<CesiumMapRef>(null);
   const cesiumMapRef = cesiumMapRefProp ?? internalCesiumMapRef;
-
-  // 火灾 overlay 显隐控制
-  useEffect(() => {
-    if (fireOverlayVisible) {
-      cesiumMapRef.current?.showFireOverlay();
-    } else {
-      cesiumMapRef.current?.hideFireOverlay();
-    }
-  }, [fireOverlayVisible]);
 
   // 后端推送的 GIS 操作指令自动执行
   useEffect(() => {

@@ -2,8 +2,12 @@
 
 # Dependencies
 node_modules/
+.pnpm-store/
 .pnp
 .pnp.js
+
+# Local database dumps (large binary files, share via other means)
+docker/dumps/
 
 # Production build
 dist/
@@ -23,11 +27,12 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*
+!docker/.env.example
 
 # Logs
-logs/*.log
-logs/*.out
-!.gitkeep
+logs/*
+!logs/.gitkeep
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -55,6 +60,15 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .yarn/build-state.yml
 .yarn/install-state.gz
 node-compile-cache/
+# Python launcher/runtime local cache
+Python/
+**/Python/
+
+# alarm-disposal-orchestrator runtime I/O files
+skills/alarm-disposal-orchestrator/alarm.json
+skills/alarm-disposal-orchestrator/personnel.json
+skills/alarm-disposal-orchestrator/output.json
+skills/alarm-disposal-orchestrator/summarize_result.py
 
 # Editor directories and files
 .vscode/*
@@ -85,6 +99,7 @@ Desktop.ini
 *.temp
 .tmp/
 .temp/
+api/tmp/
 
 # Optional files
 *.tgz
@@ -110,3 +125,5 @@ public/local-tiles/
 # Workspace package build output (packages/shared uses tsc -> dist/)
 packages/shared/dist/
 
+# Local analysis workspace
+claude-code-analysis/

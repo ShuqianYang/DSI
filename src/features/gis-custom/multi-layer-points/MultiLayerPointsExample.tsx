@@ -158,7 +158,6 @@ export default function MultiLayerPointsExample() {
           eventGisDataList={[]}
           denseCells={[]}
           rightPanelOpen={false}
-          fireOverlayVisible={false}
           singleTileOverlays={singleTileOverlays}
           billboardGlowHighlight={billboardGlowHighlight}
           pulseRingDemoAll={pulseRingDemoAll}

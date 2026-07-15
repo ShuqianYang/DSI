@@ -1,0 +1,137 @@
+import "dotenv/config";
+import type { ModelClient } from "../../src/modules/agent-loop/modelClient.js";
+import type {
+  AgentLoopEvent,
+  NormalizedAgentDecision,
+  ToolObservation,
+} from "../../src/modules/agent-loop/tools/_shared/types.js";
+import type { AgentLoopTaskResult } from "../../src/modules/tasks/agentLoopResultProjection.js";
+
+export const <UPPER_NAME>_SCENARIO = "<skill-name>";
+export const <UPPER_NAME>_TOOLS = ["<ToolName>"] as const;
+export const <UPPER_NAME>_QUERY = "<Example user query that triggers this skill.>";
+
+export interface <ToolName>ValidationInput {
+  rawEvents: AgentLoopEvent[];
+  projectedResult: AgentLoopTaskResult;
+}
+
+export interface <ToolName>ValidationReport {
+  toolOrder: string[];
+  // Add scenario-specific fields here
+}
+
+export function create<ToolName>SmokeModelClient(): ModelClient {
+  return {
+    async decide(input): Promise<NormalizedAgentDecision> {
+      const observation = findObservation(input.observations, "<ToolName>");
+
+      if (!observation) {
+        return {
+          type: "tool_calls",
+          content: "Triggering the skill tool for the user request.",
+          toolCalls: [
+            {
+              id: "<skill-name>-call-1",
+              toolName: "<ToolName>",
+              input: {
+                param1: "value1",
+                param2: "option1",
+              },
+              reason: "User request requires <ToolName>.",
+            },
+          ],
+        };
+      }
+
+      if (!observation.ok) {
+        return {
+          type: "final_answer",
+          content: `<ToolName> tool failed: ${observation.error?.message ?? "unknown error"}.`,
+        };
+      }
+
+      const output = observation.output as Record<string, unknown>;
+      return {
+        type: "final_answer",
+        content: `Skill completed. Output: ${JSON.stringify(output, null, 2)}`,
+      };
+    },
+  };
+}
+
+export function installMock<ToolName>Fetch(options: {
+  response?: unknown;
+  httpStatus?: number;
+  networkError?: boolean;
+}): () => void {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (!url.includes("/api-path")) {
+      return originalFetch(input, init);
+    }
+
+    if (options.networkError) {
+      throw new Error("ECONNREFUSED");
+    }
+
+    if (options.httpStatus && options.httpStatus >= 400) {
+      return new Response(null, { status: options.httpStatus, statusText: "Internal Server Error" });
+    }
+
+    return Response.json(options.response ?? { result: "mock result" });
+  };
+
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
+export function validate<ToolName>Smoke(input: <ToolName>ValidationInput): <ToolName>ValidationReport {
+  const observations = input.rawEvents.filter(
+    (event): event is Extract<AgentLoopEvent, { type: "tool_observation" }> => event.type === "tool_observation"
+  );
+
+  const toolObservation = requireObservation(observations, "<ToolName>");
+  assertCondition(toolObservation.ok, "<ToolName> observation failed.");
+
+  const output = toolObservation.observation.output as Record<string, unknown>;
+  assertCondition(output.result != null, "<ToolName> output missing result.");
+
+  const toolOrder = observations.map((event) => event.toolName);
+  assertCondition(
+    toolOrder.includes("<ToolName>"),
+    `Missing <ToolName> in tool observation order: ${toolOrder.join(" -> ")}`
+  );
+
+  assertCondition(
+    input.projectedResult.stoppedBy === "final_answer",
+    `Agent loop did not stop with final_answer: ${input.projectedResult.stoppedBy}`
+  );
+
+  return {
+    toolOrder,
+  };
+}
+
+function findObservation(observations: ToolObservation[], toolName: string): ToolObservation | undefined {
+  return observations.find((observation) => observation.toolName === toolName);
+}
+
+function requireObservation(
+  observations: Array<Extract<AgentLoopEvent, { type: "tool_observation" }>>,
+  toolName: string
+): Extract<AgentLoopEvent, { type: "tool_observation" }> {
+  const observation = observations.find((event) => event.toolName === toolName);
+  if (!observation) {
+    throw new Error(`Missing ${toolName} tool_observation.`);
+  }
+  return observation;
+}
+
+function assertCondition(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}

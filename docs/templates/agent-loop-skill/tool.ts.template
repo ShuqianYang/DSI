@@ -1,0 +1,89 @@
+import { z } from "zod";
+import type { ToolDefinition, ToolExecutionContext } from "../../_shared/types.js";
+
+const <UPPER_NAME>_API_URL = process.env.<UPPER_NAME>_API_URL || "http://example.com/api";
+const <UPPER_NAME>_TIMEOUT_MS = 30_000;
+const MAX_RESULT_SIZE_CHARS = 80_000;
+
+const <ToolName>InputSchema = z.strictObject({
+  param1: z.string().min(1).describe("Description of param1."),
+  param2: z.enum(["option1", "option2"]).default("option1").describe("Description of param2."),
+});
+
+type <ToolName>Input = z.infer<typeof <ToolName>InputSchema>;
+
+interface <ToolName>Output {
+  param1: string;
+  param2: string;
+  result: string;
+  executionTime: number;
+  source: string;
+}
+
+export function build<ToolName>Tool(): ToolDefinition {
+  return {
+    name: "<ToolName>",
+    aliases: ["<tool-alias>"],
+    description:
+      "Concise description of what this tool does. Include input example and constraints.",
+    kind: "domain",
+    inputSchema: <ToolName>InputSchema,
+    isReadOnly: () => true,
+    isDestructive: () => false,
+    isConcurrencySafe: () => true,
+    riskLevel: "low",
+    maxResultSizeChars: MAX_RESULT_SIZE_CHARS,
+    async execute(input, context) {
+      const start = Date.now();
+      const parsed = input as <ToolName>Input;
+
+      context.onProgress?.({
+        stage: "start",
+        message: `Executing <ToolName> with ${parsed.param1}`,
+      });
+
+      try {
+        // Replace with actual API call or computation
+        const result = await call<ToolName>Api(parsed);
+
+        context.onProgress?.({
+          stage: "complete",
+          message: `<ToolName> completed`,
+        });
+
+        return {
+          param1: parsed.param1,
+          param2: parsed.param2,
+          result,
+          executionTime: Date.now() - start,
+          source: "<source-name>",
+        };
+      } catch (err) {
+        throw new Error(`<ToolName> failed: ${(err as Error).message}`);
+      }
+    },
+  };
+}
+
+async function call<ToolName>Api(input: <ToolName>Input): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), <UPPER_NAME>_TIMEOUT_MS);
+
+  try {
+    const resp = await fetch(<UPPER_NAME>_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: controller.signal,
+    });
+
+    if (!resp.ok) {
+      throw new Error(`API error: ${resp.status} ${resp.statusText}`);
+    }
+
+    const data = (await resp.json()) as { result?: string };
+    return data.result ?? "";
+  } finally {
+    clearTimeout(timeout);
+  }
+}

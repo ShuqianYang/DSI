@@ -1,44 +1,82 @@
 import type { Request, Response } from "express";
 import * as service from "./service.js";
 
-function parseQuery(req: Request) {
-  const typeRaw = (req.query.type as string) || "event,insight";
-  const type = typeRaw.split(",").map((t) => t.trim()).filter(Boolean);
-
-  const statusRaw = req.query.status as string | undefined;
-  const status = statusRaw ? statusRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
-
-  const sourceRaw = req.query.source as string | undefined;
-  const source = sourceRaw
-    ? sourceRaw.split(",").map((s) => s.trim()).filter(Boolean) as ("instant" | "subscription")[]
+export async function listTaskResults(req: Request, res: Response) {
+  const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+  const pageSize = Math.min(
+    100,
+    Math.max(1, parseInt((req.query.pageSize as string) || "20", 10))
+  );
+  const status = (req.query.status as string) || undefined;
+  const search = (req.query.search as string) || undefined;
+  const startTime = req.query.startTime
+    ? new Date(req.query.startTime as string)
+    : undefined;
+  const endTime = req.query.endTime
+    ? new Date(req.query.endTime as string)
     : undefined;
 
-  const startTime = req.query.startTime as string | undefined;
-  const endTime = req.query.endTime as string | undefined;
-  const taskId = req.query.taskId as string | undefined;
-  const search = req.query.search as string | undefined;
-
-  return { type, status, source, startTime, endTime, taskId, search };
-}
-
-export async function listInfoCenter(req: Request, res: Response) {
-  const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string, 10) || 20));
-
-  const result = await service.getInfoCenterItems({
+  const result = await service.listTaskResults({
     page,
     pageSize,
-    ...parseQuery(req),
+    status,
+    search,
+    startTime,
+    endTime,
   });
 
   res.json(result);
 }
 
-export async function exportInfoCenter(req: Request, res: Response) {
-  const csv = await service.exportInfoCenterToCSV(parseQuery(req));
+export async function exportTaskResults(req: Request, res: Response) {
+  const status = (req.query.status as string) || undefined;
+  const search = (req.query.search as string) || undefined;
+  const startTime = req.query.startTime
+    ? new Date(req.query.startTime as string)
+    : undefined;
+  const endTime = req.query.endTime
+    ? new Date(req.query.endTime as string)
+    : undefined;
 
-  const now = new Date().toISOString().slice(0, 10);
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="info-center-export-${now}.csv"`);
+  const result = await service.listTaskResults({
+    page: 1,
+    pageSize: 10000,
+    status,
+    search,
+    startTime,
+    endTime,
+  });
+
+  const rows = result.items.map((item) => {
+    const resultObj = (item.result ?? {}) as Record<string, unknown>;
+    return {
+      id: item.id,
+      query: item.query,
+      status: item.status,
+      finalAnswer:
+        typeof resultObj.finalAnswer === 'string'
+          ? resultObj.finalAnswer
+          : typeof resultObj.content === 'string'
+            ? resultObj.content
+            : JSON.stringify(item.result),
+      error: item.error || '',
+      createdAt: String(item.createdAt),
+      completedAt: item.completedAt ? String(item.completedAt) : '',
+    };
+  });
+
+  const headers = ['id', 'query', 'status', 'finalAnswer', 'error', 'createdAt', 'completedAt'];
+  const csv = [headers.join(','), ...rows.map((row) =>
+    headers.map((h) => {
+      const value = row[h as keyof typeof row];
+      const str = String(value ?? '');
+      return str.includes(',') || str.includes('"') || str.includes('\n')
+        ? `"${str.replace(/"/g, '""')}"`
+        : str;
+    }).join(',')
+  )].join('\n');
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="info-center-export.csv"');
   res.send(csv);
 }

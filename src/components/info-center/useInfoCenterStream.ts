@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import { getTasks } from '@/lib/api';
+import { eventSourceUrl, getTasks } from '@/lib/api';
+import {
+  shouldCloseInfoCenterStreamForEvent,
+  shouldRefreshInfoCenterForStreamEvent,
+} from '@/lib/infoCenterAgentLoop';
 
 interface UseInfoCenterStreamOptions {
   refresh: () => void;
@@ -23,7 +27,7 @@ export function useInfoCenterStream({ refresh, enabled = true }: UseInfoCenterSt
     (agentTaskId: string) => {
       if (connectionsRef.current.has(agentTaskId)) return;
 
-      const evtSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/tasks/${agentTaskId}/stream`);
+      const evtSource = new EventSource(eventSourceUrl(`/tasks/${agentTaskId}/stream`));
       connectionsRef.current.set(agentTaskId, evtSource);
       console.log('[InfoCenterStream] SSE connected for task', agentTaskId);
 
@@ -32,20 +36,11 @@ export function useInfoCenterStream({ refresh, enabled = true }: UseInfoCenterSt
           const data = JSON.parse(event.data);
           console.log('[InfoCenterStream] SSE msg:', data.type, 'task:', agentTaskId);
 
-          if (data.type === 'step_update' || data.type === 'progress') {
+          if (shouldRefreshInfoCenterForStreamEvent(data)) {
             refresh();
-            return;
           }
 
-          if (data.type === 'completed' || data.type === 'failed') {
-            refresh();
-            evtSource.close();
-            connectionsRef.current.delete(agentTaskId);
-            return;
-          }
-
-          if (data.type === 'subscription_completed' || data.type === 'subscription_failed') {
-            refresh();
+          if (shouldCloseInfoCenterStreamForEvent(data)) {
             evtSource.close();
             connectionsRef.current.delete(agentTaskId);
             return;

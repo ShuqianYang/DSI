@@ -3,15 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "copy-fallback-images": "node scripts/copy-fallback-images.mjs",
     "copy-cesium": "node scripts/copy-cesium.mjs",
     "copy-cesium:force": "node scripts/copy-cesium.mjs --force",
-    "prebuild": "node scripts/copy-cesium.mjs",
+    "predev": "pnpm --filter @datasourceintelligence/shared build && node scripts/copy-fallback-images.mjs",
+    "prebuild": "pnpm --filter @datasourceintelligence/shared build && node scripts/copy-cesium.mjs && node scripts/copy-fallback-images.mjs",
     "build": "pnpm install --prefer-frozen-lockfile --prefer-offline --loglevel debug --reporter=append-only && pnpm next build --webpack && pnpm tsup src/server.ts --format cjs --platform node --target node20 --outDir dist --no-splitting --no-minify",
-    "dev": "next dev --webpack --port 5000",
+    "dev": "next dev --webpack --port 5000 --hostname 0.0.0.0",
     "preinstall": "npx only-allow pnpm",
     "lint": "eslint",
     "start": "node dist/server.js",
     "start:prod": "COZE_PROJECT_ENV=PROD node dist/server.js",
+    "prets-check": "pnpm --filter @datasourceintelligence/shared build",
     "ts-check": "tsc -p tsconfig.json"
   },
   "dependencies": {
@@ -80,7 +83,6 @@
   "devDependencies": {
     "@babel/plugin-transform-unicode-property-regex": "^7.28.6",
     "@react-dev-inspector/babel-plugin": "^2.0.1",
-    "@react-dev-inspector/middleware": "^2.0.1",
     "@swc/helpers": "0.5.15",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -90,7 +92,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "only-allow": "^1.2.2",
-    "react-dev-inspector": "^2.0.1",
     "shadcn": "latest",
     "tailwindcss": "^4",
     "tsup": "^8.3.5",

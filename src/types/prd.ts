@@ -5,9 +5,12 @@ import type {
   Trajectory,
   Region,
   GisData,
+  AgentLoopEventType,
+  ScenarioId,
 } from "@datasourceintelligence/shared";
+import type { AgentLoopTaskView } from "@/lib/agentLoopTaskView";
 
-export type { Entity, Trajectory, Region, GisData };
+export type { Entity, Trajectory, Region, GisData, ScenarioId };
 
 export interface User {
   id: string;
@@ -25,19 +28,50 @@ export interface ThinkingStep {
   status: 'pending' | 'running' | 'completed' | 'failed';
   detail?: string;
   duration?: number; // ms
+  category?: 'agent' | 'tool' | 'gis' | 'result' | 'memory';
+  eventType?: AgentLoopEventType;
+  toolName?: string;
+  toolCallId?: string;
+  input?: unknown;
+  output?: unknown;
+}
+
+export interface ChartData {
+  chart_type: 'bar' | 'line' | 'pie';
+  title: string;
+  chart_id: string;
+  data: Record<string, unknown>[];
+  config: {
+    x_axis?: string;
+    y_axis?: string;
+    label_key?: string;
+    value_key?: string;
+    series_keys?: string[];
+  };
 }
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
   hasGisData?: boolean;
   gisData?: GisData;
+  charts?: ChartData[];       // 后端返回的图表数据
   taskId?: string;            // 关联的后端 Agent 任务 ID
   thinking?: string;          // 智能体思考过程文本
   thinkingSteps?: ThinkingStep[]; // 分步思考/规划步骤
   isThinkingExpanded?: boolean;   // 思考过程是否展开（UI状态）
+  agentLoopLogFilePath?: string;
+}
+
+export interface ChatSession {
+  id: string;
+  scenarioId: ScenarioId;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface Alert {
@@ -77,6 +111,7 @@ export interface Task {
   status: 'running' | 'completed' | 'partial' | 'failed';
   dataCount: number;
   subTasks?: SubTask[];
+  agentLoop?: AgentLoopTaskView;
 }
 
 export interface TaskEvent {

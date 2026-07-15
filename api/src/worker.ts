@@ -1,18 +1,34 @@
 import "dotenv/config";
-import { taskWorker } from "./queue/taskQueue.js";
+import { openskyWorker } from "./modules/opensky/worker.js";
+import { aisWorker } from "./modules/ais/worker.js";
 
-console.log("[Worker] Task execution worker started");
-console.log("[Worker] Waiting for jobs...");
+console.log("[Worker] OpenSky + AIS workers starting...");
 
-// 保持进程运行
-process.on("SIGTERM", async () => {
-  console.log("[Worker] SIGTERM received, closing...");
-  await taskWorker.close();
-  process.exit(0);
+const SHUTDOWN_TIMEOUT_MS = 5_000;
+let shuttingDown = false;
+
+async function shutdown(signal: "SIGINT" | "SIGTERM") {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Worker] ${signal} received, shutting down...`);
+  try {
+    await Promise.race([
+      Promise.all([openskyWorker.close(), aisWorker.close()]),
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error("Worker shutdown timed out.")), SHUTDOWN_TIMEOUT_MS);
+      }),
+    ]);
+    process.exit(0);
+  } catch (error) {
+    console.error("[Worker] Shutdown failed:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+}
+
+process.once("SIGINT", () => {
+  void shutdown("SIGINT");
 });
 
-process.on("SIGINT", async () => {
-  console.log("[Worker] SIGINT received, closing...");
-  await taskWorker.close();
-  process.exit(0);
+process.once("SIGTERM", () => {
+  void shutdown("SIGTERM");
 });

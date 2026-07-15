@@ -1,0 +1,52 @@
+---
+name: <skill-name>
+description: <one-line description of what this skill does>
+argument-hint: "[user query with required parameters]"
+allowed-tools: <ToolName1>, <ToolName2>
+---
+
+# <Skill Title>
+
+Use this skill when the user asks for <specific intent>.
+
+## Required Input
+
+Use the user's original query as `$ARGUMENTS`.
+
+The query should contain:
+
+1. <Intent 1>
+2. <Intent 2>
+
+## Workflow
+
+1. <Step 1>
+2. <Step 2>
+3. Call `<ToolName>` with the normalized input:
+
+```json
+{
+  "param1": "value1",
+  "param2": "value2"
+}
+```
+
+4. Summarize the result for the user.
+
+## Rules
+
+- Do not invent data. Only summarize what the tools return.
+- If a tool fails, report the failure and do not fabricate a result.
+- Keep the summary concise.
+
+## Response
+
+Include:
+
+- <Key point 1>
+- <Key point 2>
+
+Do not:
+
+- Output raw tool result unless explicitly requested.
+- Add information not present in the tool result.

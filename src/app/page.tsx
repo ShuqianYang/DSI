@@ -1,8 +1,14 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { Menu, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Menu, X, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import {
+  DEFAULT_SCENARIO_ID,
+  getScenarioProfile,
+  type ScenarioId,
+} from '@datasourceintelligence/shared';
 import LogoIcon from '@/components/LogoIcon';
 import ChatPanel from '@/components/ChatPanel';
 import RightPanel from '@/components/RightPanel';
@@ -12,10 +18,19 @@ import { Entity, Insight, GisData, Task, TaskEvent, ThinkingStep, SubTask, Traje
 import { mockUser } from '@/data/mockData';
 
 const EMPTY_REGIONS: Region[] = [];
-import { getAisData, getAdsData, getShipdtArea, getTask } from '@/lib/api';
-import type { ApiAisData, ApiAdsData, ApiShipdtAreaData } from '@/lib/api';
-import type { GisOperation, CesiumMapRef } from '@/components/cesium/CesiumMap';
+import { eventSourceUrl, getAisData, getAdsData } from '@/lib/api';
+import type { ApiAisData, ApiAdsData } from '@/lib/api';
+import type { CesiumMapRef } from '@/components/cesium/CesiumMap';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
+import {
+  extractGisPushesFromAgentLoopEvent,
+} from '@/lib/agentLoopGisBridge';
+import {
+  createTaskStreamModeTracker,
+  getTaskFinishFromStreamEvent,
+  isNativeAgentLoopProgressEvent,
+} from '@/lib/taskStreamLifecycle';
+import { routeTaskStreamEvent } from '@/lib/taskStreamRouter';
 import LiveClock from '@/components/LiveClock';
 import WindParticleCanvasOverlay from '@/features/gis-custom/multi-layer-points/WindParticleCanvasOverlay';
 
@@ -36,23 +51,34 @@ const GisViewer = dynamic(() => import('@/components/GisViewer'), {
 });
 
 export default function HomePage() {
+  const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
   const [showChat, setShowChat] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
-  const [gisData, setGisData] = useState<GisData | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [activeEventIds, setActiveEventIds] = useState<Set<string>>(new Set());
+  const [activeGisIds, setActiveGisIds] = useState<Set<string>>(new Set());
   const [activeGisDataList, setActiveGisDataList] = useState<GisData[]>([]);
+  const [activeScenarioId, setActiveScenarioId] = useState<ScenarioId>(DEFAULT_SCENARIO_ID);
+
+  // 支持外部 deep link：/?scenario=marine 等，进入时直接切换到对应场景
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const scenarioParam = params.get('scenario');
+    if (scenarioParam) {
+      const profile = getScenarioProfile(scenarioParam);
+      setActiveScenarioId(profile.id);
+    }
+  }, []);
+
   // 真实 jobTask（含 agentTaskId）从 useRightPanelData 拿，供 swap effect 把 placeholder selectedTask 替换为真实版本
   const { tasks: apiTasks, refresh } = useRightPanelData();
   const [events, setEvents] = useState<TaskEvent[]>([]);
-  const [fireOverlayVisible, setFireOverlayVisible] = useState(false);
-  const [pendingOperations, setPendingOperations] = useState<GisOperation[]>([]);
-  const gisDataCounterRef = useRef(0);
   const highlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const cesiumMapRef = useRef<CesiumMapRef>(null);
+  const taskStreamModeTrackerRef = useRef(createTaskStreamModeTracker());
 
   const pushActiveGisData = useCallback((incoming: GisData, eventId: string) => {
     setActiveGisDataList((prev) => {
@@ -115,14 +141,6 @@ export default function HomePage() {
     );
   }, [windFieldGisData]);
 
-  // 自动将任务 gisData 加入地图显示
-  useEffect(() => {
-    if (!gisData) return;
-    console.log('[page] Auto gisData:', gisData.type, 'imageOverlays=', gisData.imageOverlays?.length || 0, 'entities=', gisData.entities?.length || 0, 'regions=', gisData.regions?.length || 0);
-    const eventId = `auto-gis-${gisDataCounterRef.current++}`;
-    pushActiveGisData(gisData, eventId);
-  }, [gisData, pushActiveGisData]);
-
   // AIS 船舶实时数据状态
   const [aisEntities, setAisEntities] = useState<Entity[]>([]);
   const [aisTrajectories, setAisTrajectories] = useState<Trajectory[]>([]);
@@ -131,23 +149,24 @@ export default function HomePage() {
   const [adsEntities, setAdsEntities] = useState<Entity[]>([]);
   const [adsTrajectories, setAdsTrajectories] = useState<Trajectory[]>([]);
 
-  // ShipDT 区域补充数据
-  const [shipdtEntities, setShipdtEntities] = useState<Entity[]>([]);
-  const [denseCells, setDenseCells] = useState<ApiShipdtAreaData['denseCells']>([]);
-  const [, setShipdtLoading] = useState(false);
-
   // 稳定引用：避免每次渲染展开新数组导致 CesiumMap 内部 sync 频繁触发闪烁
-  const allEntities = useMemo(() => [
-    ...aisEntities,
-    ...adsEntities,
-    ...shipdtEntities.filter(
-      (se) =>
-        !aisEntities.some((ae) => ae.id === se.id) &&
-        !adsEntities.some((ade) => ade.id === se.id)
-    ),
-  ], [aisEntities, adsEntities, shipdtEntities]);
+  const activeScenario = useMemo(() => getScenarioProfile(activeScenarioId), [activeScenarioId]);
 
-  const allTrajectories = useMemo(() => [...aisTrajectories, ...adsTrajectories], [aisTrajectories, adsTrajectories]);
+  const visibleEntities = useMemo(() => {
+    const scenario = getScenarioProfile(activeScenarioId);
+    const entities: Entity[] = [];
+    if (scenario.mapLayers.includes('ais')) entities.push(...aisEntities);
+    if (scenario.mapLayers.includes('ads')) entities.push(...adsEntities);
+    return entities;
+  }, [activeScenarioId, aisEntities, adsEntities]);
+
+  const visibleTrajectories = useMemo(() => {
+    const scenario = getScenarioProfile(activeScenarioId);
+    const trajectories: Trajectory[] = [];
+    if (scenario.mapLayers.includes('ais')) trajectories.push(...aisTrajectories);
+    if (scenario.mapLayers.includes('ads')) trajectories.push(...adsTrajectories);
+    return trajectories;
+  }, [activeScenarioId, aisTrajectories, adsTrajectories]);
 
   // 客户端挂载后检查登录状态，避免 SSR 与客户端状态不一致导致闪现
   useEffect(() => {
@@ -174,7 +193,7 @@ export default function HomePage() {
         description: e.description,
         speed: e.speed,
         heading: e.heading,
-        dataSource: e.description?.includes('ShipDT') ? 'shipdt' : 'aisstream',
+        dataSource: 'aisstream',
       }));
       const trajectories: Trajectory[] = data.trajectories.map((t) => ({
         id: t.id,
@@ -226,48 +245,33 @@ export default function HomePage() {
     if (!sseTaskId) return;
 
     console.log('[page] Auto-connecting SSE for task:', sseTaskId);
-    const evtSource = new EventSource(`http://localhost:3001/tasks/${sseTaskId}/stream`);
+    const evtSource = new EventSource(eventSourceUrl(`/tasks/${sseTaskId}/stream`));
 
     evtSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('[page] SSE auto-connect msg:', data.type, data);
+        const routed = routeTaskStreamEvent({
+          taskId: sseTaskId,
+          event: data,
+          tracker: taskStreamModeTrackerRef.current,
+        });
+        if (routed.kind === 'agent-loop') {
+          const pushes = extractGisPushesFromAgentLoopEvent(sseTaskId, routed.event);
+          for (const push of pushes) {
+            console.log('[page] Auto-received gisData (agent-loop):', push.source, push.key, push.gisData.type);
+            pushActiveGisData(push.gisData, push.key);
+          }
+          const finish = getTaskFinishFromStreamEvent(routed.event);
+          if (finish) {
+            console.log('[page] Native task finished, closing auto SSE');
+            evtSource.close();
+            taskStreamModeTrackerRef.current.clear(sseTaskId);
+            return;
+          }
+        }
 
-        if (data.type === 'step_update' && data.status === 'completed' && data.operations) {
-          console.log('[page] Auto-received operations:', data.operations);
-          handleGisOperation(data.operations);
-        }
         // GIS 数据：步骤完成时**直接 push** activeGisDataList（按 stepId 去重），
-        // 不走 setGisData state 中介——避免 React 18 batching 把短间隔的多次 setGisData 合并、吞掉中间值。
-        if (data.type === 'step_update' && data.status === 'completed' && data.gisData) {
-          console.log('[page] Auto-received gisData (step_update):', data.gisData);
-          const incomingGis = data.gisData as GisData;
-          const stepKey = (data as { stepId?: string }).stepId
-            ? `step-${(data as { stepId: string }).stepId}`
-            : `auto-gis-${gisDataCounterRef.current++}`;
-          pushActiveGisData(incomingGis, stepKey);
-        }
-        if (data.type === 'completed' || data.type === 'failed') {
-          console.log('[page] Task finished, fetching gisData from result...');
-          getTask(sseTaskId)
-            .then((task) => {
-              console.log('[page] Task result keys:', Object.keys(task.result || {}));
-              if (task.result) {
-                for (const [actionId, stepResult] of Object.entries(task.result)) {
-                  const sr = stepResult as Record<string, unknown> | undefined;
-                  const nestedGis = (sr?.data as Record<string, unknown> | undefined)?.gisData as GisData | undefined;
-                  const topGis = sr?.gisData as GisData | undefined;
-                  const gisData = nestedGis || topGis;
-                  console.log(`[page] Step ${actionId} gisData:`, gisData ? `type=${gisData.type} overlays=${gisData.imageOverlays?.length || 0}` : 'NO');
-                  if (gisData) {
-                    setGisData(gisData);
-                  }
-                }
-              }
-            })
-            .catch((err) => console.error('[page] getTask failed:', err));
-          evtSource.close();
-        }
       } catch (err) {
         console.warn('[page] SSE auto-connect parse error:', err);
       }
@@ -279,88 +283,9 @@ export default function HomePage() {
 
     return () => {
       evtSource.close();
+      taskStreamModeTrackerRef.current.clear(sseTaskId);
     };
   }, []);
-
-  // ShipDT 区域数据：视口驱动加载（debounce 800ms + 429 冷却期，避免频繁请求）
-  const shipdtTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shipdtAbortRef = useRef<AbortController | null>(null);
-  const shipdtFetchingRef = useRef(false);
-  const shipdtRetryAfterRef = useRef(0);
-
-  const handleViewportChange = useCallback(
-    (viewport: { lat: number; lng: number; altitude: number }) => {
-      if (!isLoggedIn) return;
-
-      // altitude > 3.0 不调用 ShipDT
-      if (viewport.altitude > 3.0) {
-        setShipdtEntities((prev) => (prev.length === 0 ? prev : []));
-        setDenseCells((prev) => (prev.length === 0 ? prev : []));
-        return;
-      }
-
-      // 如果上一次请求还在进行，跳过
-      if (shipdtFetchingRef.current) return;
-
-      // 如果在 429 冷却期内，跳过
-      if (Date.now() < shipdtRetryAfterRef.current) return;
-
-      // 根据 altitude 计算 bbox 范围
-      const latRange = Math.max(0.5, viewport.altitude * 0.8);
-      const lngRange = Math.max(0.5, viewport.altitude * 0.8);
-      const minLng = viewport.lng - lngRange;
-      const maxLng = viewport.lng + lngRange;
-      const minLat = viewport.lat - latRange;
-      const maxLat = viewport.lat + latRange;
-
-      // 取消之前的定时器
-      if (shipdtTimeoutRef.current) {
-        clearTimeout(shipdtTimeoutRef.current);
-      }
-      if (shipdtAbortRef.current) {
-        shipdtAbortRef.current.abort();
-      }
-
-      shipdtTimeoutRef.current = setTimeout(() => {
-        shipdtFetchingRef.current = true;
-        setShipdtLoading(true);
-        const controller = new AbortController();
-        shipdtAbortRef.current = controller;
-        getShipdtArea(minLng, maxLng, minLat, maxLat, Math.round(10 - viewport.altitude), controller.signal)
-          .then((data) => {
-            const entities: Entity[] = data.entities.map((e) => ({
-              id: e.id,
-              name: e.name,
-              type: e.type as Entity['type'],
-              coordinates: e.coordinates,
-              importance: e.importance as Entity['importance'],
-              status: e.status as Entity['status'],
-              description: e.description,
-              speed: e.speed,
-              heading: e.heading,
-              dataSource: 'shipdt' as const,
-            }));
-            setShipdtEntities(entities);
-            setDenseCells(data.denseCells);
-          })
-          .catch((err) => {
-            // 429：后端查询进行中，设置 5 秒冷却期
-            if (err.message?.includes('retry later') || err.message?.includes('429')) {
-              shipdtRetryAfterRef.current = Date.now() + 5000;
-              return;
-            }
-            // 忽略取消
-            if (err.name === 'AbortError') return;
-            console.error('[ShipDT] Failed to fetch area data:', err);
-          })
-          .finally(() => {
-            shipdtFetchingRef.current = false;
-            setShipdtLoading(false);
-          });
-      }, 800);
-    },
-    [isLoggedIn]
-  );
 
   // ADS-B 飞机数据：从后端 API 获取，确保前后端数据一致
   useEffect(() => {
@@ -463,7 +388,15 @@ export default function HomePage() {
   }, []);
 
   // 任务创建处理（由 ChatPanel 触发）
-  const handleTaskCreate = useCallback((task: Task, steps: ThinkingStep[], gisData?: GisData) => {
+  const handleScenarioChange = useCallback((scenarioId: ScenarioId) => {
+    setActiveScenarioId(scenarioId);
+    setSelectedEntity(null);
+    setSelectedTask(null);
+    setActiveGisIds(new Set());
+    setActiveGisDataList([]);
+  }, []);
+
+  const handleTaskCreate = useCallback((task: Task, steps: ThinkingStep[]) => {
     const subTasks: SubTask[] = steps.map((step, index) => ({
       id: step.id,
       name: step.name,
@@ -520,32 +453,47 @@ export default function HomePage() {
     setSelectedTask(mapped);
   }, [apiTasks, selectedTask]);
 
-  // SSE：监听任务 step_update，实时刷新 apiTasks，让 selectedTask swap 跟上进度
+  // SSE: refresh apiTasks from native Agent Loop events so selectedTask stays in sync.
   useEffect(() => {
     const handleTaskCreated = (e: Event) => {
       const taskId = (e as CustomEvent).detail as string;
       refresh();
+      taskStreamModeTrackerRef.current.preferNative(taskId);
 
-      const evtSource = new EventSource(`http://localhost:3001/tasks/${taskId}/stream`);
+      const evtSource = new EventSource(eventSourceUrl(`/tasks/${taskId}/stream`));
       console.log('[page] SSE connected for task', taskId);
 
       evtSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           console.log('[page] SSE msg:', data);
+          const routed = routeTaskStreamEvent({
+            taskId,
+            event: data,
+            tracker: taskStreamModeTrackerRef.current,
+          });
 
-          if (data.type === 'step_update' || data.type === 'progress') {
-            console.log('[page] Step update, refreshing...');
-            refresh();
+          if (routed.kind === 'agent-loop') {
+            if (isNativeAgentLoopProgressEvent(routed.event)) {
+              console.log('[page] Native Agent Loop progress, refreshing...');
+              refresh();
+              return;
+            }
+
+            const finish = getTaskFinishFromStreamEvent(routed.event);
+            if (finish) {
+              console.log('[page] Native Agent Loop task finished, refreshing...');
+              refresh();
+              evtSource.close();
+              taskStreamModeTrackerRef.current.clear(taskId);
+              return;
+            }
+          }
+
+          if (routed.kind === 'ignored-legacy') {
             return;
           }
 
-          if (data.type === 'completed' || data.type === 'failed') {
-            console.log('[page] Task finished, refreshing...');
-            refresh();
-            evtSource.close();
-            return;
-          }
         } catch (err) {
           console.warn('[page] SSE parse error:', err);
         }
@@ -553,6 +501,7 @@ export default function HomePage() {
 
       evtSource.onerror = () => {
         evtSource.close();
+        taskStreamModeTrackerRef.current.clear(taskId);
       };
     };
 
@@ -607,7 +556,7 @@ export default function HomePage() {
       entitiesCount: data?.entities?.length,
       imageOverlaysCount: data?.imageOverlays?.length,
     });
-    setActiveEventIds((prev) => {
+    setActiveGisIds((prev) => {
       const next = new Set(prev);
       if (next.has(eventId)) {
         next.delete(eventId);
@@ -634,11 +583,11 @@ export default function HomePage() {
     setSelectedEntity(null);
     // 关闭任务弹窗
     setSelectedTask(null);
-  }, []);
+  }, [events]);
 
   // 关闭指定事件的地图联动
   const handleCloseEventGis = useCallback((eventId: string) => {
-    setActiveEventIds((prev) => {
+    setActiveGisIds((prev) => {
       const next = new Set(prev);
       next.delete(eventId);
       return next;
@@ -646,23 +595,10 @@ export default function HomePage() {
     setActiveGisDataList((prev) => prev.filter((g) => g.eventId !== eventId));
   }, []);
 
-  // 关闭所有事件地图联动（同时清除 fire overlay 等独立图层）
+  // 关闭所有事件地图联动
   const handleCloseAllEventGis = useCallback(() => {
-    setActiveEventIds(new Set());
+    setActiveGisIds(new Set());
     setActiveGisDataList([]);
-    setFireOverlayVisible(false);
-    cesiumMapRef.current?.hideFireOverlay();
-  }, []);
-
-  // 火灾检测触发地图联动
-  const handleFireDetected = useCallback(() => {
-    setFireOverlayVisible(true);
-  }, []);
-
-  // GIS 操作指令：后端 capability 返回的 operations 自动触发
-  const handleGisOperation = useCallback((operations: Array<Record<string, unknown>>) => {
-    console.log('[page] Received GIS operations:', operations);
-    setPendingOperations(operations as unknown as GisOperation[]);
   }, []);
 
   // 状态校验中：显示 loading，避免登录页闪现
@@ -721,6 +657,15 @@ export default function HomePage() {
             {showRightPanel ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
 
+          {/* Skill 广场 */}
+          <button
+            onClick={() => router.push('/skills')}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[#2A2A3E] transition-colors text-[#EAEAEA]"
+          >
+            <Sparkles className="w-4 h-4 text-[#8888AA]" />
+            <span className="hidden sm:inline text-sm">Skill 广场</span>
+          </button>
+
           {/* 用户中心 */}
           <UserCenter user={mockUser} onLogout={handleLogout} />
         </div>
@@ -739,15 +684,12 @@ export default function HomePage() {
           {/* ChatPanel 总是挂载——避免 showChat=false 时卸载，导致 useTaskChat SSE 连接断开 */}
           <div className="h-full p-2 md:p-3">
             <ChatPanel
+              userId={mockUser.id}
+              scenario={activeScenario}
+              onScenarioChange={handleScenarioChange}
               onSendMessage={handleSendMessage}
-              onGisDataRequest={(gisData) => {
-                const eventId = `auto-gis-${gisDataCounterRef.current++}`;
-                pushActiveGisData(gisData, eventId);
-              }}
               onTaskCreate={handleTaskCreate}
               onTaskFinished={handleTaskFinished}
-              onFireDetected={handleFireDetected}
-              onGisOperation={handleGisOperation}
             />
           </div>
         </aside>
@@ -770,8 +712,8 @@ export default function HomePage() {
           <GisViewer
             cesiumMapRef={cesiumMapRef}
             mapCanvasOverlay={mapCanvasOverlay}
-            entities={allEntities}
-            trajectories={allTrajectories}
+            entities={visibleEntities}
+            trajectories={visibleTrajectories}
             regions={EMPTY_REGIONS}
             selectedEntity={selectedEntity}
             onEntityClick={handleEntityClick}
@@ -780,11 +722,7 @@ export default function HomePage() {
             eventGisDataList={activeGisDataList}
             onCloseEventGis={handleCloseEventGis}
             onCloseAllEventGis={handleCloseAllEventGis}
-            denseCells={denseCells}
-            onViewportChange={handleViewportChange}
             rightPanelOpen={showRightPanel}
-            fireOverlayVisible={fireOverlayVisible}
-            pendingOperations={pendingOperations}
           />
 
           {/* 移动端关闭按钮 */}
@@ -827,8 +765,9 @@ export default function HomePage() {
                 onEntityClick={handleEntityIdClick}
                 onTaskClick={handleTaskClick}
                 onEventGisClick={handleEventGisClick}
+                onAgentLoopGisClick={handleEventGisClick}
                 onEventRead={handleEventRead}
-                activeEventIds={activeEventIds}
+                activeGisIds={activeGisIds}
               />
             </div>
           )}

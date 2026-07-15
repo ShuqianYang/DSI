@@ -11,7 +11,7 @@ export function validateBody(schema: ZodSchema) {
 
 export function validateParams(schema: ZodSchema) {
   return asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-    req.params = await schema.parseAsync(req.params);
+    req.params = (await schema.parseAsync(req.params)) as typeof req.params;
     next();
   });
 }

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, CircleDot } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, CircleDot, MapPin, Terminal } from 'lucide-react';
 import type { getTask } from '@/lib/api';
+import { buildInfoCenterAgentLoopView } from '@/lib/infoCenterAgentLoop';
 
 interface TaskTraceProps {
   task: Awaited<ReturnType<typeof getTask>>;
@@ -13,6 +14,13 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   failed: <XCircle className="w-4 h-4 text-[#FF4444]" />,
   running: <Loader2 className="w-4 h-4 text-[#00E0FF] animate-spin" />,
   pending: <CircleDot className="w-4 h-4 text-[#8888AA]" />,
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  completed: '已完成',
+  failed: '失败',
+  running: '执行中',
+  pending: '等待中',
 };
 
 const ACTION_TYPE_LABEL: Record<string, string> = {
@@ -35,8 +43,21 @@ const ACTION_TYPE_LABEL: Record<string, string> = {
   'intelligent_qa': '智能问答',
 };
 
+function getStepDisplayName(step: { actionType: string; result: Record<string, unknown> | null }): string {
+  const result = step.result;
+  if (!result) return ACTION_TYPE_LABEL[step.actionType] || step.actionType;
+
+  // Try to read displayName from the stored observation
+  const observation = result.observation || result;
+  if (typeof (observation as Record<string, unknown>).displayName === 'string') {
+    return (observation as Record<string, unknown>).displayName as string;
+  }
+  return ACTION_TYPE_LABEL[step.actionType] || step.actionType;
+}
+
 export default function TaskTrace({ task }: TaskTraceProps) {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  const agentLoop = buildInfoCenterAgentLoopView(task);
 
   const toggleStep = (id: string) => {
     setExpandedSteps((prev) => {
@@ -67,16 +88,79 @@ export default function TaskTrace({ task }: TaskTraceProps) {
         <div className="text-xs text-[#8888AA] mb-1">原始需求</div>
         <div className="text-sm text-[#EAEAEA] font-medium">{task.query}</div>
         <div className="flex items-center gap-3 mt-2 text-xs text-[#8888AA]">
-          <span>状态: <span className={task.status === 'completed' ? 'text-[#44FF44]' : task.status === 'failed' ? 'text-[#FF4444]' : 'text-[#00E0FF]'}>{task.status}</span></span>
+          <span>状态: <span className={task.status === 'completed' ? 'text-[#44FF44]' : task.status === 'failed' ? 'text-[#FF4444]' : 'text-[#00E0FF]'}>{STATUS_LABEL[task.status] || task.status}</span></span>
           <span>创建: {formatTime(task.createdAt)}</span>
         </div>
       </div>
 
       {/* Steps 时间线 */}
+      {agentLoop && (
+        <div className="mb-4 pb-3 border-b border-[#3A3A4E] space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-[#00E0FF]">
+              <Terminal className="w-4 h-4" />
+              <span>Agent Loop Result</span>
+              {agentLoop.turns !== undefined && (
+                <span className="text-[#8888AA]">turns={agentLoop.turns}</span>
+              )}
+            </div>
+            <span className="text-[10px] text-[#8888AA] truncate">
+              停止原因={agentLoop.stoppedBy}
+            </span>
+          </div>
+
+          {agentLoop.message && (
+            <div className="text-sm text-[#EAEAEA] leading-relaxed whitespace-pre-wrap">
+              {agentLoop.message}
+            </div>
+          )}
+
+          {agentLoop.toolSummaries.length > 0 && (
+            <div className="space-y-1.5">
+              {agentLoop.toolSummaries.map((tool) => (
+                <div
+                  key={tool.toolCallId}
+                  className="flex items-start gap-2 rounded-lg bg-[#2A2A3E] border border-[#3A3A4E]/60 px-3 py-2"
+                >
+                  <span
+                    className={`mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 ${
+                      tool.ok ? 'bg-[#44FF44]' : 'bg-[#FF4444]'
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-[#EAEAEA] truncate">{tool.displayName || tool.toolName}</span>
+                      {tool.gisDataType && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-[#00E0FF]">
+                          <MapPin className="w-3 h-3" />
+                          {tool.gisDataType}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-[#8888AA] mt-0.5">{tool.summary}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(agentLoop.gisDataItems.length > 0 || agentLoop.logFilePath) && (
+            <div className="flex flex-col gap-1 text-[10px] text-[#8888AA]">
+              {agentLoop.gisDataItems.length > 0 && (
+                <span>GIS 输出: {agentLoop.gisDataItems.length}</span>
+              )}
+              {agentLoop.logFilePath && (
+                <span className="font-mono truncate">{agentLoop.logFilePath}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2">
         {task.steps.map((step, index) => {
           const isExpanded = expandedSteps.has(step.id);
-          const label = ACTION_TYPE_LABEL[step.actionType] || step.actionType;
+          const label = getStepDisplayName(step);
           const icon = STATUS_ICON[step.status] || STATUS_ICON.pending;
 
           return (
@@ -103,7 +187,7 @@ export default function TaskTrace({ task }: TaskTraceProps) {
                     )}
                   </button>
                   <div className="text-xs text-[#8888AA] mt-0.5">
-                    {step.status}
+                    {STATUS_LABEL[step.status] || step.status}
                   </div>
 
                   {/* 展开结果 */}

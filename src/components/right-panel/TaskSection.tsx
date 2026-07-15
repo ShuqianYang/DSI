@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { FileText, ChevronRight, RefreshCw, Download } from 'lucide-react';
-import { Task } from '@/types/prd';
+import { FileText, ChevronRight, RefreshCw, Download, MapPin, Terminal } from 'lucide-react';
+import { Task, GisData } from '@/types/prd';
+import { buildAgentLoopGisOutputLinkId } from '@/lib/agentLoopGisLink';
 import {
   formatTime,
   getTaskStatusStyle,
@@ -16,11 +17,20 @@ interface TaskSectionProps {
   expandedTasks: Set<string>;
   toggleTask: (id: string) => void;
   onTaskClick?: (task: Task) => void;
+  onAgentLoopGisClick?: (linkId: string, gisData: GisData) => void;
+  activeGisIds?: Set<string>;
 }
 
 type TaskFilterType = 'all' | 'running' | 'completed' | 'failed';
 
-export default function TaskSection({ tasks, expandedTasks, toggleTask, onTaskClick }: TaskSectionProps) {
+export default function TaskSection({
+  tasks,
+  expandedTasks,
+  toggleTask,
+  onTaskClick,
+  onAgentLoopGisClick,
+  activeGisIds,
+}: TaskSectionProps) {
   const [taskFilter, setTaskFilter] = useState<TaskFilterType>('all');
 
   const filteredTasks = tasks.filter((task) => {
@@ -74,7 +84,11 @@ export default function TaskSection({ tasks, expandedTasks, toggleTask, onTaskCl
                       <div className="text-sm text-[#EAEAEA] truncate">{task.name}</div>
                       <div className="text-xs text-[#8888AA] mt-0.5">
                         {task.type === 'daily' ? '日报' : task.type === 'weekly' ? '周报' : '实时监测'}
-                        {task.subTasks && (
+                        {task.agentLoop ? (
+                          <span className="ml-2 text-[#00E0FF]">
+                            {task.agentLoop.toolSummaries.filter((s) => s.ok).length}/{task.agentLoop.toolSummaries.length}
+                          </span>
+                        ) : task.subTasks && (
                           <span className="ml-2 text-[#00E0FF]">
                             {task.subTasks.filter((s) => s.status === 'completed').length}/{task.subTasks.length}
                           </span>
@@ -99,6 +113,98 @@ export default function TaskSection({ tasks, expandedTasks, toggleTask, onTaskCl
                     </button>
                   </div>
                 </div>
+                {isExpanded && task.agentLoop && (
+                  <div className="mt-2 pt-2 border-t border-[#3A3A4E] space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-[10px] text-[#00E0FF]">
+                        <Terminal className="w-3 h-3" />
+                        <span>Agent Loop</span>
+                        {task.agentLoop.turns !== undefined && (
+                          <span className="text-[#8888AA]">turns={task.agentLoop.turns}</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-[#8888AA] truncate">
+                        stoppedBy={task.agentLoop.stoppedBy}
+                      </span>
+                    </div>
+                    {task.agentLoop.message && (
+                      <div className="text-xs text-[#EAEAEA] leading-relaxed line-clamp-3">
+                        {task.agentLoop.message}
+                      </div>
+                    )}
+                    {task.agentLoop.toolSummaries.length > 0 && (
+                      <div className="space-y-1.5">
+                        {task.agentLoop.toolSummaries.map((tool) => (
+                          <div
+                            key={tool.toolCallId}
+                            className="flex items-start gap-2 px-1.5 py-1 rounded bg-[#1E1E2E]/60"
+                          >
+                            <span
+                              className={`mt-1 h-1.5 w-1.5 rounded-full flex-shrink-0 ${
+                                tool.ok ? 'bg-[#44FF44]' : 'bg-[#FF4444]'
+                              }`}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-[#EAEAEA] truncate">{tool.displayName || tool.toolName}</span>
+                                {tool.gisDataType && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-[#00E0FF]">
+                                    <MapPin className="w-2.5 h-2.5" />
+                                    {tool.gisDataType}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-[#8888AA] truncate">{tool.summary}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {task.agentLoop.gisDataItems.length > 0 && (
+                      <div className="space-y-1.5">
+                        {task.agentLoop.gisDataItems.map((item, index) => {
+                          const linkId = buildAgentLoopGisOutputLinkId({
+                            taskId: task.id,
+                            toolCallId: item.toolCallId,
+                            index,
+                          });
+                          const isActive = activeGisIds?.has(linkId);
+                          return (
+                            <button
+                              key={linkId}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onAgentLoopGisClick?.(linkId, {
+                                  ...item.gisData,
+                                  eventName: `${item.displayName || item.toolName} · ${item.gisData.type}`,
+                                });
+                              }}
+                              className={`w-full flex items-center justify-between gap-2 rounded px-2 py-1 text-left transition-colors ${
+                                isActive
+                                  ? 'bg-[#FF44FF]/20 text-[#FF44FF] border border-[#FF44FF]/30'
+                                  : 'bg-[#00E0FF]/10 text-[#00E0FF] hover:bg-[#00E0FF]/20'
+                              }`}
+                            >
+                              <span className="min-w-0 flex items-center gap-1.5">
+                                <MapPin className="w-3 h-3 flex-shrink-0" />
+                                <span className="text-[10px] truncate">{item.displayName || item.toolName}</span>
+                              </span>
+                              <span className="text-[10px] text-[#8888AA] flex-shrink-0">
+                                {item.gisData.type}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {task.agentLoop.logFilePath && (
+                      <div className="text-[10px] font-mono text-[#8888AA] truncate">
+                        {task.agentLoop.logFilePath}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* 暂时关闭：任务下拉进度展开块
                 {isExpanded && (
                   <div className="mt-2 pt-2 border-t border-[#3A3A4E]">

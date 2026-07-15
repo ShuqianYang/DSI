@@ -1,15 +1,43 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { ChatMessage, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
-import { createAgentTask, getTask } from '@/lib/api';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import type { ScenarioId } from '@datasourceintelligence/shared';
+import { ChatMessage, ChatSession, ThinkingStep, GisData, Task, SubTask } from '@/types/prd';
+import { createAgentTask, eventSourceUrl, getTask } from '@/lib/api';
+import { chooseAgentLoopDisplayContent } from '@/lib/agentLoopContent';
 import { formatTaskResult } from '@/lib/taskResultFormatter';
 import { getMockResponse } from '@/lib/taskMock';
+import {
+  logAgentLoopEvent,
+  type AgentLoopEvent,
+} from '@/lib/agentLoopEvents';
+import {
+  extractChartsFromAgentLoopEvent,
+  extractChartsFromTaskResult,
+} from '@/lib/agentLoopCharts';
+import { formatAgentLoopThinkingUpdate } from '@/lib/agentLoopStepFormatter';
+import {
+  buildAgentLoopTaskResultFromStop,
+  createTaskStreamModeTracker,
+  getTaskFinishFromAgentLoopEvent,
+} from '@/lib/taskStreamLifecycle';
+import { routeTaskStreamEvent } from '@/lib/taskStreamRouter';
+import {
+  recordAgentLoopUpdate,
+  recordTaskFinished,
+  recordTaskStreamEvent,
+} from '@/lib/agentLoopFrontendTrace';
+import {
+  loadSessions,
+  saveSessions,
+  ensureSession,
+  updateSessionMessages,
+  findSessionIdByTaskId,
+} from '@/lib/chatSessions';
 
 export interface UseTaskChatOptions {
-  onGisDataRequest?: (gisData: GisData) => void;
-  onFireDetected?: () => void;
-  onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
+  userId?: string;
+  scenarioId?: ScenarioId;
   /** 任务创建成功后立即触发（拿到 taskId、构造 placeholder Task）；用于上层联动 UI（收起 chat / 弹进度窗）。详见 api/plan/auto-toggle-chat-and-task-panel.md */
   onTaskCreate?: (task: Task, steps: ThinkingStep[], gisData?: GisData) => void;
   /** 任务整体完成或失败时触发；用于上层联动 UI（展开 chat / 关进度窗）。详见 api/plan/auto-toggle-chat-and-task-panel.md */
@@ -22,42 +50,101 @@ export interface UseTaskChatReturn {
   isLoading: boolean;
   setInputValue: (v: string) => void;
   sendMessage: (content: string) => Promise<void>;
+  addSystemMessage: (content: string) => void;
   deleteMessage: (id: string) => void;
   clearAll: () => void;
   toggleThinkingExpanded: (msgId: string) => void;
 }
 
-export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, onTaskCreate, onTaskFinished }: UseTaskChatOptions = {}): UseTaskChatReturn {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export function useTaskChat({
+  userId,
+  scenarioId,
+  onTaskCreate,
+  onTaskFinished,
+}: UseTaskChatOptions = {}): UseTaskChatReturn {
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set());
 
   const sseConnections = useRef<Map<string, EventSource>>(new Map());
-  const stepAnimationTimers = useRef<Map<string, NodeJS.Timeout[]>>(new Map());
-  const planAnimationState = useRef<Map<string, { total: number; completed: number; done: boolean }>>(new Map());
-  const delayedEvents = useRef<Map<string, Array<{ type: string; data: any }>>>(new Map());
-  // 火灾跳转去重：每个 taskId 只触发一次（先到的事件触发，后到的兜底跳过）
-  const fireTriggeredRef = useRef<Set<string>>(new Set());
-  // GIS 数据去重：记录已推送过 gisData 的 actionId，避免 step_update 和 task completed 重复推送
-  const gisDataPushedRef = useRef<Set<string>>(new Set());
+  const finishedTaskIdsRef = useRef<Set<string>>(new Set());
+  const taskStreamModeTrackerRef = useRef(createTaskStreamModeTracker());
   const globalSseRef = useRef<EventSource | null>(null);
+
+  // 派生：当前会话的消息和加载状态
+  const activeSession = useMemo(
+    () => sessions.find((s) => s.id === activeSessionId),
+    [sessions, activeSessionId]
+  );
+  const messages = activeSession?.messages ?? [];
+  const isLoading = activeSessionId ? loadingSessionIds.has(activeSessionId) : false;
+
+  // 初始化：从 localStorage 加载当前用户的所有会话
+  useEffect(() => {
+    if (!userId) return;
+    setSessions(loadSessions(userId));
+  }, [userId]);
+
+  // 持久化：sessions 变化时保存到 localStorage
+  useEffect(() => {
+    if (!userId) return;
+    saveSessions(userId, sessions);
+  }, [userId, sessions]);
+
+  // 场景切换：确保当前场景有默认会话，并激活它
+  useEffect(() => {
+    if (!scenarioId) return;
+    setSessions((prev) => {
+      const [nextSessions, active] = ensureSession(prev, scenarioId);
+      setActiveSessionId(active.id);
+      return nextSessions;
+    });
+  }, [scenarioId]);
 
   // 清理 SSE 连接和动画定时器
   useEffect(() => {
     return () => {
       sseConnections.current.forEach((es) => es.close());
       sseConnections.current.clear();
-      stepAnimationTimers.current.forEach((timers) => timers.forEach(clearTimeout));
-      stepAnimationTimers.current.clear();
-      planAnimationState.current.clear();
-      delayedEvents.current.clear();
+      finishedTaskIdsRef.current.clear();
+      taskStreamModeTrackerRef.current = createTaskStreamModeTracker();
       globalSseRef.current?.close();
     };
   }, []);
 
+  // 更新指定 session 的消息列表
+  const updateMessagesBySessionId = useCallback(
+    (sessionId: string | null | undefined, updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+      if (!sessionId) return;
+      setSessions((prev) => updateSessionMessages(prev, sessionId, updater));
+    },
+    []
+  );
+
+  // 更新当前激活 session 的消息列表
+  const updateActiveMessages = useCallback(
+    (updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+      updateMessagesBySessionId(activeSessionId, updater);
+    },
+    [activeSessionId, updateMessagesBySessionId]
+  );
+
+  // 通过 taskId 找到对应 session 并更新其消息
+  const updateMessagesByTaskId = useCallback(
+    (taskId: string, updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+      setSessions((prev) => {
+        const sessionId = findSessionIdByTaskId(prev, taskId);
+        if (!sessionId) return prev;
+        return updateSessionMessages(prev, sessionId, updater);
+      });
+    },
+    []
+  );
+
   // 全局 SSE：监听 subscription_triggered_task 等跨任务事件
   useEffect(() => {
-    const es = new EventSource('http://localhost:3001/sse/global');
+    const es = new EventSource(eventSourceUrl('/sse/global'));
     globalSseRef.current = es;
 
     es.onmessage = (event) => {
@@ -71,7 +158,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
           const query = data.query || '';
 
           // 避免重复创建同 taskId 的占位消息
-          setMessages((prev) => {
+          updateActiveMessages((prev) => {
             if (prev.some((m) => m.taskId === taskId)) return prev;
 
             const placeholderMsg: ChatMessage = {
@@ -122,110 +209,34 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
     return () => {
       es.close();
     };
-  }, []);
-
-  // 清除指定任务的 plan step 动画定时器
-  const clearPlanAnimation = (taskId: string) => {
-    const timers = stepAnimationTimers.current.get(taskId);
-    if (timers) {
-      timers.forEach(clearTimeout);
-      stepAnimationTimers.current.delete(taskId);
-    }
-  };
-
-  // 缓存延迟事件（等 plan steps 动画完成后再处理）
-  const cacheEvent = (taskId: string, event: { type: string; data: any }) => {
-    if (!delayedEvents.current.has(taskId)) {
-      delayedEvents.current.set(taskId, []);
-    }
-    delayedEvents.current.get(taskId)!.push(event);
-  };
-
-  // 处理缓存的延迟事件
-  const flushDelayedEvents = (taskId: string) => {
-    const events = delayedEvents.current.get(taskId);
-    if (events) {
-      events.forEach((e) => handleSseUpdate(taskId, e.data));
-      delayedEvents.current.delete(taskId);
-    }
-  };
-
-  // 启动 plan steps 渐进动画
-  const animatePlanSteps = (taskId: string, steps: Array<{ id: string; name: string; detail: string }>) => {
-    clearPlanAnimation(taskId);
-    planAnimationState.current.set(taskId, { total: steps.length, completed: 0, done: false });
-
-    if (steps.length === 0) {
-      finishPlannerAnimation(taskId);
-      return;
-    }
-
-    const timers: NodeJS.Timeout[] = [];
-
-    steps.forEach((step, i) => {
-      const timer = setTimeout(() => {
-        setMessages((prev) => {
-          const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
-          if (idx === -1) return prev;
-          const msg = prev[idx];
-          const updatedSteps = msg.thinkingSteps?.map((s) =>
-            s.id === step.id ? { ...s, status: 'completed' as const } : s
-          );
-          const next = [...prev];
-          next[idx] = { ...msg, thinkingSteps: updatedSteps };
-          return next;
-        });
-
-        const state = planAnimationState.current.get(taskId);
-        if (state) {
-          state.completed++;
-          if (state.completed >= state.total) {
-            state.done = true;
-            finishPlannerAnimation(taskId);
-          }
-        }
-      }, (i + 1) * 350);
-      timers.push(timer);
-    });
-
-    stepAnimationTimers.current.set(taskId, timers);
-  };
-
-  // plan steps 全部完成后，planner → completed，然后处理缓存的 routing 事件
-  const finishPlannerAnimation = (taskId: string) => {
-    setMessages((prev) => {
-      const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
-      if (idx === -1) return prev;
-      const msg = prev[idx];
-      const updatedSteps = msg.thinkingSteps?.map((s) =>
-        s.id === 'planner' ? { ...s, status: 'completed' as const, detail: '规划完成' } : s
-      );
-      const next = [...prev];
-      next[idx] = {
-        ...msg,
-        thinkingSteps: updatedSteps,
-        content: `任务已创建：${taskId}\n\n**执行目标：**${msg.thinking?.split('\n')[0]?.replace('目标：', '') || '分析用户请求'}\n\n正在决策执行工具...`,
-      };
-      return next;
-    });
-
-    setTimeout(() => {
-      flushDelayedEvents(taskId);
-    }, 200);
-  };
+  }, [updateActiveMessages, onTaskCreate]);
 
   // 建立 SSE 连接并监听步骤级实时更新
   const startTaskSse = (taskId: string) => {
     if (sseConnections.current.has(taskId)) return;
+    taskStreamModeTrackerRef.current.preferNative(taskId);
 
-    const evtSource = new EventSource(`http://localhost:3001/tasks/${taskId}/stream`);
+    const evtSource = new EventSource(eventSourceUrl(`/tasks/${taskId}/stream`));
     sseConnections.current.set(taskId, evtSource);
 
     evtSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('[useTaskChat] SSE msg:', data);
-        handleSseUpdate(taskId, data);
+        const routed = routeTaskStreamEvent({
+          taskId,
+          event: data,
+          tracker: taskStreamModeTrackerRef.current,
+        });
+        recordTaskStreamEvent(taskId, data, routed.parsed);
+        if (routed.kind === 'agent-loop') {
+          logAgentLoopEvent(taskId, routed.event);
+          handleAgentLoopUpdate(taskId, routed.event);
+          return;
+        }
+        if (routed.kind === 'ignored-legacy') {
+          return;
+        }
       } catch (err) {
         console.warn('[useTaskChat] SSE parse error:', err);
       }
@@ -234,301 +245,221 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
     evtSource.onerror = () => {
       evtSource.close();
       sseConnections.current.delete(taskId);
+      taskStreamModeTrackerRef.current.clear(taskId);
+      // 出错时移除该任务对应 session 的 loading 状态
+      setSessions((prev) => {
+        const sessionId = findSessionIdByTaskId(prev, taskId);
+        if (!sessionId) return prev;
+        setLoadingSessionIds((ids) => {
+          const next = new Set(ids);
+          next.delete(sessionId);
+          return next;
+        });
+        return prev;
+      });
     };
   };
 
   // 处理 SSE 消息，更新对应消息的 thinkingSteps
-  const handleSseUpdate = (taskId: string, data: {
-    type: string;
-    stepIndex?: number;
-    actionId?: string;
-    status?: string;
-    name?: string;
-    detail?: string;
-    error?: string;
-    plan?: {
-      goal?: string;
-      reasoning?: string;
-      steps?: Array<{ id: string; description: string; purpose: string }>;
-    };
-    actions?: Array<{
-      id: string;
-      type: string;
-      name: string;
-      description: string;
-      params?: Record<string, unknown>;
-      dependsOn?: string[];
-    }>;
-  }) => {
-    // --- planning 阶段开始 ---
-    if (data.type === 'planning') {
-      setMessages((prev) => {
-        const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
-        if (idx === -1) return prev;
-        const msg = prev[idx];
-        const updatedSteps = (msg.thinkingSteps || []).map((s) =>
-          s.id === 'planner' ? { ...s, status: 'running' as const, detail: data.detail || s.detail || '正在分析用户意图...' } : s
-        );
-        const next = [...prev];
-        next[idx] = { ...msg, thinkingSteps: updatedSteps };
-        return next;
-      });
-      return;
+  const upsertThinkingStep = (
+    taskId: string,
+    step: ThinkingStep,
+    options: { append?: boolean } = {}
+  ) => {
+    updateMessagesByTaskId(taskId, (prev) => {
+      const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
+      if (idx === -1) return prev;
+
+      const msg = prev[idx];
+      const existing = msg.thinkingSteps || [];
+      const stepIdx = existing.findIndex((s) => s.id === step.id);
+      const thinkingSteps =
+        stepIdx >= 0
+          ? existing.map((s) => (s.id === step.id ? { ...s, ...step } : s))
+          : options.append === false
+            ? existing
+            : [...existing, step];
+
+      const next = [...prev];
+      next[idx] = { ...msg, thinkingSteps };
+      return next;
+    });
+  };
+
+  const closeTaskSse = (taskId: string) => {
+    const es = sseConnections.current.get(taskId);
+    if (!es) return;
+    es.close();
+    sseConnections.current.delete(taskId);
+    taskStreamModeTrackerRef.current.clear(taskId);
+  };
+
+  const applyTaskResultToMessage = (taskId: string, result: Record<string, unknown>) => {
+    const resultMarkdown = formatTaskResult(result);
+    const resultCharts = extractChartsFromTaskResult(result);
+    const resultLogFilePath =
+      typeof result.logFilePath === 'string' ? result.logFilePath : undefined;
+    if (resultLogFilePath) {
+      recordTaskFinished(taskId, 'completed', resultLogFilePath);
     }
+    updateMessagesByTaskId(taskId, (prev) => {
+      const idx = prev.findIndex(
+        (m) => m.taskId === taskId && m.role === 'assistant'
+      );
+      if (idx === -1) return prev;
+      const next = [...prev];
+      const existing = prev[idx].charts || [];
+      const existingIds = new Set(existing.map((c) => c.chart_id));
+      const newCharts = resultCharts.filter((c) => !existingIds.has(c.chart_id));
+      next[idx] = {
+        ...prev[idx],
+        content:
+          result.mode === 'agent_loop'
+            ? chooseAgentLoopDisplayContent(prev[idx].content, resultMarkdown)
+            : resultMarkdown,
+        charts: [...existing, ...newCharts],
+        agentLoopLogFilePath: resultLogFilePath || prev[idx].agentLoopLogFilePath,
+      };
+      return next;
+    });
+  };
 
-    // --- planning 阶段完成 ---
-    if (data.type === 'planning_done') {
-      const plan = data.plan;
-      const planSteps = (plan?.steps || []).map((s, i) => ({
-        id: s.id || `plan-step-${i + 1}`,
-        name: s.description || `计划步骤 ${i + 1}`,
-        status: 'pending' as const,
-        detail: s.purpose || '',
-      }));
-
-      setMessages((prev) => {
-        const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
-        if (idx === -1) return prev;
-        const msg = prev[idx];
-
-        const remainingSteps = (msg.thinkingSteps || [])
-          .filter((s) => s.id !== 'planner' && !planSteps.find((p) => p.id === s.id));
-        const updatedSteps = [
-          { id: 'planner', name: '任务规划', status: 'running' as const, detail: plan?.goal || '规划进行中...' },
-          ...planSteps,
-          ...remainingSteps,
-        ];
-
-        const next = [...prev];
-        next[idx] = {
-          ...msg,
-          thinking: plan?.reasoning || msg.thinking,
-          thinkingSteps: updatedSteps,
-          content: `任务已创建：${taskId}\n\n**执行目标：**${plan?.goal || '分析用户请求'}\n\n正在细化执行计划...`,
-        };
-        return next;
-      });
-
-      animatePlanSteps(taskId, planSteps);
-      return;
-    }
-
-    // --- routing 阶段开始 ---
-    if (data.type === 'routing') {
-      const state = planAnimationState.current.get(taskId);
-      if (state && !state.done) {
-        cacheEvent(taskId, { type: 'routing', data });
-        return;
-      }
-
-      setMessages((prev) => {
-        const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
-        if (idx === -1) return prev;
-        const msg = prev[idx];
-        const updatedSteps = (msg.thinkingSteps || []).map((s) =>
-          s.id === 'router'
-            ? { ...s, status: 'running' as const, detail: data.detail || s.detail || '正在决策执行工具...' }
-            : s
-        );
-        const next = [...prev];
-        next[idx] = { ...msg, thinkingSteps: updatedSteps };
-        return next;
-      });
-      return;
-    }
-
-    // --- routing 阶段完成 ---
-    if (data.type === 'routing_done') {
-      const state = planAnimationState.current.get(taskId);
-      if (state && !state.done) {
-        cacheEvent(taskId, { type: 'routing_done', data });
-        return;
-      }
-
-      setMessages((prev) => {
-        const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
-        if (idx === -1) return prev;
-        const msg = prev[idx];
-        const actions = data.actions || [];
-        const actionSteps = actions.map((a) => ({
-          id: a.id,
-          name: a.name || a.type,
-          status: 'pending' as const,
-          detail: a.description || '',
-        }));
-
-        const actionNames = actions.map((a) => a.name || a.type).filter(Boolean).join('、');
-
-        const existingSteps = (msg.thinkingSteps || []).filter(
-          (s) => !actionSteps.find((a) => a.id === s.id)
-        );
-        const routerStep = existingSteps.find((s) => s.id === 'router');
-        const otherSteps = existingSteps.filter((s) => s.id !== 'router');
-
-        const updatedSteps = [
-          ...otherSteps,
-          routerStep ? { ...routerStep, status: 'completed' as const, detail: '工具决策完成' } : { id: 'router', name: '工具决策', status: 'completed' as const, detail: '工具决策完成' },
-          ...actionSteps,
-        ];
-
-        const next = [...prev];
-        next[idx] = {
-          ...msg,
-          thinkingSteps: updatedSteps,
-          content: `任务已创建：${taskId}\n\n**决策动作：**${actionNames || '通用分析'}\n\n正在异步执行中，步骤进度将实时更新...`,
-        };
-        return next;
-      });
-      return;
-    }
-
-    // 步骤级更新
-    if (data.type === 'step_update' && data.actionId) {
-      // fire-detector 工具完成时立即触发跳转（早于综合洞察生成）
-      if (
-        data.status === 'completed' &&
-        data.actionType === 'fire-detector' &&
-        !fireTriggeredRef.current.has(taskId)
-      ) {
-        fireTriggeredRef.current.add(taskId);
-        onFireDetected?.();
-      }
-
-      // GIS 操作指令：步骤完成时自动触发
-      if (data.status === 'completed' && (data as any).operations && Array.isArray((data as any).operations)) {
-        console.log('[useTaskChat] Received GIS operations:', (data as any).operations);
-        onGisOperation?.((data as any).operations);
-      }
-
-      // GIS 区域 / 实体 / 影像数据：步骤完成时实时推送（让 region-mark / satellite 等步骤的 flyTo + 划线即时触发）
-      if (data.status === 'completed' && (data as any).gisData) {
-        const actionId = data.actionId as string | undefined;
-        const gisKey = actionId ? `${taskId}:${actionId}` : undefined;
-        if (gisKey && !gisDataPushedRef.current.has(gisKey)) {
-          gisDataPushedRef.current.add(gisKey);
-          const gis = (data as any).gisData;
-          console.log('[useTaskChat] Received GIS data (step_update):', {
-            type: gis?.type,
-            hasCameraView: !!gis?.cameraView,
-            cameraView: gis?.cameraView,
-            regionsCount: gis?.regions?.length,
-            entitiesCount: gis?.entities?.length,
-            imageOverlaysCount: gis?.imageOverlays?.length,
-          });
-          onGisDataRequest?.(gis);
+  const fetchAndApplyTaskResult = (taskId: string) => {
+    console.log('[useTaskChat] Fetching task result...');
+    getTask(taskId)
+      .then((task) => {
+        console.log('[useTaskChat] Got task result:', task.result ? 'yes' : 'no');
+        if (task.result) {
+          applyTaskResultToMessage(taskId, task.result);
         }
-      }
-
-      setMessages((prev) => {
-        const idx = prev.findIndex(
-          (m) => m.taskId === taskId && m.role === 'assistant'
-        );
-        if (idx === -1) return prev;
-
-        const msg = prev[idx];
-        const updatedSteps = (msg.thinkingSteps || []).map((s) =>
-          s.id === data.actionId
-            ? { ...s, status: data.status as ThinkingStep['status'], detail: data.detail || s.detail }
-            : s
-        );
-
-        const next = [...prev];
-        next[idx] = { ...msg, thinkingSteps: updatedSteps };
-        return next;
+      })
+      .catch((err) => {
+        console.warn('[useTaskChat] getTask failed:', err);
       });
-      return;
+  };
+
+  const finishTaskFromStream = (
+    taskId: string,
+    finalStatus: 'completed' | 'failed',
+    options: {
+      logFilePath?: string;
+      result?: Record<string, unknown>;
+      fetchResult?: boolean;
+    } = {}
+  ) => {
+    closeTaskSse(taskId);
+
+    if (!finishedTaskIdsRef.current.has(taskId)) {
+      finishedTaskIdsRef.current.add(taskId);
+      recordTaskFinished(taskId, finalStatus, options.logFilePath);
+      onTaskFinished?.(taskId, finalStatus);
     }
 
-    // 任务整体完成/失败
-    const isFinished = data.type === 'completed' || data.type === 'failed';
-    if (isFinished) {
-      console.log('[useTaskChat] Task finished event:', data);
-      clearPlanAnimation(taskId);
-      const es = sseConnections.current.get(taskId);
-      if (es) {
-        es.close();
-        sseConnections.current.delete(taskId);
-      }
+    updateMessagesByTaskId(taskId, (prev) => {
+      const idx = prev.findIndex(
+        (m) => m.taskId === taskId && m.role === 'assistant'
+      );
+      if (idx === -1) return prev;
 
-      const finalStatus = data.type === 'completed' ? 'completed' : 'failed';
+      const msg = prev[idx];
+      const updatedSteps = (msg.thinkingSteps || []).map((s) =>
+        s.status === 'pending' || s.status === 'running'
+          ? { ...s, status: finalStatus === 'completed' ? ('completed' as const) : ('failed' as const) }
+          : s
+      );
 
-      // 通知上层任务结束，让 page.tsx 联动 chat / 进度弹窗的开合
-      onTaskFinished?.(taskId, finalStatus);
+      const next = [...prev];
+      next[idx] = {
+        ...msg,
+        thinkingSteps: updatedSteps,
+        agentLoopLogFilePath: options.logFilePath || msg.agentLoopLogFilePath,
+      };
+      return next;
+    });
 
-      setMessages((prev) => {
-        const idx = prev.findIndex(
-          (m) => m.taskId === taskId && m.role === 'assistant'
-        );
+    if (options.result) {
+      applyTaskResultToMessage(taskId, options.result);
+    }
+
+    if (finalStatus === 'completed' && options.fetchResult) {
+      window.setTimeout(() => fetchAndApplyTaskResult(taskId), 250);
+    }
+
+    // 任务结束，移除对应 session 的 loading 状态
+    setSessions((prev) => {
+      const sessionId = findSessionIdByTaskId(prev, taskId);
+      if (!sessionId) return prev;
+      setLoadingSessionIds((ids) => {
+        const next = new Set(ids);
+        next.delete(sessionId);
+        return next;
+      });
+      return prev;
+    });
+  };
+
+  const handleAgentLoopUpdate = (taskId: string, event: AgentLoopEvent) => {
+    const update = formatAgentLoopThinkingUpdate(event);
+    recordAgentLoopUpdate(taskId, event, update);
+    update.steps.forEach((step) => upsertThinkingStep(taskId, step));
+
+    if (update.content || update.completeOpenStepsAs) {
+      updateMessagesByTaskId(taskId, (prev) => {
+        const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
         if (idx === -1) return prev;
 
         const msg = prev[idx];
-        const updatedSteps = (msg.thinkingSteps || []).map((s) =>
-          s.status === 'pending' || s.status === 'running'
-            ? { ...s, status: finalStatus === 'completed' ? ('completed' as const) : ('failed' as const) }
-            : s
-        );
+        const updatedSteps = update.completeOpenStepsAs
+          ? (msg.thinkingSteps || []).map((s) =>
+              s.status === 'pending' || s.status === 'running'
+                ? { ...s, status: update.completeOpenStepsAs as ThinkingStep['status'] }
+                : s
+            )
+          : msg.thinkingSteps;
 
         const next = [...prev];
         next[idx] = {
           ...msg,
+          content: update.content ? chooseAgentLoopDisplayContent(msg.content, update.content) : msg.content,
+          agentLoopLogFilePath: update.logFilePath || msg.agentLoopLogFilePath,
           thinkingSteps: updatedSteps,
         };
         return next;
       });
+    }
 
-      if (finalStatus === 'completed') {
-        console.log('[useTaskChat] Fetching task result...');
-        getTask(taskId)
-          .then((task) => {
-            console.log('[useTaskChat] Got task result:', task.result ? 'yes' : 'no');
-            if (task.result) {
-              // 火灾兜底：若 step_update 阶段未触发过，再次检测 result 后触发
-              const hasFireResult = Object.values(task.result).some(
-                (r: any) => r?.summary?.fireDetected === true
-              );
-              if (hasFireResult && onFireDetected && !fireTriggeredRef.current.has(taskId)) {
-                fireTriggeredRef.current.add(taskId);
-                setTimeout(() => onFireDetected(), 500);
-              }
+    if (event.type === 'tool_observation') {
+      const eventCharts = extractChartsFromAgentLoopEvent(event);
+      if (eventCharts.length > 0) {
+        updateMessagesByTaskId(taskId, (prev) => {
+          const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
+          if (idx === -1) return prev;
+          const next = [...prev];
+          const existing = next[idx].charts || [];
+          const existingIds = new Set(existing.map((c) => c.chart_id));
+          const newCharts = eventCharts.filter((c) => !existingIds.has(c.chart_id));
+          next[idx] = { ...next[idx], charts: [...existing, ...newCharts] };
+          return next;
+        });
+      }
 
-              // 自动提取各 step 的 gisData 并推送给地图（仅兜底：step_update 未推送过的才补推）
-              for (const [actionId, stepResult] of Object.entries(task.result)) {
-                const gisKey = `${taskId}:${actionId}`;
-                if (gisDataPushedRef.current.has(gisKey)) continue; // step_update 已推送，跳过
-                const sr = stepResult as Record<string, unknown> | undefined;
-                console.log(`[useTaskChat] Step ${actionId} keys:`, Object.keys(sr || {}));
-                // satellite 的 gisData 在 data.gisData（嵌套），region-mark 的在 gisData（顶层）
-                const nestedGis = (sr?.data as Record<string, unknown> | undefined)?.gisData as GisData | undefined;
-                const topGis = sr?.gisData as GisData | undefined;
-                const gisData = nestedGis || topGis;
-                console.log(`[useTaskChat] Step ${actionId} gisData (fallback):`, gisData ? `YES type=${gisData.type} overlays=${gisData.imageOverlays?.length || 0}` : 'NO');
-                if (gisData && onGisDataRequest) {
-                  gisDataPushedRef.current.add(gisKey);
-                  onGisDataRequest(gisData);
-                }
-              }
+      return;
+    }
 
-              const resultMarkdown = formatTaskResult(task.result);
-              setMessages((prev) => {
-                const idx = prev.findIndex(
-                  (m) => m.taskId === taskId && m.role === 'assistant'
-                );
-                if (idx === -1) return prev;
-                const next = [...prev];
-                next[idx] = { ...prev[idx], content: resultMarkdown };
-                return next;
-              });
-            }
-          })
-          .catch((err) => {
-            console.warn('[useTaskChat] getTask failed:', err);
-          });
+    if (event.type === 'loop_stop') {
+      const finish = getTaskFinishFromAgentLoopEvent(event);
+      if (finish) {
+        finishTaskFromStream(taskId, finish.status, {
+          logFilePath: finish.logFilePath,
+          result: buildAgentLoopTaskResultFromStop(event),
+          fetchResult: finish.status === 'completed',
+        });
       }
     }
   };
 
   const sendMessage = async (content: string) => {
-    if (!content.trim() || isLoading) return;
+    if (!content.trim() || isLoading || !activeSessionId) return;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -537,9 +468,13 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
       timestamp: Date.now(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    updateActiveMessages((prev) => [...prev, userMessage]);
     setInputValue('');
-    setIsLoading(true);
+    setLoadingSessionIds((ids) => {
+      const next = new Set(ids);
+      next.add(activeSessionId);
+      return next;
+    });
 
     try {
       const placeholderId = `ai-${Date.now()}`;
@@ -555,9 +490,9 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
         ],
         isThinkingExpanded: true,
       };
-      setMessages((prev) => [...prev, placeholderMsg]);
+      updateActiveMessages((prev) => [...prev, placeholderMsg]);
 
-      const result = await createAgentTask(userMessage.content);
+      const result = await createAgentTask(userMessage.content, { scenarioId });
 
       // 构造 placeholder Task 立刻通知上层（subTasks 用 placeholder thinkingSteps 兜底；
       // 等真实 task 数据从 useRightPanelData 周期性拉到后，page.tsx 可按 id 比对刷新）
@@ -582,7 +517,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
       };
       onTaskCreate?.(placeholderTask, placeholderMsg.thinkingSteps ?? [], undefined);
 
-      setMessages((prev) => {
+      updateActiveMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === placeholderId);
         if (idx === -1) return prev;
         const next = [...prev];
@@ -600,7 +535,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
       console.warn('[useTaskChat] API failed, fallback to mock:', errorMsg);
 
       const mockResp = getMockResponse(userMessage.content);
-      setMessages((prev) => {
+      updateActiveMessages((prev) => {
         const filtered = prev.filter((m) => m.role !== 'assistant' || m.content !== '正在为您规划任务...');
         return [
           ...filtered,
@@ -609,33 +544,50 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
             role: 'assistant',
             content: mockResp.content + '\n\n（后端服务暂不可用，以上内容为模拟回复）',
             timestamp: Date.now(),
-            hasGisData: !!mockResp.gisData,
-            gisData: mockResp.gisData,
             thinking: mockResp.thinking,
             thinkingSteps: mockResp.thinkingSteps,
             isThinkingExpanded: false,
           },
         ];
       });
-
-      if (onGisDataRequest && mockResp.gisData) {
-        onGisDataRequest(mockResp.gisData);
-      }
     } finally {
-      setIsLoading(false);
+      setLoadingSessionIds((ids) => {
+        const next = new Set(ids);
+        next.delete(activeSessionId);
+        return next;
+      });
     }
   };
 
+  const addSystemMessage = useCallback((content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    updateActiveMessages((prev) => [
+      ...prev,
+      {
+        id: `system-${Date.now()}`,
+        role: 'system',
+        content: trimmed,
+        timestamp: Date.now(),
+      },
+    ]);
+  }, [updateActiveMessages]);
+
   const deleteMessage = (id: string) => {
-    setMessages((prev) => prev.filter((m) => m.id !== id));
+    updateActiveMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
   const clearAll = () => {
-    setMessages([]);
+    if (!activeSessionId) return;
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSessionId ? { ...s, messages: [], updatedAt: Date.now() } : s
+      )
+    );
   };
 
   const toggleThinkingExpanded = (msgId: string) => {
-    setMessages((prev) =>
+    updateActiveMessages((prev) =>
       prev.map((m) =>
         m.id === msgId ? { ...m, isThinkingExpanded: !m.isThinkingExpanded } : m
       )
@@ -648,6 +600,7 @@ export function useTaskChat({ onGisDataRequest, onFireDetected, onGisOperation, 
     isLoading,
     setInputValue,
     sendMessage,
+    addSystemMessage,
     deleteMessage,
     clearAll,
     toggleThinkingExpanded,

@@ -1,7 +1,9 @@
 'use client';
 
-import { Brain, CheckCircle2, Loader2, AlertCircle, Lightbulb, Clock3, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState } from 'react';
+import { Brain, Check, CheckCircle2, Clipboard, Loader2, AlertCircle, Lightbulb, Clock3, ChevronDown, ChevronUp } from 'lucide-react';
 import { ChatMessage as ChatMessageType, ThinkingStep } from '@/types/prd';
+import { copyAgentLoopFrontendTrace } from '@/lib/agentLoopFrontendTrace';
 
 interface ThinkingProcessProps {
   msg: ChatMessageType;
@@ -21,8 +23,47 @@ function StepIcon({ status }: { status: ThinkingStep['status'] }) {
   }
 }
 
+function StepBadge({ step }: { step: ThinkingStep }) {
+  const labelMap: Record<string, string> = {
+    gis: 'GIS',
+    result: '结果',
+    agent: '智能体',
+    tool: '工具',
+    memory: '记忆',
+  };
+  const label = step.category ? labelMap[step.category] ?? step.eventType : step.eventType;
+
+  if (!label) return null;
+
+  const colorClass =
+    step.category === 'gis'
+      ? 'border-[#00E0FF]/40 text-[#00E0FF]'
+      : step.category === 'result'
+        ? 'border-[#44FF44]/40 text-[#44FF44]'
+        : step.category === 'agent'
+          ? 'border-[#FFAA00]/40 text-[#FFAA00]'
+          : step.category === 'memory'
+            ? 'border-[#AA88FF]/40 text-[#AA88FF]'
+            : 'border-[#8888AA]/40 text-[#C8C8DA]';
+
+  return (
+    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-none ${colorClass}`}>
+      {label}
+    </span>
+  );
+}
+
 export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps) {
-  if (!msg.thinking && !msg.thinkingSteps) return null;
+  const [traceCopied, setTraceCopied] = useState(false);
+  if (!msg.thinking && !msg.thinkingSteps && !msg.agentLoopLogFilePath) return null;
+
+  const handleCopyTrace = async () => {
+    if (!msg.taskId) return;
+    const ok = await copyAgentLoopFrontendTrace(msg.taskId);
+    if (!ok) return;
+    setTraceCopied(true);
+    window.setTimeout(() => setTraceCopied(false), 1500);
+  };
 
   return (
     <div className="mb-3 border border-[#3A3A4E] rounded-md overflow-hidden">
@@ -49,6 +90,34 @@ export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps)
 
       {msg.isThinkingExpanded && (
         <div className="px-3 py-2.5 space-y-2 bg-[#1A1A28]">
+          {msg.agentLoopLogFilePath && (
+            <div className="rounded border border-[#3A3A4E] bg-[#121220] px-2 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] uppercase tracking-normal text-[#8888AA]">
+                  Agent Loop Log
+                </div>
+                {msg.taskId && (
+                  <button
+                    type="button"
+                    onClick={handleCopyTrace}
+                    className="inline-flex h-6 items-center gap-1 rounded border border-[#3A3A4E] px-1.5 text-[10px] text-[#C8C8DA] hover:border-[#00E0FF]/60 hover:text-[#00E0FF]"
+                    title="Copy frontend Agent Loop trace JSON"
+                  >
+                    {traceCopied ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      <Clipboard className="h-3 w-3" />
+                    )}
+                    {traceCopied ? 'Copied' : 'Copy Trace'}
+                  </button>
+                )}
+              </div>
+              <div className="mt-0.5 break-all font-mono text-[11px] leading-relaxed text-[#C8C8DA]">
+                {msg.agentLoopLogFilePath}
+              </div>
+            </div>
+          )}
+
           {msg.thinking && (
             <div className="flex gap-2 text-xs text-[#8888AA] leading-relaxed">
               <Lightbulb className="w-3.5 h-3.5 text-[#FFAA00] shrink-0 mt-0.5" />
@@ -66,10 +135,16 @@ export default function ThinkingProcess({ msg, onToggle }: ThinkingProcessProps)
                 >
                   <StepIcon status={step.status} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-[#EAEAEA] font-medium">
-                        {step.name}
-                      </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <StepBadge step={step} />
+                        <span
+                          className="text-xs text-[#EAEAEA] font-medium truncate"
+                          title={step.toolName}
+                        >
+                          {step.name}
+                        </span>
+                      </div>
                       {step.duration && (
                         <span className="text-[10px] text-[#8888AA] tabular-nums">
                           {step.duration}ms

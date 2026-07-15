@@ -158,3 +158,7 @@ Issue 跟踪在 jihulab.com 的 GitLab Issues（`foreverbb-group/datasourceintel
 ### Domain docs
 
 单上下文布局 —— 仓库根的 `CONTEXT.md` 和 `docs/adr/` 覆盖整个项目。详见 `docs/agents/domain.md`。
+
+### Tool registration
+
+`api/src/modules/agent-loop` 的 system / skill / MCP 工具注册模式详见 `docs/agents/tool-registration.md`。

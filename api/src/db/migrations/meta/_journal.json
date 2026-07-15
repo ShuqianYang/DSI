@@ -8,6 +8,55 @@
       "when": 1776839893925,
       "tag": "0000_purple_stellaris",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780887177068,
+      "tag": "0001_lean_outlaw_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781710262270,
+      "tag": "0002_magical_joystick",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783044308385,
+      "tag": "0003_minor_blink",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784000000000,
+      "tag": "0004_memory_p0_p1",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784019071216,
+      "tag": "0004_safe_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784102400000,
+      "tag": "0005_memory_vector_1024",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784188800000,
+      "tag": "0006_agent_transcript_memory_recall",
+      "breakpoints": true
     }
   ]
 }

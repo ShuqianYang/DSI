@@ -10,7 +10,15 @@ import {
   GisData,
 } from '@/types/prd';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
+import { eventSourceUrl } from '@/lib/api';
 import type { ApiRequirement } from '@/lib/api';
+import { buildAgentLoopTaskView } from '@/lib/agentLoopTaskView';
+import {
+  createTaskStreamModeTracker,
+  getTaskFinishFromStreamEvent,
+  isNativeAgentLoopProgressEvent,
+} from '@/lib/taskStreamLifecycle';
+import { routeTaskStreamEvent } from '@/lib/taskStreamRouter';
 
 export interface UseRightPanelOptions {
   propTasks?: Task[];
@@ -52,30 +60,45 @@ export function useRightPanel({
     toggleSubStatus,
     toTimestamp,
   } = useRightPanelData();
+  const taskStreamModeTrackerRef = useRef(createTaskStreamModeTracker());
 
   // SSE：监听任务完成事件，自动刷新
   useEffect(() => {
     const handleTaskCreated = (e: Event) => {
       const taskId = (e as CustomEvent).detail as string;
       refresh();
+      taskStreamModeTrackerRef.current.preferNative(taskId);
 
-      const evtSource = new EventSource(`http://localhost:3001/tasks/${taskId}/stream`);
+      const evtSource = new EventSource(eventSourceUrl(`/tasks/${taskId}/stream`));
       console.log('[useRightPanel] SSE connected for task', taskId);
       evtSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           console.log('[useRightPanel] SSE msg:', data);
+          const routed = routeTaskStreamEvent({
+            taskId,
+            event: data,
+            tracker: taskStreamModeTrackerRef.current,
+          });
 
-          if (data.type === 'step_update' || data.type === 'progress') {
-            console.log('[useRightPanel] Step update, refreshing...');
-            refresh();
-            return;
+          if (routed.kind === 'agent-loop') {
+            if (isNativeAgentLoopProgressEvent(routed.event)) {
+              console.log('[useRightPanel] Native Agent Loop progress, refreshing...');
+              refresh();
+              return;
+            }
+
+            const finish = getTaskFinishFromStreamEvent(routed.event);
+            if (finish) {
+              console.log('[useRightPanel] Native Agent Loop task finished, refreshing...');
+              refresh();
+              evtSource.close();
+              taskStreamModeTrackerRef.current.clear(taskId);
+              return;
+            }
           }
 
-          if (data.type === 'completed' || data.type === 'failed') {
-            console.log('[useRightPanel] Task finished, refreshing...');
-            refresh();
-            evtSource.close();
+          if (routed.kind === 'ignored-legacy') {
             return;
           }
 
@@ -90,6 +113,7 @@ export function useRightPanel({
       };
       evtSource.onerror = () => {
         evtSource.close();
+        taskStreamModeTrackerRef.current.clear(taskId);
       };
     };
 
@@ -108,6 +132,7 @@ export function useRightPanel({
       executeTime: toTimestamp(t.executeTime),
       status: t.status as Task['status'],
       dataCount: t.dataCount,
+      agentLoop: buildAgentLoopTaskView(t.result) ?? undefined,
       subTasks: t.subTasks?.map((s) => ({
         id: s.id,
         name: s.name,

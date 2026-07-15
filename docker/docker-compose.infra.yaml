@@ -1,11 +1,9 @@
-version: "3.8"
-
-# 仅启动基础设施（PostgreSQL + Redis）
+# 仅启动基础设施（PostgreSQL + Redis + PostGIS 地理库）
 # API 和 Worker 在本地运行，避免 Docker 中的 pnpm workspace 问题
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: ds_postgres
     restart: unless-stopped
     environment:
@@ -16,6 +14,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init/001-enable-vector.sql:/docker-entrypoint-initdb.d/001-enable-vector.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -40,9 +39,57 @@ services:
     networks:
       - ds_network
 
+  ollama:
+    image: ollama/ollama:0.31.2
+    container_name: ds_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_NUM_PARALLEL: 2
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ds_network
+
+  postgis:
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64
+    container_name: ds_postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: show_room
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d show_room"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ds_network
+
 volumes:
   postgres_data:
   redis_data:
+  ollama_data:
+  postgis_data:
 
 networks:
   ds_network:
