@@ -63,20 +63,36 @@ export function chartsFromResult(result: Record<string, unknown> | null) {
 export function stepsFromTaskResult(result: Record<string, unknown> | null): ThinkingStep[] {
   if (!result) return [];
   const observations = Array.isArray(result.observations) ? result.observations : [];
-  const tools = observations.map((value, index): ThinkingStep => {
+  const tools = observations.map((value, index): { step: ThinkingStep; turn?: number } => {
     const observation = value && typeof value === "object" ? value as Record<string, unknown> : {};
     const toolName = typeof observation.toolName === "string" ? observation.toolName : "Tool";
     const toolCallId = typeof observation.toolCallId === "string" ? observation.toolCallId : `history-tool-${index}`;
     const ok = observation.ok !== false;
+    const output = observation.output && typeof observation.output === "object" && !Array.isArray(observation.output)
+      ? observation.output as Record<string, unknown>
+      : undefined;
+    const replayInput = toolName === "MysqlQuery" && typeof output?.sql === "string"
+      ? {
+          ...(typeof output.database === "string" ? { database: output.database } : {}),
+          sql: output.sql,
+        }
+      : undefined;
+    const turn = typeof observation.turn === "number" && Number.isInteger(observation.turn) && observation.turn >= 0
+      ? observation.turn
+      : undefined;
     return {
-      id: toolCallId,
-      name: toolName,
-      status: ok ? "completed" : "failed",
-      detail: ok ? "工具调用完成（历史回放）" : "工具调用失败（历史回放）",
-      category: "tool",
-      toolName,
-      toolCallId,
-      output: observation.output ?? observation.error,
+      turn,
+      step: {
+        id: toolCallId,
+        name: toolName,
+        status: ok ? "completed" : "failed",
+        detail: ok ? "工具调用完成（历史回放）" : "工具调用失败（历史回放）",
+        category: "tool",
+        toolName,
+        toolCallId,
+        input: replayInput,
+        output: observation.output ?? observation.error,
+      },
     };
   });
   const turns = typeof result.turns === "number" ? Math.max(0, result.turns) : 0;
@@ -87,14 +103,28 @@ export function stepsFromTaskResult(result: Record<string, unknown> | null): Thi
     detail: "本轮处理完成（历史回放）",
     category: "agent",
   }));
-  const skill = tools.filter((step) => step.toolName === "Skill");
-  const domainTools = tools.filter((step) => step.toolName !== "Skill");
-  return [...skill, ...agents.slice(0, 1), ...domainTools, ...agents.slice(1)];
+  const preLoopTools = tools.filter((item) => item.turn === 0 || (item.turn === undefined && item.step.toolName === "Skill"));
+  const turnTools = tools.filter((item) => !preLoopTools.includes(item));
+  const legacyTools = turnTools.filter((item) => item.turn === undefined);
+  let legacyIndex = 0;
+  const ordered: ThinkingStep[] = preLoopTools.map((item) => item.step);
+  for (let turn = 1; turn <= agents.length; turn += 1) {
+    ordered.push(agents[turn - 1]);
+    ordered.push(...turnTools.filter((item) => item.turn === turn).map((item) => item.step));
+    if (legacyIndex < legacyTools.length) {
+      ordered.push(legacyTools[legacyIndex].step);
+      legacyIndex += 1;
+    }
+  }
+  ordered.push(...turnTools.filter((item) => typeof item.turn === "number" && item.turn > agents.length).map((item) => item.step));
+  ordered.push(...legacyTools.slice(legacyIndex).map((item) => item.step));
+  return ordered;
 }
 
 export function reportContentFromTaskResult(result: Record<string, unknown> | null): string | undefined {
   if (!result) return undefined;
-  for (const value of Object.values(result)) {
+  const candidates = [...Object.values(result), ...(Array.isArray(result.observations) ? result.observations : [])];
+  for (const value of candidates) {
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const record = value as Record<string, unknown>;
     if (typeof record.report_content === "string") return record.report_content;

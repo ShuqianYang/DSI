@@ -4,12 +4,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentLoopEvent } from "@datasourceintelligence/shared";
 import { REPORT_TYPE_LABELS, type BorderDefenseMode, type BorderMessage, type BorderTaskItem, type ReportType } from "@/components/border-defense/types";
 import { createDailyReportTask, createQaTask, createTaskEventSource, getBorderTask } from "@/lib/borderDefenseApi";
-import { chartsFromResult, consumeAgentEvent, outcomeFromTaskResult, reportContentFromTaskResult, stepsFromTaskResult } from "@/lib/borderDefenseRun";
+import { chartsFromResult, consumeAgentEvent, mergeSteps, outcomeFromTaskResult, reportContentFromTaskResult, stepsFromTaskResult } from "@/lib/borderDefenseRun";
 import { parseTaskStreamEvent } from "@/lib/agentLoopEvents";
 import { useTaskHistory } from "@/hooks/useTaskHistory";
 
 function assistantMessage(taskId: string): BorderMessage {
   return { id: `assistant-${taskId}`, role: "assistant", content: "", timestamp: Date.now(), taskId, steps: [], charts: [], expanded: true };
+}
+
+function runningAssistantMessage(taskId: string): BorderMessage {
+  return {
+    ...assistantMessage(taskId),
+    steps: [{
+      id: `agent-loop-start-${taskId}`,
+      name: "Agent Loop",
+      status: "running",
+      detail: "任务已创建，正在连接实时执行流",
+      category: "agent",
+    }],
+  };
 }
 
 export function useBorderDefenseChat(mode: BorderDefenseMode) {
@@ -94,11 +107,16 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
     const charts = chartsFromResult(detail.result);
     const outcome = outcomeFromTaskResult(detail.result);
     const replayedSteps = stepsFromTaskResult(detail.result);
+    const completedStepStatus = detail.status === "failed"
+      ? "failed"
+      : detail.status === "completed"
+        ? "completed"
+        : undefined;
     setMessages((current) => current.map((item) => item.id === `assistant-${taskId}` ? {
       ...item,
       content: reportContent || fallbackContent || item.content,
       charts: charts.length > 0 ? charts : item.charts,
-      steps: item.steps?.length ? item.steps : replayedSteps,
+      steps: mergeSteps(item.steps || [], replayedSteps, completedStepStatus),
       outcome: outcome || item.outcome,
     } : item));
     reconcileHistory(taskId, {
@@ -199,7 +217,7 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
       setActiveTaskId(created.taskId);
       setMessages([
         { id: `user-${created.taskId}`, role: "user", content: title, timestamp: now, taskId: created.taskId },
-        assistantMessage(created.taskId),
+        runningAssistantMessage(created.taskId),
       ]);
       connect(created.taskId);
     } catch (error) {

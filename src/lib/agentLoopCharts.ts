@@ -62,12 +62,22 @@ export function extractChartsFromAgentLoopEvent(event: AgentLoopEvent): ChartDat
 export function extractChartsFromTaskResult(result: Record<string, unknown>): ChartData[] {
   const charts: ChartData[] = [];
 
+  const observations = result.observations;
+  if (Array.isArray(observations)) {
+    for (const value of observations) {
+      const observation = asRecord(value);
+      charts.push(...readChartsFromOutput(asRecord(observation.output)));
+    }
+  }
+
   for (const [actionId, stepResult] of Object.entries(result)) {
-    if (actionId === 'logFilePath') continue;
+    if (actionId === 'logFilePath' || actionId === 'observations') continue;
     if (!isRecord(stepResult)) continue;
 
     charts.push(...readChartsFromOutput(stepResult));
   }
 
-  return charts;
+  return charts.filter(
+    (chart, index) => charts.findIndex((candidate) => candidate.chart_id === chart.chart_id) === index,
+  );
 }

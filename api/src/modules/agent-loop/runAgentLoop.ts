@@ -211,7 +211,7 @@ export async function* runAgentLoopEvents(
       reason: `该边防业务入口固定使用 ${options.forcedSkillId}`,
     };
     yield emitEvent(toolCallEvent({ taskId: options.taskId, turn: 0 }, forcedSkillCall));
-    const forcedSkillObservation = await callTool(registry, forcedSkillCall, {
+    const forcedSkillResult = await callTool(registry, forcedSkillCall, {
       taskId: options.taskId,
       query: options.query,
       observations,
@@ -219,6 +219,7 @@ export async function* runAgentLoopEvents(
       permissionHandler: options.permissionHandler,
       toolUseContext,
     });
+    const forcedSkillObservation: ToolObservation = { ...forcedSkillResult, turn: 0 };
     observations.push(forcedSkillObservation);
     yield emitEvent(toolObservationEvent({ taskId: options.taskId, turn: 0 }, forcedSkillObservation));
     if (!forcedSkillObservation.ok) {
@@ -993,7 +994,7 @@ async function* executeToolBatch(options: {
       if (signature && previousObservation) {
         executions.push(
           Promise.resolve({
-            observation: createDuplicateToolObservation(toolCall, previousObservation),
+            observation: createDuplicateToolObservation(toolCall, previousObservation, options.turn),
           })
         );
         continue;
@@ -1003,7 +1004,7 @@ async function* executeToolBatch(options: {
       if (signature && inBatchExecution) {
         executions.push(
           inBatchExecution.then((item) => ({
-            observation: createDuplicateToolObservation(toolCall, item.observation),
+            observation: createDuplicateToolObservation(toolCall, item.observation, options.turn),
           }))
         );
         continue;
@@ -1036,7 +1037,7 @@ async function* executeToolBatch(options: {
     const signature = getReadOnlyToolSignature(options.registry, toolCall);
     const previousObservation = signature ? options.usedToolSignatures.get(signature) : undefined;
     if (signature && previousObservation) {
-      const duplicateObservation = createDuplicateToolObservation(toolCall, previousObservation);
+      const duplicateObservation = createDuplicateToolObservation(toolCall, previousObservation, options.turn);
       observations.push(duplicateObservation);
       yield emitBatchEvent(toolObservationEvent(options, duplicateObservation));
       continue;
@@ -1069,7 +1070,7 @@ async function executeSingleToolCall(options: {
   const stepId = await createToolStep(options.taskId, options.order, options.toolCall);
   await markToolStepRunning(stepId);
 
-  const observation = await callTool(options.registry, options.toolCall, {
+  const toolResult = await callTool(options.registry, options.toolCall, {
     taskId: options.taskId,
     query: options.query,
     observations: options.observationsSnapshot,
@@ -1090,6 +1091,7 @@ async function executeSingleToolCall(options: {
       });
     },
   });
+  const observation: ToolObservation = { ...toolResult, turn: options.turn };
 
   await markToolStepCompleted(stepId, observation);
 
@@ -1130,11 +1132,13 @@ function rememberToolSignature(
 function createDuplicateToolObservation(
   toolCall: GatewayToolCall,
   previousObservation: ToolObservation,
+  turn: number,
 ): ToolObservation {
   if (!previousObservation.ok) {
     return {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
+      turn,
       ok: false,
       output: {
         skipped: true,
@@ -1153,6 +1157,7 @@ function createDuplicateToolObservation(
   return {
     toolCallId: toolCall.id,
     toolName: toolCall.toolName,
+    turn,
     ok: true,
     output: {
       skipped: true,
@@ -1321,6 +1326,7 @@ async function buildMaxTurnsAnswer(options: {
             "You are completing an agent run that reached its maximum tool-call turns.",
             "Do not call tools. Give the best final answer possible using the prior tool observations.",
             "Be concise, mention important limitations, and avoid dumping raw JSON unless the user asked for it.",
+            "For business/data QA, do not expose table names, column names, SQL aliases, SQL fragments, or encoded filter expressions unless the user explicitly asked for SQL or schema details. State results and limitations in natural business language.",
           ].join("\n"),
         },
         { role: "user", content: options.query },

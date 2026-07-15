@@ -335,6 +335,7 @@ interface MysqlQueryInput {
 
 interface MysqlQueryOutput {
   database: string;
+  sql: string;
   rowCount: number;
   columns: string[];
   rows: Record<string, unknown>[];
@@ -436,6 +437,7 @@ export function buildMysqlQueryTool(): ToolDefinition {
 
         const output: MysqlQueryOutput = {
           database,
+          sql: parsed.sql,
           rowCount: typedRows.length,
           columns,
           rows: typedRows.slice(0, MAX_MYSQL_PREVIEW_ROWS),

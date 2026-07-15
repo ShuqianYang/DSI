@@ -75,7 +75,11 @@ function StepDetails({ step }: { step: ThinkingStep }) {
   const input = asRecord(step.input);
   const output = asRecord(step.output);
   const agentMarkdown = step.category === "agent" && typeof step.output === "string" ? step.output : undefined;
-  const sql = typeof input?.sql === "string" ? input.sql : undefined;
+  const sql = typeof input?.sql === "string"
+    ? input.sql
+    : step.toolName === "MysqlQuery" && typeof output?.sql === "string"
+      ? output.sql
+      : undefined;
   const otherInput = agentMarkdown ? undefined : input && sql ? Object.fromEntries(Object.entries(input).filter(([key]) => key !== "sql")) : step.input;
   return <div className="space-y-2 border-t border-[#3A3A4E]/70 px-2 pb-2 pt-2">
     {step.detail && !agentMarkdown && <div className="whitespace-pre-wrap text-[11px] leading-5 text-[#B8B8CA]"><span className="mr-2 text-[10px] text-[#8888AA]">执行说明</span>{step.detail}</div>}

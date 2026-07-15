@@ -128,16 +128,18 @@ function createContext() {
       ["event_id", "event_level_name", "event_time", "is_deleted"]
     );
 
-    const queryOutput = await queryTool.execute(
-      {
+    const queryInput = {
         database: "border-defense",
         sql: "SELECT event_level_name, COUNT(*) AS cnt FROM alarm_event WHERE event_time >= '2026-06-01' AND is_deleted = 0 GROUP BY event_level_name",
         limit: 100,
-      },
+      };
+    const queryOutput = await queryTool.execute(
+      queryInput,
       createContext()
     );
 
     assert.equal(queryOutput.database, "border-defense");
+    assert.equal(queryOutput.sql, queryInput.sql);
     assert.equal(queryOutput.rowCount, 3);
     assert.deepEqual(queryOutput.columns, ["event_level_name", "cnt"]);
     assert.equal(queryOutput.rows[0].event_level_name, "一级预警");

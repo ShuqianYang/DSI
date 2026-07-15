@@ -30,6 +30,8 @@ export interface ToolObservation {
   toolCallId: string;
   toolName: string;
   displayName?: string;
+  /** Agent turn that produced this observation. Turn 0 is reserved for pre-loop tools. */
+  turn?: number;
   ok: boolean;
   output?: unknown;
   error?: {
