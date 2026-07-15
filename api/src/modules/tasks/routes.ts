@@ -9,13 +9,18 @@ import { createTask, getTask, listTasks, abortTask } from "./controller.js";
 import { addSseClient, removeSseClient } from "../../sse/sseManager.js";
 import { db } from "../../config/database.js";
 import { tasks } from "../../db/schema.js";
-import { buildLoopStopEventFromTaskResult } from "./agentLoopSseMode.js";
+import {
+  buildLoopStopEventFromTaskResult,
+  buildMemoryRecallEventsFromTranscript,
+} from "./agentLoopSseMode.js";
+import { createDbTranscriptStore } from "../agent-loop/transcriptStore.js";
 import { generateDailyReportDocx } from "../agent-loop/tools/domain/dailyReport/dailyReportDownloader.js";
 import { generateChartPng } from "../agent-loop/tools/domain/chartRenderData/chartPngGenerator.js";
 import type { ChartRenderDataOutput, DailyReportOutput } from "../agent-loop/tools/domain/dailyReport/dailyReportTypes.js";
 import { resolveDailyReportOutputDir } from "../agent-loop/tools/domain/dailyReport/reportOutputDir.js";
 
 const REPORT_OUTPUT_DIR = resolveDailyReportOutputDir();
+const transcriptStore = createDbTranscriptStore(db);
 
 const router: ExpressRouter = Router();
 
@@ -37,10 +42,17 @@ router.get("/:taskId/stream", async (req: Request, res: Response) => {
   addSseClient(taskId, res);
 
   try {
-    const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+    const [[task], transcriptEntries] = await Promise.all([
+      db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1),
+      transcriptStore.load(taskId),
+    ]);
     if (!task) return;
 
     const flush = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+    for (const event of buildMemoryRecallEventsFromTranscript(transcriptEntries)) {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
 
     if (task.status === "completed" || task.status === "failed") {
       const loopStopEvent = buildLoopStopEventFromTaskResult({

@@ -1,6 +1,8 @@
 import type { AgentLoopEvent, AgentLoopResult, ToolObservation } from "../agent-loop/tools/_shared/types.js";
+import type { AgentTranscriptEntry } from "../agent-loop/transcriptStore.js";
 
 type LoopStopEvent = Extract<AgentLoopEvent, { type: "loop_stop" }>;
+type MemoryRecallEvent = Extract<AgentLoopEvent, { type: "memory_recall" }>;
 
 const STOPPED_BY_VALUES = new Set<AgentLoopResult["stoppedBy"]>([
   "final_answer",
@@ -8,6 +10,25 @@ const STOPPED_BY_VALUES = new Set<AgentLoopResult["stoppedBy"]>([
   "model_error",
   "aborted",
 ]);
+
+export function buildMemoryRecallEventsFromTranscript(
+  entries: readonly AgentTranscriptEntry[]
+): MemoryRecallEvent[] {
+  return [...entries]
+    .sort((left, right) => left.sequence - right.sequence)
+    .filter(
+      (entry): entry is AgentTranscriptEntry & { memoryRecall: NonNullable<AgentTranscriptEntry["memoryRecall"]> } =>
+        entry.kind === "memory_recall" && entry.memoryRecall !== undefined
+    )
+    .map((entry) => ({
+      type: "memory_recall",
+      taskId: entry.taskId,
+      turn: entry.turn,
+      source: entry.memoryRecall.source,
+      recalledCount: entry.memoryRecall.recalledCount,
+      snippets: entry.memoryRecall.snippets,
+    }));
+}
 
 export function buildLoopStopEventFromTaskResult(input: {
   taskId: string;

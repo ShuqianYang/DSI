@@ -257,9 +257,10 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
       assistantMessage(task.id),
     ]);
     try {
-      const detail = await getBorderTask(task.id);
       await refreshTask(task.id);
-      if (detail.status === "pending" || detail.status === "running") connect(task.id);
+      // Completed tasks also reconnect briefly so the backend can replay
+      // persisted memory_recall events before sending loop_stop.
+      connect(task.id);
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : String(error));
     }
