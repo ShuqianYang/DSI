@@ -106,7 +106,21 @@ export function createRememberManager(input: CreateRememberManagerInput): Rememb
         );
       }
 
-      // ---- Step 3: Write conversation snapshot (P0-3) ----
+      // ---- Step 3: Generate snapshot embedding (best-effort) ----
+      let snapshotEmbedding: string | undefined;
+      if (input.embeddingClient) {
+        try {
+          const embedding = await input.embeddingClient.embed(rememberInput.query);
+          snapshotEmbedding = formatVectorForPg(embedding);
+        } catch (error) {
+          logger.warn(
+            "[RememberManager] snapshot embedding generation failed:",
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      }
+
+      // ---- Step 4: Write conversation snapshot with embedding (P0-3) ----
       try {
         const toolSummary = extractToolSummary(
           rememberInput.observations,
@@ -120,6 +134,7 @@ export function createRememberManager(input: CreateRememberManagerInput): Rememb
           messages: toJsonbValue(rememberInput.messages),
           toolSummary: toJsonbValue(toolSummary),
           summary: summary ?? null,
+          embedding: snapshotEmbedding ?? null,
           turns: rememberInput.result.turns,
           stoppedBy: rememberInput.result.stoppedBy,
           isCheckpoint: false,
@@ -131,11 +146,11 @@ export function createRememberManager(input: CreateRememberManagerInput): Rememb
         );
       }
 
-      // ---- Step 4: Episode extraction (P1-4, optional) ----
+      // ---- Step 5: Episode extraction (P1-4, optional) ----
       if (input.embeddingClient && input.episodeExtractor) {
         try {
           const episode = await input.episodeExtractor.extract(rememberInput);
-          const embedding = await input.embeddingClient.embed(episode.userQuery);
+          const episodeEmbedding = await input.embeddingClient.embed(episode.userQuery);
           await db.insert(episodicMemories).values({
             taskId: currentTaskId,
             userId: currentUserId,
@@ -146,7 +161,7 @@ export function createRememberManager(input: CreateRememberManagerInput): Rememb
             importance: episode.importance,
             tags: episode.tags,
             relatedEntities: episode.relatedEntities,
-            embedding: formatVectorForPg(embedding),
+            embedding: formatVectorForPg(episodeEmbedding),
           });
         } catch (error) {
           logger.warn(

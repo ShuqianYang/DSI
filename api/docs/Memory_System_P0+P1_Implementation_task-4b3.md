@@ -1,5 +1,14 @@
 # Memory System P0+P1 Implementation Plan
 
+## 20260714更新
+B. Episode 抽取解耦到 DeepSeek
+episodeExtractor.ts：工厂改读 DEEPSEEK_API_URL/API_KEY/MODEL/API_TIMEOUT_MS，直接用完整 URL（不再 joinUrl 拼路径）；启用开关从 GTE_API_BASE 改为 DEEPSEEK_API_KEY；默认模型 deepseek-v4-flash、超时 120s；删除已无用的 joinUrl；更新文件头注释
+A. Embedding 切到 qwen3-embedding:0.6b（1024 维）
+schema.ts：vector1536→vector1024（vector(1024)），两处 embedding 列同步
+embeddingClient.ts：默认模型改为 qwen3-embedding:0.6b，注释更新为 1024 维（走 /v1/embeddings，逻辑不变）
+三处 env 的 GTE_MODEL → qwen3-embedding:0.6b（api/.env、api/.env.example、docker/.env.example，并给 docker 示例补上 DEEPSEEK_API_KEY）
+docker-compose.yaml：ollama-init 改为 ollama pull qwen3-embedding:0.6b，移除 gte-dsi 别名
+
 ## 概述
 
 在现有 Agent Loop 的 MemoryManager 架构基础上，分层实现 P0（remember 持久化）、P1（向量召回 + 治理）和 Part C（超长任务可选中途提取）功能。所有新代码遵循现有模块化模式（工厂函数 + 依赖注入 + .mjs 测试）。
