@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentLoopEvent } from "@datasourceintelligence/shared";
 import { REPORT_TYPE_LABELS, type BorderDefenseMode, type BorderMessage, type BorderTaskItem, type ReportType } from "@/components/border-defense/types";
-import { createDailyReportTask, createQaTask, createTaskEventSource, getBorderTask } from "@/lib/borderDefenseApi";
+import { abortBorderTask, createDailyReportTask, createQaTask, createTaskEventSource, getBorderTask } from "@/lib/borderDefenseApi";
 import { chartsFromResult, consumeAgentEvent, mergeSteps, outcomeFromTaskResult, reportContentFromTaskResult, stepsFromTaskResult } from "@/lib/borderDefenseRun";
 import { parseTaskStreamEvent } from "@/lib/agentLoopEvents";
 import { useTaskHistory } from "@/hooks/useTaskHistory";
@@ -27,6 +27,9 @@ function runningAssistantMessage(taskId: string): BorderMessage {
 
 export function useBorderDefenseChat(mode: BorderDefenseMode) {
   const history = useTaskHistory(mode);
+  const updateHistoryStatus = history.updateStatus;
+  const reconcileHistory = history.reconcile;
+  const markHistoryViewed = history.markViewed;
   const [messages, setMessages] = useState<BorderMessage[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -56,10 +59,6 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
     if (!activeTaskId || messages.length === 0) return;
     messageCacheRef.current.set(activeTaskId, messages);
   }, [activeTaskId, messages]);
-
-  const updateHistoryStatus = history.updateStatus;
-  const reconcileHistory = history.reconcile;
-  const markHistoryViewed = history.markViewed;
 
   useEffect(() => {
     let disposed = false;
@@ -146,7 +145,7 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
   }, [reconcileHistory, stopPolling, updateHistoryStatus]);
 
   const reconcileCompletedTask = useCallback(async (taskId: string) => {
-    const delays = [0, 150, 400, 800];
+    const delays = [0, 150, 400, 800, 1_500, 2_500];
     for (const delay of delays) {
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
       try {
@@ -157,6 +156,20 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
       }
     }
   }, [refreshTask]);
+
+  const stopTask = useCallback(async () => {
+    const taskId = activeTaskRef.current;
+    if (!taskId) {
+      closeStream();
+      return;
+    }
+    try {
+      await abortBorderTask(taskId);
+      await reconcileCompletedTask(taskId);
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : String(error));
+    }
+  }, [closeStream, reconcileCompletedTask]);
 
   const connect = useCallback((taskId: string) => {
     sourceRef.current?.close();
@@ -277,5 +290,5 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
     void submit({ date, reportType: task.reportType || "all" });
   }, [activeTaskId, history.tasks, loading, mode, submit]);
 
-  return { ...history, remove: removeTask, messages, activeTaskId, loading, connectionError, submit, retry, openTask, newTask, closeStream, toggleExpanded };
+  return { ...history, remove: removeTask, messages, activeTaskId, loading, connectionError, submit, retry, openTask, newTask, closeStream, stopTask, toggleExpanded };
 }

@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import { asyncHandler } from "../../middleware/errorHandler.js";
 import { validateBody, validateParams } from "../../middleware/validate.js";
 import { createTaskSchema, getTaskArtifactParamsSchema, getTaskParamsSchema } from "./schema.js";
-import { createTask, getTask, listTasks } from "./controller.js";
+import { createTask, getTask, listTasks, abortTask } from "./controller.js";
 import { addSseClient, removeSseClient } from "../../sse/sseManager.js";
 import { db } from "../../config/database.js";
 import { tasks } from "../../db/schema.js";
@@ -21,6 +21,8 @@ const router: ExpressRouter = Router();
 
 router.post("/", validateBody(createTaskSchema), asyncHandler(createTask));
 router.get("/", asyncHandler(listTasks));
+router.post("/:taskId/abort", validateParams(getTaskParamsSchema), asyncHandler(abortTask));
+
 router.get("/:taskId", validateParams(getTaskParamsSchema), asyncHandler(getTask));
 
 router.get("/:taskId/stream", async (req: Request, res: Response) => {

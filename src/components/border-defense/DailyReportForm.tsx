@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, FileText } from "lucide-react";
+import { CalendarDays, FileText, Square } from "lucide-react";
 import type { ReportType } from "./types";
 import { REPORT_TYPE_LABELS } from "./types";
 
 function today() { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
 
-export function DailyReportForm({ loading, onSubmit }: { loading: boolean; onSubmit: (date: string, type: ReportType) => void }) {
+export function DailyReportForm({ loading, onSubmit, onCancel }: { loading: boolean; onSubmit: (date: string, type: ReportType) => void; onCancel?: () => void }) {
   const [date, setDate] = useState(today);
   const [type, setType] = useState<ReportType>("all");
   return (
@@ -39,8 +39,13 @@ export function DailyReportForm({ loading, onSubmit }: { loading: boolean; onSub
           </div>
         </div>
         <button type="button" disabled={loading || !date} onClick={() => onSubmit(date, type)} className="flex h-10 items-center justify-center gap-2 rounded-md bg-[#00AFC8] px-5 text-sm font-medium text-white disabled:opacity-50">
-          <FileText className="h-4 w-4" />生成日报
+          <FileText className="h-4 w-4" />{loading ? "生成中…" : "生成日报"}
         </button>
+        {loading && onCancel && (
+          <button type="button" onClick={onCancel} title="停止生成" className="flex h-10 items-center justify-center gap-2 rounded-md border border-[#D94A4A]/50 bg-[#D94A4A]/15 px-4 text-sm font-medium text-[#FF8080] hover:bg-[#D94A4A]/25">
+            <Square className="h-4 w-4" />停止
+          </button>
+        )}
       </div>
     </div>
   );

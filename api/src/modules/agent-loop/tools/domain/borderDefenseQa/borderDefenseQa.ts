@@ -188,6 +188,29 @@ async function createMysqlConnection(
   });
 }
 
+async function runMysqlOperation<T>(
+  connection: Connection,
+  signal: AbortSignal | undefined,
+  operation: () => Promise<T>
+): Promise<T> {
+  if (signal?.aborted) {
+    connection.destroy();
+    throw new Error(typeof signal.reason === "string" ? signal.reason : "任务已停止");
+  }
+  const abortConnection = () => connection.destroy();
+  signal?.addEventListener("abort", abortConnection, { once: true });
+  try {
+    return await operation();
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new Error(typeof signal.reason === "string" ? signal.reason : "任务已停止");
+    }
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abortConnection);
+  }
+}
+
 interface MysqlQuerySchemaInput {
   database: string;
   schema?: string;
@@ -264,8 +287,8 @@ export function buildMysqlQuerySchemaTool(): ToolDefinition {
 
       const connection = await createMysqlConnection(database, DEFAULT_MYSQL_TIMEOUT_MS);
       try {
-        const [columnRows] = await connection.execute<RowDataPacket[]>(
-          `
+        const [columnRows] = await runMysqlOperation(connection, context.signal, () =>
+          connection.execute<RowDataPacket[]>(`
             SELECT
               c.table_name AS table_name,
               c.column_name AS column_name,
@@ -281,8 +304,7 @@ export function buildMysqlQuerySchemaTool(): ToolDefinition {
               AND t.table_type = 'BASE TABLE'
               AND (? IS NULL OR c.table_name = ?)
             ORDER BY c.table_name, c.ordinal_position
-          `,
-          [schema, table ?? null, table ?? null]
+          `, [schema, table ?? null, table ?? null])
         );
 
         const tables = new Map<string, MysqlQuerySchemaOutput["tables"][number]>();
@@ -414,7 +436,11 @@ export function buildMysqlQueryTool(): ToolDefinition {
       const startedAt = Date.now();
       const connection = await createMysqlConnection(database, timeoutMs);
       try {
-        const [rows, fields] = await connection.execute<RowDataPacket[]>(sql);
+        const [rows, fields] = await runMysqlOperation(
+          connection,
+          context.signal,
+          () => connection.execute<RowDataPacket[]>(sql)
+        );
         const durationMs = Date.now() - startedAt;
         const columns = Array.isArray(fields)
           ? fields.map((field) => (field as FieldPacket).name || "unknown")

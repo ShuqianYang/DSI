@@ -27,6 +27,10 @@ import {
   type AgentLoopLogManifestStore,
   type AgentLoopLogMode,
 } from "../observability/logManifestStore.js";
+import {
+  registerTaskAbortController,
+  unregisterTaskAbortController,
+} from "./abortRegistry.js";
 
 const DEMO_TURN_DELAY_MS = 5_000;
 const DEMO_MAX_TURNS = 20;
@@ -136,13 +140,15 @@ function isDemoQuery(query: string): boolean {
 export async function runAgentPipeline(
   taskId: string,
   body: PipelineCreateTaskRequest,
-  metadata: AgentLoopRunMetadata = {}
+  metadata: AgentLoopRunMetadata = {},
+  abortController?: AbortController
 ) {
   return runAgentPipelineWithDependencies(
     taskId,
     body,
     metadata,
-    await createDefaultRunAgentPipelineDependencies()
+    await createDefaultRunAgentPipelineDependencies(),
+    abortController
   );
 }
 
@@ -150,10 +156,13 @@ export async function runAgentPipelineWithDependencies(
   taskId: string,
   body: PipelineCreateTaskRequest,
   metadata: AgentLoopRunMetadata = {},
-  dependencies: RunAgentPipelineDependencies
+  dependencies: RunAgentPipelineDependencies,
+  providedAbortController?: AbortController
 ) {
   let fileLogger: AgentLoopFileLogger | undefined;
   let runMetadata: AgentLoopRunMetadata = metadata;
+  const abortController = providedAbortController ?? new AbortController();
+  registerTaskAbortController(taskId, abortController);
 
   try {
     await dependencies.taskService.updateTaskStatus(taskId, "running");
@@ -231,6 +240,7 @@ export async function runAgentPipelineWithDependencies(
       recentTaskContext,
       forcedSkillId: body.forcedSkillId,
       fileLogger,
+      signal: abortController.signal,
       turnDelayMs: isDemoQuery(body.query) ? DEMO_TURN_DELAY_MS : undefined,
       maxTurns: isDemoQuery(body.query) ? DEMO_MAX_TURNS : undefined,
       transcriptStore: dependencies.createBestEffortTranscriptStore(
@@ -318,5 +328,7 @@ export async function runAgentPipelineWithDependencies(
         error: errorMsg,
       })
     );
+  } finally {
+    unregisterTaskAbortController(taskId);
   }
 }

@@ -33,6 +33,17 @@ export function createTaskEventSource(taskId: string) {
   return new EventSource(eventSourceUrl(`/tasks/${taskId}/stream`));
 }
 
+export function abortBorderTask(taskId: string) {
+  return fetch(apiUrl(`/tasks/${taskId}/abort`), { method: "POST" })
+    .then(async (response) => {
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || `HTTP ${response.status}`);
+      }
+      return response.json() as Promise<{ aborted: boolean; taskId: string; message: string }>;
+    });
+}
+
 export const getBorderTask = getTask;
 export function dailyReportDownloadUrl(taskId: string) {
   return apiUrl(`/tasks/${taskId}/daily-report/download`);

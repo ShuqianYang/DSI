@@ -445,17 +445,21 @@ export async function* runAgentLoopEvents(
           },
         });
       } catch (error) {
-        const finalAnswer = error instanceof Error ? error.message : String(error);
+        const aborted = options.signal?.aborted === true;
+        const stoppedBy = aborted ? "aborted" : "model_error";
+        const finalAnswer = aborted
+          ? formatAbortReason(options.signal?.reason)
+          : error instanceof Error ? error.message : String(error);
         const result: AgentLoopResult = {
           finalAnswer,
           turns: turn,
           observations,
-          stoppedBy: "model_error",
+          stoppedBy,
         };
         await appendTranscript({
           turn,
           kind: "loop_stop",
-          stoppedBy: "model_error",
+          stoppedBy,
           finalAnswer,
           error: finalAnswer,
         });

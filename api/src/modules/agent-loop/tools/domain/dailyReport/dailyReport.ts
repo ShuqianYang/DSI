@@ -108,12 +108,24 @@ function formatDataResult(reportType: DailyReportType, row: DailyReportDataRow):
   return parts.join("\n");
 }
 
-async function runMysqlQuery(sql: string): Promise<DailyReportDataRow[]> {
+async function runMysqlQuery(sql: string, signal?: AbortSignal): Promise<DailyReportDataRow[]> {
   const connection = await createMysqlConnection(DAILY_REPORT_TIMEOUT_MS);
+  if (signal?.aborted) {
+    connection.destroy();
+    throw new Error(typeof signal.reason === "string" ? signal.reason : "任务已停止");
+  }
+  const abortConnection = () => connection.destroy();
+  signal?.addEventListener("abort", abortConnection, { once: true });
   try {
     const [rows] = await connection.execute<RowDataPacket[]>(sql);
     return (rows as DailyReportDataRow[]) || [];
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new Error(typeof signal.reason === "string" ? signal.reason : "任务已停止");
+    }
+    throw error;
   } finally {
+    signal?.removeEventListener("abort", abortConnection);
     await connection.end().catch(() => undefined);
   }
 }
@@ -282,6 +294,7 @@ ${chartPlaceholders}
       clearInterval(heartbeat);
     }
   } catch (err) {
+    if (context.signal?.aborted) throw err;
     console.error("[DailyReport] LLM generation failed:", (err as Error).message);
     context.onProgress?.({
       stage: "progress",
@@ -349,7 +362,7 @@ export function buildDailyReportTool(): ToolDefinition {
 
       try {
         const sql = buildDailyReportSql(reportType, startTime, endTime);
-        const rows = await runMysqlQuery(sql);
+        const rows = await runMysqlQuery(sql, context.signal);
 
         context.onProgress?.({
           stage: "progress",
