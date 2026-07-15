@@ -90,7 +90,7 @@ export const agentTranscriptEntries = pgTable(
     turn: integer("turn").notNull(),
     sequence: integer("sequence").notNull(),
     kind: text("kind", {
-      enum: ["model_request", "assistant_message", "tool_message", "loop_stop"],
+      enum: ["model_request", "assistant_message", "tool_message", "memory_recall", "loop_stop"],
     }).notNull(),
     message: jsonb("message"),
     messages: jsonb("messages"),

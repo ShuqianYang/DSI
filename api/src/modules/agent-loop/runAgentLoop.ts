@@ -370,6 +370,15 @@ export async function* runAgentLoopEvents(
         memorySections = [...memorySections, ...prePromptMemorySections];
         const memoryRecallEvent = buildMemoryRecallEvent(options.taskId, turn, prePromptMemorySections);
         if (memoryRecallEvent) {
+          await appendTranscript({
+            turn,
+            kind: "memory_recall",
+            memoryRecall: {
+              source: memoryRecallEvent.source,
+              recalledCount: memoryRecallEvent.recalledCount,
+              snippets: memoryRecallEvent.snippets,
+            },
+          });
           yield emitEvent(memoryRecallEvent);
         }
       }

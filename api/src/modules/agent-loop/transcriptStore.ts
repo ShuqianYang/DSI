@@ -13,6 +13,7 @@ export type AgentTranscriptEntryKind =
   | "model_request"
   | "assistant_message"
   | "tool_message"
+  | "memory_recall"
   | "loop_stop";
 
 export interface AgentTranscriptEntry {
@@ -26,7 +27,20 @@ export interface AgentTranscriptEntry {
   error?: string;
   stoppedBy?: AgentLoopResult["stoppedBy"];
   metadata?: Record<string, unknown>;
+  memoryRecall?: MemoryRecallTranscriptData;
   createdAt?: Date;
+}
+
+export interface MemoryRecallTranscriptData {
+  source: "session" | "vector" | "hybrid";
+  recalledCount: number;
+  snippets: Array<{
+    query: string;
+    summary?: string;
+    finalResult?: string;
+    score?: number;
+    source?: string;
+  }>;
 }
 
 export interface AgentTranscriptStore {
@@ -66,13 +80,16 @@ export function createDbTranscriptStore(database: TranscriptDatabase): AgentTran
         taskId: entry.taskId,
         turn: entry.turn,
         sequence: entry.sequence,
-        kind: entry.kind,
+        kind: normalizeTranscriptKind(entry.kind),
         message: toJsonbValue(entry.message),
         messages: toJsonbValue(entry.messages),
         finalAnswer: entry.finalAnswer,
         error: entry.error,
         stoppedBy: entry.stoppedBy,
-        metadata: toJsonbValue(entry.metadata ?? {}),
+        metadata: toJsonbValue({
+          ...entry.metadata,
+          ...(entry.memoryRecall ? { memoryRecall: entry.memoryRecall } : {}),
+        }),
         createdAt: entry.createdAt,
       });
     },
@@ -110,6 +127,12 @@ export function createBestEffortTranscriptStore(
       return store.load(taskId);
     },
   };
+}
+
+function normalizeTranscriptKind(
+  kind: AgentTranscriptEntryKind
+): "model_request" | "assistant_message" | "tool_message" | "memory_recall" | "loop_stop" {
+  return kind;
 }
 
 export function entriesToConversationMessages(entries: AgentTranscriptEntry[]): AgentMessage[] {
@@ -157,6 +180,8 @@ function toJsonbValue(value: unknown): unknown {
 }
 
 function rowToTranscriptEntry(row: AgentTranscriptEntryRow): AgentTranscriptEntry {
+  const metadata = isRecord(row.metadata) ? row.metadata : {};
+  const memoryRecall = metadata.memoryRecall;
   return {
     taskId: row.taskId,
     turn: row.turn,
@@ -167,9 +192,25 @@ function rowToTranscriptEntry(row: AgentTranscriptEntryRow): AgentTranscriptEntr
     ...(row.finalAnswer ? { finalAnswer: row.finalAnswer } : {}),
     ...(row.error ? { error: row.error } : {}),
     ...(isStoppedBy(row.stoppedBy) ? { stoppedBy: row.stoppedBy } : {}),
-    ...(isRecord(row.metadata) ? { metadata: row.metadata } : {}),
+    metadata,
+    ...(isMemoryRecallTranscriptData(memoryRecall) ? { memoryRecall } : {}),
     createdAt: row.createdAt,
   };
+}
+
+function isMemoryRecallTranscriptData(
+  value: unknown
+): value is MemoryRecallTranscriptData {
+  const record = isRecord(value) ? value : undefined;
+  if (!record) return false;
+  const source = record.source;
+  if (source !== "session" && source !== "vector" && source !== "hybrid") return false;
+  if (typeof record.recalledCount !== "number") return false;
+  if (!Array.isArray(record.snippets)) return false;
+  return record.snippets.every((snippet) => {
+    const s = isRecord(snippet) ? snippet : undefined;
+    return !!s && typeof s.query === "string";
+  });
 }
 
 function isAgentMessage(value: unknown): value is AgentMessage {

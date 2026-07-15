@@ -50,6 +50,13 @@
       "when": 1784102400000,
       "tag": "0005_memory_vector_1024",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784188800000,
+      "tag": "0006_agent_transcript_memory_recall",
+      "breakpoints": true
     }
   ]
 }
