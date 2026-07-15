@@ -6,12 +6,15 @@ const { createHybridMemoryManager } = await import(
 const { noopMemoryManager } = await import(
   "../../src/modules/agent-loop/memoryManager.ts"
 );
+const { EXPECTED_EMBEDDING_DIMENSIONS } = await import(
+  "../../src/modules/agent-loop/embeddingClient.ts"
+);
 
 // ---------------------------------------------------------------------------
 // Mock factories
 // ---------------------------------------------------------------------------
 
-function createMockEmbeddingClient(dim = 1536) {
+function createMockEmbeddingClient(dim = EXPECTED_EMBEDDING_DIMENSIONS) {
   return {
     embed: async (_text) => Array.from({ length: dim }, (_, i) => i * 0.001),
     embedBatch: async (texts) =>

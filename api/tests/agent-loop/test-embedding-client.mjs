@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-const { createEmbeddingClient } = await import(
+const { createEmbeddingClient, EXPECTED_EMBEDDING_DIMENSIONS } = await import(
   "../../src/modules/agent-loop/embeddingClient.ts"
 );
 
@@ -28,11 +28,14 @@ function mockFetchError(error) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1: Normal call returns 1536-dim vector
+// Test 1: Normal call returns the qwen3-embedding 1024-dim vector
 // ---------------------------------------------------------------------------
 
 {
-  const fakeEmbedding = Array.from({ length: 1536 }, (_, i) => i * 0.001);
+  const fakeEmbedding = Array.from(
+    { length: EXPECTED_EMBEDDING_DIMENSIONS },
+    (_, i) => i * 0.001
+  );
   mockFetch({
     data: [{ index: 0, embedding: fakeEmbedding }],
   });
@@ -46,11 +49,11 @@ function mockFetchError(error) {
   assert.ok(client, "client should be defined when apiBase is set");
 
   const embedding = await client.embed("测试文本");
-  assert.equal(embedding.length, 1536);
+  assert.equal(embedding.length, EXPECTED_EMBEDDING_DIMENSIONS);
   assert.ok(Array.isArray(embedding));
   assert.equal(embedding[0], 0);
 
-  console.log("Test 1 passed: normal call returns 1536-dim vector");
+  console.log("Test 1 passed: normal call returns 1024-dim vector");
 }
 
 // ---------------------------------------------------------------------------
@@ -114,8 +117,8 @@ function mockFetchError(error) {
 // ---------------------------------------------------------------------------
 
 {
-  const emb1 = Array.from({ length: 1536 }, (_, i) => i * 0.001);
-  const emb2 = Array.from({ length: 1536 }, (_, i) => i * 0.002);
+  const emb1 = Array.from({ length: EXPECTED_EMBEDDING_DIMENSIONS }, (_, i) => i * 0.001);
+  const emb2 = Array.from({ length: EXPECTED_EMBEDDING_DIMENSIONS }, (_, i) => i * 0.002);
   mockFetch({
     data: [
       { index: 0, embedding: emb1 },
@@ -129,8 +132,8 @@ function mockFetchError(error) {
 
   const results = await client.embedBatch(["text1", "text2"]);
   assert.equal(results.length, 2);
-  assert.equal(results[0].length, 1536);
-  assert.equal(results[1].length, 1536);
+  assert.equal(results[0].length, EXPECTED_EMBEDDING_DIMENSIONS);
+  assert.equal(results[1].length, EXPECTED_EMBEDDING_DIMENSIONS);
 
   console.log("Test 5 passed: embedBatch handles multiple texts");
 }
@@ -148,6 +151,28 @@ function mockFetchError(error) {
   assert.equal(results.length, 0);
 
   console.log("Test 6 passed: embedBatch with empty array returns empty");
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: Rejects embeddings that do not match the database vector dimension
+// ---------------------------------------------------------------------------
+
+{
+  const wrongDimEmbedding = Array.from({ length: 1536 }, (_, i) => i * 0.001);
+  mockFetch({
+    data: [{ index: 0, embedding: wrongDimEmbedding }],
+  });
+
+  const client = createEmbeddingClient({
+    apiBase: "http://localhost:8000/v1",
+  });
+
+  await assert.rejects(
+    async () => client.embed("wrong dimensions"),
+    /1536 dimensions; expected 1024/
+  );
+
+  console.log("Test 7 passed: non-1024 embeddings are rejected");
 }
 
 // Restore original fetch

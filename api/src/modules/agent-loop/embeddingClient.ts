@@ -19,6 +19,7 @@ export interface CreateEmbeddingClientInput {
 
 const DEFAULT_MODEL = "qwen3-embedding:0.6b";
 const DEFAULT_TIMEOUT_MS = 30_000;
+export const EXPECTED_EMBEDDING_DIMENSIONS = 1024;
 
 export function createEmbeddingClient(
   input?: CreateEmbeddingClientInput
@@ -96,6 +97,11 @@ class GteEmbeddingClient implements EmbeddingClient {
       .map((item) => {
         if (!Array.isArray(item.embedding)) {
           throw new Error("Embedding API response contains non-array embedding");
+        }
+        if (item.embedding.length !== EXPECTED_EMBEDDING_DIMENSIONS) {
+          throw new Error(
+            `Embedding API response has ${item.embedding.length} dimensions; expected ${EXPECTED_EMBEDDING_DIMENSIONS}`
+          );
         }
         return item.embedding as number[];
       });
