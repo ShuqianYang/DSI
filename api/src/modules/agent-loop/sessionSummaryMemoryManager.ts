@@ -244,6 +244,17 @@ export function createSessionSummaryMemoryManager(
 }
 
 export function formatSessionMemorySection(input: FormatSessionMemorySectionInput): PromptSection {
+  const summary = firstStringValue(
+    input.transcriptSummary,
+    "summary",
+    "lastAssistantAnswerPreview"
+  );
+  const finalResult = firstStringValue(
+    input.transcriptSummary,
+    "finalResult",
+    "finalAnswerPreview",
+    "lastAssistantAnswerPreview"
+  );
   return {
     id: `memory.session_summary.${input.task.id}`,
     content: truncateText(
@@ -260,7 +271,26 @@ export function formatSessionMemorySection(input: FormatSessionMemorySectionInpu
       ),
       input.maxChars
     ),
+    metadata: {
+      memoryRecall: {
+        query: input.task.query,
+        ...(summary ? { summary } : {}),
+        ...(finalResult ? { finalResult } : {}),
+        source: "session",
+      },
+    },
   };
+}
+
+function firstStringValue(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
 }
 
 export function createDbRecentTaskLister(database: {

@@ -293,6 +293,20 @@ export async function* runAgentLoopEvents(
       ...entry,
     });
   };
+  const recordMemoryRecall = async (turn: number, sections: PromptSection[]) => {
+    const event = buildMemoryRecallEvent(options.taskId, turn, sections);
+    if (!event) return undefined;
+    await appendTranscript({
+      turn,
+      kind: "memory_recall",
+      memoryRecall: {
+        source: event.source,
+        recalledCount: event.recalledCount,
+        snippets: event.snippets,
+      },
+    });
+    return event;
+  };
 
   try {
     for (let turn = 1; turn <= maxTurns; turn += 1) {
@@ -368,17 +382,8 @@ export async function* runAgentLoopEvents(
       });
       if (prePromptMemorySections.length > 0) {
         memorySections = [...memorySections, ...prePromptMemorySections];
-        const memoryRecallEvent = buildMemoryRecallEvent(options.taskId, turn, prePromptMemorySections);
+        const memoryRecallEvent = await recordMemoryRecall(turn, prePromptMemorySections);
         if (memoryRecallEvent) {
-          await appendTranscript({
-            turn,
-            kind: "memory_recall",
-            memoryRecall: {
-              source: memoryRecallEvent.source,
-              recalledCount: memoryRecallEvent.recalledCount,
-              snippets: memoryRecallEvent.snippets,
-            },
-          });
           yield emitEvent(memoryRecallEvent);
         }
       }
@@ -673,6 +678,10 @@ export async function* runAgentLoopEvents(
       });
       if (nextMemorySections.length > 0) {
         memorySections = [...memorySections, ...nextMemorySections];
+        const memoryRecallEvent = await recordMemoryRecall(turn, nextMemorySections);
+        if (memoryRecallEvent) {
+          yield emitEvent(memoryRecallEvent);
+        }
       }
 
       // --- Mid-task checkpoint (Part C: 超长任务中途提取) ---
@@ -995,6 +1004,16 @@ function determineMemorySource(sections: PromptSection[]): "session" | "vector" 
 function parseMemorySnippet(
   section: PromptSection
 ): { query: string; summary?: string; finalResult?: string; score?: number; source?: string } | undefined {
+  const metadata = section.metadata?.memoryRecall;
+  if (metadata && typeof metadata.query === "string") {
+    return {
+      query: metadata.query,
+      ...(typeof metadata.summary === "string" ? { summary: metadata.summary } : {}),
+      ...(typeof metadata.finalResult === "string" ? { finalResult: metadata.finalResult } : {}),
+      ...(typeof metadata.score === "number" ? { score: metadata.score } : {}),
+      ...(typeof metadata.source === "string" ? { source: metadata.source } : {}),
+    };
+  }
   try {
     const parsed = JSON.parse(section.content);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
@@ -1006,8 +1025,20 @@ function parseMemorySnippet(
           : {};
       return {
         query: String(parsed.query ?? ""),
-        summary: typeof summaryObj.summary === "string" ? summaryObj.summary : undefined,
-        finalResult: typeof summaryObj.finalResult === "string" ? summaryObj.finalResult : undefined,
+        summary:
+          typeof summaryObj.summary === "string"
+            ? summaryObj.summary
+            : typeof summaryObj.lastAssistantAnswerPreview === "string"
+              ? summaryObj.lastAssistantAnswerPreview
+              : undefined,
+        finalResult:
+          typeof summaryObj.finalResult === "string"
+            ? summaryObj.finalResult
+            : typeof summaryObj.finalAnswerPreview === "string"
+              ? summaryObj.finalAnswerPreview
+              : typeof summaryObj.lastAssistantAnswerPreview === "string"
+                ? summaryObj.lastAssistantAnswerPreview
+                : undefined,
         source: "session",
       };
     }
@@ -1038,16 +1069,19 @@ function buildMemoryRecallEvent(
   turn: number,
   sections: PromptSection[]
 ): Extract<AgentLoopEvent, { type: "memory_recall" }> | undefined {
-  const snippets = sections
+  const recalledSections = sections.filter((section) =>
+    section.id.startsWith("memory.session_summary.") || section.id.startsWith("memory.vector.")
+  );
+  if (recalledSections.length === 0) return undefined;
+  const snippets = recalledSections
     .map(parseMemorySnippet)
     .filter((s): s is NonNullable<typeof s> => !!s);
-  if (snippets.length === 0) return undefined;
   return {
     type: "memory_recall",
     taskId,
     turn,
-    source: determineMemorySource(sections),
-    recalledCount: snippets.length,
+    source: determineMemorySource(recalledSections),
+    recalledCount: recalledSections.length,
     snippets,
   };
 }

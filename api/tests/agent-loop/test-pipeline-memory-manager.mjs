@@ -88,6 +88,55 @@ assert.deepEqual(listInput, {
 assert.equal(sections.length, 1);
 assert.equal(sections[0].id, `memory.session_summary.${priorTaskId}`);
 assert(sections[0].content.includes("Prior task answer."));
+assert.equal(sections[0].metadata?.memoryRecall?.query, "Prior query");
+assert.equal(sections[0].metadata?.memoryRecall?.finalResult, "Prior task answer.");
+
+let vectorEmbedCalls = 0;
+let vectorExecuteCalls = 0;
+const hybridManager = createPipelineMemoryManager({
+  currentTaskId,
+  currentTask: { userId: "user-1" },
+  env: { AGENT_MEMORY_SESSION_SUMMARY: "1" },
+  transcriptStore,
+  listRecentCompletedTasks: async () => [],
+  db: {
+    select() {
+      return {
+        from() {
+          return {
+            where() {
+              return { orderBy: () => ({ limit: async () => [] }) };
+            },
+          };
+        },
+      };
+    },
+    insert() {
+      return { values: async () => undefined };
+    },
+    async execute() {
+      vectorExecuteCalls += 1;
+      return { rows: [] };
+    },
+  },
+  embeddingClient: {
+    async embed() {
+      vectorEmbedCalls += 1;
+      return Array.from({ length: 1024 }, () => 0.01);
+    },
+    async embedBatch(texts) {
+      return texts.map(() => Array.from({ length: 1024 }, () => 0.01));
+    },
+  },
+});
+const hybridPrefetch = hybridManager.startRelevantMemoryPrefetch(
+  [{ role: "user", content: "recall this query" }],
+  { taskId: currentTaskId }
+);
+assert(hybridPrefetch);
+await hybridPrefetch.promise;
+assert.equal(vectorEmbedCalls, 1, "pipeline manager should invoke vector embedding recall");
+assert.equal(vectorExecuteCalls, 2, "pipeline manager should search both memory vector tables");
 
 let disabledListCalled = false;
 const disabledManager = createPipelineMemoryManager({

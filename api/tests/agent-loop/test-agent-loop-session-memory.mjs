@@ -5,6 +5,7 @@ const { runAgentLoopEvents } = await import("../../src/modules/agent-loop/runAge
 const taskId = crypto.randomUUID();
 const query = "Continue Taiwan Strait analysis";
 const modelRequests = [];
+const memoryRecallEvents = [];
 let filteredSectionCount = 0;
 
 const memoryManager = {
@@ -83,6 +84,9 @@ for await (const event of runAgentLoopEvents({
   fileLogger: false,
   maxTurns: 2,
 })) {
+  if (event.type === "memory_recall") {
+    memoryRecallEvents.push(event);
+  }
   if (event.type === "loop_stop") {
     result = event.result;
   }
@@ -91,6 +95,10 @@ for await (const event of runAgentLoopEvents({
 assert.equal(result.stoppedBy, "final_answer");
 assert.equal(modelRequests.length, 1);
 assert.equal(filteredSectionCount, 1);
+assert.equal(memoryRecallEvents.length, 1);
+assert.equal(memoryRecallEvents[0].recalledCount, 1);
+assert.equal(memoryRecallEvents[0].snippets[0].query, "Mark Taiwan Strait and fetch wind field");
+assert.equal(memoryRecallEvents[0].snippets[0].finalResult, "Taiwan Strait wind field was fetched.");
 assert(modelRequests[0][0].content.includes("## memory.session_summary.prior-task"));
 assert(modelRequests[0][0].content.includes("Taiwan Strait wind field was fetched."));
 assert(modelRequests[0][0].content.includes("## memory.recall_decision"));

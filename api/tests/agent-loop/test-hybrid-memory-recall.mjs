@@ -105,6 +105,9 @@ function createToolUseContext() {
   assert.ok(sections.length >= 1, "should return merged sections");
   const hasVectorSection = sections.some((s) => s.id.startsWith("memory.vector."));
   assert.ok(hasVectorSection, "should include vector recall results");
+  const vectorSection = sections.find((s) => s.id.startsWith("memory.vector."));
+  assert.equal(vectorSection.metadata?.memoryRecall?.source, "episodic_memories");
+  assert.equal(typeof vectorSection.metadata?.memoryRecall?.score, "number");
 
   console.log("Test 1 passed: vector recall + session recall are merged");
 }

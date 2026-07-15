@@ -342,6 +342,15 @@ function formatVectorMemorySection(
 ): PromptSection {
   return {
     id: `memory.vector.${result.source}.${result.id}`,
+    metadata: {
+      memoryRecall: {
+        query: result.query,
+        ...(result.summary ? { summary: result.summary } : {}),
+        ...(result.finalResult ? { finalResult: result.finalResult } : {}),
+        score: Number(score.toFixed(4)),
+        source: result.source,
+      },
+    },
     content: JSON.stringify(
       {
         source: result.source,

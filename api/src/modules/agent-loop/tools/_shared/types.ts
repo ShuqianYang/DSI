@@ -111,6 +111,17 @@ export interface PromptSection {
    * Keep it model-safe and already-truncated; PromptManager does not parse JSON.
    */
   content: string;
+  /** Structured metadata for consumers that must not reverse-parse rendered text. */
+  metadata?: {
+    memoryRecall?: {
+      query: string;
+      summary?: string;
+      finalResult?: string;
+      score?: number;
+      source?: string;
+    };
+    [key: string]: unknown;
+  };
 }
 
 export interface AgentLoopToolUseContext {
