@@ -5,10 +5,16 @@ import type { Task, NewTask, TaskStep, NewTaskStep } from "../../db/schema.js";
 import type { CreateTaskRequest, Plan, Action } from "@datasourceintelligence/shared";
 
 export async function createTask(data: CreateTaskRequest): Promise<Task> {
+  return (await createTaskOnce(data)).task;
+}
+
+export async function createTaskOnce(data: CreateTaskRequest): Promise<{ task: Task; created: boolean }> {
+  const clientRequestId = data.clientRequestId?.trim();
   const [task] = await db
     .insert(tasks)
     .values({
       userId: (data as Record<string, unknown>).userId as string | undefined,
+      clientRequestId: clientRequestId || undefined,
       query: data.query,
       status: "pending",
       plan: null,
@@ -16,8 +22,19 @@ export async function createTask(data: CreateTaskRequest): Promise<Task> {
       result: null,
       error: null,
     })
+    .onConflictDoNothing({ target: tasks.clientRequestId })
     .returning();
-  return task;
+  if (task) return { task, created: true };
+  if (!clientRequestId) {
+    throw new Error("Task creation failed without an idempotency key conflict.");
+  }
+  const [existing] = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.clientRequestId, clientRequestId))
+    .limit(1);
+  if (!existing) throw new Error("Idempotent task could not be reloaded.");
+  return { task: existing, created: false };
 }
 
 export async function getTaskById(taskId: string): Promise<Task | null> {

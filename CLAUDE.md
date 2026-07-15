@@ -96,7 +96,7 @@ pnpm agent:smoke:<skill-name>:real
 
 Reference these implementations when in doubt:
 
-- `skills/daily-report/SKILL.md`
+- `skills/border-defense-daily-report/SKILL.md`
 - `api/src/modules/agent-loop/tools/domain/dailyReport/dailyReport.ts`
 - `api/src/modules/agent-loop/tools/domain/index.ts`
 - `api/scripts/agent-loop/agent-loop-smoke-daily-report.ts`

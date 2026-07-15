@@ -1,6 +1,6 @@
 import "dotenv/config";
+import type { Connection } from "mysql2/promise";
 import { buildDefaultToolRegistry } from "../../src/modules/agent-loop/tools/_shared/toolRegistry.js";
-import { callTool } from "../../src/modules/agent-loop/tools/_shared/toolGateway.js";
 import type { ModelClient } from "../../src/modules/agent-loop/modelClient.js";
 import type {
   AgentLoopEvent,
@@ -9,12 +9,11 @@ import type {
   ToolObservation,
 } from "../../src/modules/agent-loop/tools/_shared/types.js";
 import type { AgentLoopTaskResult } from "../../src/modules/tasks/agentLoopResultProjection.js";
+import { setCreateConnectionOverride } from "../../src/modules/agent-loop/tools/domain/dailyReport/dailyReport.js";
 
 export const DAILY_REPORT_SCENARIO = "daily-report";
 export const DAILY_REPORT_TOOLS = ["DailyReport"] as const;
 export const DAILY_REPORT_QUERY = "生成昨天的边防日报。";
-
-const SSE_LINE_PREFIX = "data: ";
 
 export interface DailyReportValidationInput {
   rawEvents: AgentLoopEvent[];
@@ -26,6 +25,80 @@ export interface DailyReportValidationReport {
   date: string;
   reportType: string;
   contentLength: number;
+  chartCount: number;
+}
+
+function createMockConnection(): Connection {
+  return {
+    execute: async (sql: string) => {
+      const normalizedSql = String(sql).toLowerCase();
+      if (normalizedSql.includes("from alarm_event") || normalizedSql.includes("from buckle_access_record")) {
+        return [
+          [
+            {
+              total_alarms: 15,
+              valid_intrusion: 5,
+              handle_rate: 93.33,
+              avg_handle_seconds: 420,
+              sla_rate: 88.5,
+              device_total: 128,
+              online_count: 120,
+              offline_count: 8,
+              online_rate: 93.75,
+              top1_name: "一号点位",
+              top1_count: 6,
+              top2_name: "二号点位",
+              top2_count: 4,
+              top3_name: "三号点位",
+              top3_count: 3,
+              most_freq_device: "一号点位",
+              most_freq_count: 6,
+              level1_count: 5,
+              level1_ratio: 33.33,
+              level1_avg_sec: 380,
+              level2_count: 6,
+              level2_ratio: 40,
+              level2_avg_sec: 450,
+              level3_count: 4,
+              level3_ratio: 26.67,
+              peak_start_hour: 9,
+              peak_end_hour: 10,
+              peak_count: 5,
+              total_access: 1024,
+              person_times: 680,
+              vehicle_times: 344,
+              normal_entry: 900,
+              normal_leave: 100,
+              reject_entry: 24,
+              black_count: 3,
+              black_objects: 2,
+              stranger_count: 12,
+              stranger_objects: 8,
+              white_count: 1009,
+              white_objects: 120,
+              stay_cnt: 2,
+              curr_stay_cnt: 1,
+              top5_busy_buckle: JSON.stringify([
+                { buckle_id: "b1", buckle_name: "A卡口", total_access_count: 256 },
+                { buckle_id: "b2", buckle_name: "B卡口", total_access_count: 198 },
+                { buckle_id: "b3", buckle_name: "C卡口", total_access_count: 176 },
+                { buckle_id: "b4", buckle_name: "D卡口", total_access_count: 142 },
+                { buckle_id: "b5", buckle_name: "E卡口", total_access_count: 98 },
+              ]),
+            },
+          ],
+          [],
+        ];
+      }
+      return [[], []];
+    },
+    end: async () => undefined,
+  } as unknown as Connection;
+}
+
+export function installMockDailyReportMysql(): () => void {
+  setCreateConnectionOverride(async () => createMockConnection());
+  return () => setCreateConnectionOverride(undefined);
 }
 
 export function createDailyReportSmokeModelClient(): ModelClient {
@@ -42,7 +115,7 @@ export function createDailyReportSmokeModelClient(): ModelClient {
               id: "daily-report-call-1",
               toolName: "DailyReport",
               input: {
-                query: "昨天",
+                date: "2026-06-16",
                 report_type: "all",
               },
               reason: "User requested a daily security report for yesterday.",
@@ -71,18 +144,6 @@ export function createDailyReportSmokeModelClient(): ModelClient {
   };
 }
 
-export function installMockDailyReportFetch(options: {
-  reportContent?: string;
-  httpStatus?: number;
-  networkError?: boolean;
-}): () => void {
-  const restore = createMockDailyReportApiFetch(options);
-  const originalFetch = restore();
-  return () => {
-    globalThis.fetch = originalFetch;
-  };
-}
-
 export function validateDailyReportSmoke(input: DailyReportValidationInput): DailyReportValidationReport {
   const observations = input.rawEvents.filter(
     (event): event is Extract<AgentLoopEvent, { type: "tool_observation" }> => event.type === "tool_observation"
@@ -95,6 +156,7 @@ export function validateDailyReportSmoke(input: DailyReportValidationInput): Dai
   const date = readString(output.date) ?? "";
   const reportType = readString(output.report_type) ?? "";
   const content = readString(output.report_content) ?? "";
+  const charts = Array.isArray(output.charts) ? output.charts : [];
 
   assertCondition(/^\d{4}-\d{2}-\d{2}$/.test(date), `DailyReport returned invalid date format: ${date}`);
   assertCondition(reportType.length > 0, "DailyReport returned empty report_type.");
@@ -116,6 +178,7 @@ export function validateDailyReportSmoke(input: DailyReportValidationInput): Dai
     date,
     reportType,
     contentLength: content.length,
+    chartCount: charts.length,
   };
 }
 
@@ -126,48 +189,6 @@ export function getDailyReportTool(): ToolDefinition {
     throw new Error("DailyReport tool is not registered");
   }
   return tool;
-}
-
-function createMockDailyReportApiFetch(options: {
-  reportContent?: string;
-  httpStatus?: number;
-  networkError?: boolean;
-}): () => typeof globalThis.fetch {
-  const originalFetch = globalThis.fetch;
-  return () => {
-    globalThis.fetch = async (input, init) => {
-      const url = String(input);
-      if (!url.includes("/daily-report")) {
-        return originalFetch(input, init);
-      }
-
-      if (options.networkError) {
-        throw new Error("ECONNREFUSED");
-      }
-
-      if (options.httpStatus && options.httpStatus >= 400) {
-        return new Response(null, { status: options.httpStatus, statusText: "Internal Server Error" });
-      }
-
-      const content = options.reportContent ?? "昨日边境态势总体平稳，设备运行正常，未发生重大预警事态。";
-      const encoder = new TextEncoder();
-      const lines = [
-        `${SSE_LINE_PREFIX}${JSON.stringify({ type: "thinking", content: "" })}\n\n`,
-        `${SSE_LINE_PREFIX}${JSON.stringify({ type: "typing", content })}\n\n`,
-      ].join("");
-
-      return new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(lines));
-            controller.close();
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "text/event-stream" } }
-      );
-    };
-    return originalFetch;
-  };
 }
 
 function findObservation(observations: ToolObservation[], toolName: string): ToolObservation | undefined {

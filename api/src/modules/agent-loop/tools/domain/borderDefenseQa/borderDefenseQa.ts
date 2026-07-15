@@ -81,6 +81,23 @@ function stripTrailingSemicolon(sql: string): string {
   return sql.replace(/\s*;\s*$/, "");
 }
 
+function normalizeSqlCharacters(sql: string): string {
+  return sql
+    .replace(/，/g, ",")
+    .replace(/；/g, ";")
+    .replace(/（/g, "(")
+    .replace(/）/g, ")")
+    .replace(/＝/g, "=")
+    .replace(/＋/g, "+")
+    .replace(/－/g, "-")
+    .replace(/＊/g, "*")
+    .replace(/／/g, "/")
+    .replace(/％/g, "%")
+    .replace(/＞/g, ">")
+    .replace(/＜/g, "<")
+    .replace(/！/g, "!");
+}
+
 function splitSqlStatements(sql: string): string[] {
   const cleaned = sql.replace(/'[^']*'/g, "''").replace(/`[^`]*`/g, "``");
   return cleaned
@@ -120,7 +137,8 @@ function validateReadOnlySql(sql: string): void {
 }
 
 function buildLimitedSql(sql: string, limit: number, offset: number): string {
-  const stripped = stripTrailingSemicolon(sql.trim());
+  const normalized = normalizeSqlCharacters(sql.trim());
+  const stripped = stripTrailingSemicolon(normalized);
 
   const hasLimit = /\blimit\s+\d+\b/i.test(stripped);
   const hasOffset = /\boffset\s+\d+\b/i.test(stripped);

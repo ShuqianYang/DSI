@@ -52,7 +52,7 @@ const SKILL_TRANSLATIONS: Record<string, SkillTranslation> = {
   },
   'daily-report': {
     title: '边防日报生成',
-    description: '生成安防日报、周报、专项报告，支持总体、设备监控、预警事态等报告类型。',
+    description: '按所选日期生成边防日报，支持总体、卡口/设备监控、预警事态三种报告类型。',
   },
   'disaster-satellite-query': {
     title: '灾害卫星查询',

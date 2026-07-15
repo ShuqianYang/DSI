@@ -8,15 +8,13 @@ import { chooseAgentLoopDisplayContent } from '@/lib/agentLoopContent';
 import { formatTaskResult } from '@/lib/taskResultFormatter';
 import { getMockResponse } from '@/lib/taskMock';
 import {
-  extractOperationsFromAgentLoopEvent,
   logAgentLoopEvent,
   type AgentLoopEvent,
 } from '@/lib/agentLoopEvents';
 import {
-  extractGisPushesFromAgentLoopEvent,
-  extractGisPushesFromTaskResult,
-  type AgentLoopGisPush,
-} from '@/lib/agentLoopGisBridge';
+  extractChartsFromAgentLoopEvent,
+  extractChartsFromTaskResult,
+} from '@/lib/agentLoopCharts';
 import { formatAgentLoopThinkingUpdate } from '@/lib/agentLoopStepFormatter';
 import {
   buildAgentLoopTaskResultFromStop,
@@ -26,7 +24,6 @@ import {
 import { routeTaskStreamEvent } from '@/lib/taskStreamRouter';
 import {
   recordAgentLoopUpdate,
-  recordGisPush,
   recordTaskFinished,
   recordTaskStreamEvent,
 } from '@/lib/agentLoopFrontendTrace';
@@ -41,8 +38,6 @@ import {
 export interface UseTaskChatOptions {
   userId?: string;
   scenarioId?: ScenarioId;
-  onGisDataRequest?: (gisData: GisData) => void;
-  onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
   /** 任务创建成功后立即触发（拿到 taskId、构造 placeholder Task）；用于上层联动 UI（收起 chat / 弹进度窗）。详见 api/plan/auto-toggle-chat-and-task-panel.md */
   onTaskCreate?: (task: Task, steps: ThinkingStep[], gisData?: GisData) => void;
   /** 任务整体完成或失败时触发；用于上层联动 UI（展开 chat / 关进度窗）。详见 api/plan/auto-toggle-chat-and-task-panel.md */
@@ -64,8 +59,6 @@ export interface UseTaskChatReturn {
 export function useTaskChat({
   userId,
   scenarioId,
-  onGisDataRequest,
-  onGisOperation,
   onTaskCreate,
   onTaskFinished,
 }: UseTaskChatOptions = {}): UseTaskChatReturn {
@@ -75,8 +68,6 @@ export function useTaskChat({
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set());
 
   const sseConnections = useRef<Map<string, EventSource>>(new Map());
-  // GIS 数据去重：记录已推送过 gisData 的 actionId，避免 step_update 和 task completed 重复推送
-  const gisDataPushedRef = useRef<Set<string>>(new Set());
   const finishedTaskIdsRef = useRef<Set<string>>(new Set());
   const taskStreamModeTrackerRef = useRef(createTaskStreamModeTracker());
   const globalSseRef = useRef<EventSource | null>(null);
@@ -295,29 +286,6 @@ export function useTaskChat({
     });
   };
 
-  const pushGisPushes = (taskId: string, pushes: AgentLoopGisPush[]) => {
-    for (const push of pushes) {
-      if (gisDataPushedRef.current.has(push.key)) continue;
-      gisDataPushedRef.current.add(push.key);
-      console.log('[useTaskChat] Received GIS data:', {
-        source: push.source,
-        key: push.key,
-        toolName: push.toolName,
-        type: push.gisData.type,
-        hasCameraView: !!push.gisData.cameraView,
-        cameraView: push.gisData.cameraView,
-        regionsCount: push.gisData.regions?.length,
-        entitiesCount: push.gisData.entities?.length,
-        imageOverlaysCount: push.gisData.imageOverlays?.length,
-      });
-      const traceSource = push.toolName
-        ? `${push.source}:${push.toolName}`
-        : `${push.source}:${push.toolCallId || 'gis'}`;
-      recordGisPush(taskId, push.gisData, traceSource);
-      onGisDataRequest?.(push.gisData);
-    }
-  };
-
   const closeTaskSse = (taskId: string) => {
     const es = sseConnections.current.get(taskId);
     if (!es) return;
@@ -327,26 +295,8 @@ export function useTaskChat({
   };
 
   const applyTaskResultToMessage = (taskId: string, result: Record<string, unknown>) => {
-    pushGisPushes(taskId, extractGisPushesFromTaskResult(taskId, result));
-
-    for (const [actionId, stepResult] of Object.entries(result)) {
-      if (actionId === 'logFilePath') continue;
-      const gisKey = `${taskId}:${actionId}`;
-      if (gisDataPushedRef.current.has(gisKey)) continue;
-      const sr = stepResult as Record<string, unknown> | undefined;
-      console.log(`[useTaskChat] Step ${actionId} keys:`, Object.keys(sr || {}));
-      const nestedGis = (sr?.data as Record<string, unknown> | undefined)?.gisData as GisData | undefined;
-      const topGis = sr?.gisData as GisData | undefined;
-      const gisData = nestedGis || topGis;
-      console.log(`[useTaskChat] Step ${actionId} gisData (fallback):`, gisData ? `YES type=${gisData.type} overlays=${gisData.imageOverlays?.length || 0}` : 'NO');
-      if (gisData && onGisDataRequest) {
-        gisDataPushedRef.current.add(gisKey);
-        recordGisPush(taskId, gisData, `task-result:${actionId}`);
-        onGisDataRequest(gisData);
-      }
-    }
-
     const resultMarkdown = formatTaskResult(result);
+    const resultCharts = extractChartsFromTaskResult(result);
     const resultLogFilePath =
       typeof result.logFilePath === 'string' ? result.logFilePath : undefined;
     if (resultLogFilePath) {
@@ -358,12 +308,16 @@ export function useTaskChat({
       );
       if (idx === -1) return prev;
       const next = [...prev];
+      const existing = prev[idx].charts || [];
+      const existingIds = new Set(existing.map((c) => c.chart_id));
+      const newCharts = resultCharts.filter((c) => !existingIds.has(c.chart_id));
       next[idx] = {
         ...prev[idx],
         content:
           result.mode === 'agent_loop'
             ? chooseAgentLoopDisplayContent(prev[idx].content, resultMarkdown)
             : resultMarkdown,
+        charts: [...existing, ...newCharts],
         agentLoopLogFilePath: resultLogFilePath || prev[idx].agentLoopLogFilePath,
       };
       return next;
@@ -448,7 +402,6 @@ export function useTaskChat({
     const update = formatAgentLoopThinkingUpdate(event);
     recordAgentLoopUpdate(taskId, event, update);
     update.steps.forEach((step) => upsertThinkingStep(taskId, step));
-    pushGisPushes(taskId, extractGisPushesFromAgentLoopEvent(taskId, event));
 
     if (update.content || update.completeOpenStepsAs) {
       updateMessagesByTaskId(taskId, (prev) => {
@@ -476,10 +429,18 @@ export function useTaskChat({
     }
 
     if (event.type === 'tool_observation') {
-      const operations = extractOperationsFromAgentLoopEvent(event);
-      if (operations?.length) {
-        console.log('[useTaskChat] Received GIS operations (agent-loop):', operations);
-        onGisOperation?.(operations);
+      const eventCharts = extractChartsFromAgentLoopEvent(event);
+      if (eventCharts.length > 0) {
+        updateMessagesByTaskId(taskId, (prev) => {
+          const idx = prev.findIndex((m) => m.taskId === taskId && m.role === 'assistant');
+          if (idx === -1) return prev;
+          const next = [...prev];
+          const existing = next[idx].charts || [];
+          const existingIds = new Set(existing.map((c) => c.chart_id));
+          const newCharts = eventCharts.filter((c) => !existingIds.has(c.chart_id));
+          next[idx] = { ...next[idx], charts: [...existing, ...newCharts] };
+          return next;
+        });
       }
 
       return;
@@ -583,18 +544,12 @@ export function useTaskChat({
             role: 'assistant',
             content: mockResp.content + '\n\n（后端服务暂不可用，以上内容为模拟回复）',
             timestamp: Date.now(),
-            hasGisData: !!mockResp.gisData,
-            gisData: mockResp.gisData,
             thinking: mockResp.thinking,
             thinkingSteps: mockResp.thinkingSteps,
             isThinkingExpanded: false,
           },
         ];
       });
-
-      if (onGisDataRequest && mockResp.gisData) {
-        onGisDataRequest(mockResp.gisData);
-      }
     } finally {
       setLoadingSessionIds((ids) => {
         const next = new Set(ids);

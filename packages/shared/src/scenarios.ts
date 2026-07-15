@@ -115,7 +115,7 @@ export const SCENARIOS: readonly ScenarioProfile[] = [
       },
     ],
     mapLayers: [],
-    skillIds: ["border-defense-qa", "daily-report", "alarm-disposal-orchestrator", "fire-investigation"],
+    skillIds: ["border-defense-qa", "border-defense-daily-report", "alarm-disposal-orchestrator", "fire-investigation"],
   },
 ];
 

@@ -17,10 +17,8 @@ interface ChatPanelProps {
   scenario?: ScenarioProfile;
   onScenarioChange?: (scenarioId: ScenarioId) => void;
   onSendMessage: (message: string) => void;
-  onGisDataRequest?: (gisData: GisData) => void;
   onTaskCreate?: (task: Task, steps: ThinkingStep[], gisData?: GisData) => void;
   onTaskFinished?: (taskId: string, status: 'completed' | 'failed') => void;
-  onGisOperation?: (operations: Array<Record<string, unknown>>) => void;
 }
 
 export default function ChatPanel({
@@ -28,10 +26,8 @@ export default function ChatPanel({
   scenario: scenarioProp,
   onScenarioChange = () => undefined,
   onSendMessage,
-  onGisDataRequest,
   onTaskCreate,
   onTaskFinished,
-  onGisOperation,
 }: ChatPanelProps) {
   const scenario = scenarioProp ?? getScenarioProfile();
   const {
@@ -40,14 +36,13 @@ export default function ChatPanel({
     isLoading,
     setInputValue,
     sendMessage,
+    addSystemMessage,
     deleteMessage,
     clearAll,
     toggleThinkingExpanded,
   } = useTaskChat({
     userId,
     scenarioId: scenario.id,
-    onGisDataRequest,
-    onGisOperation,
     onTaskCreate,
     onTaskFinished,
   });

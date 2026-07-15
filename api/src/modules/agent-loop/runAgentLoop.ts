@@ -62,6 +62,7 @@ export interface RunAgentLoopOptions {
   taskId: string;
   query: string;
   scenarioId?: ScenarioId;
+  forcedSkillId?: "border-defense-qa" | "border-defense-daily-report";
   maxTurns?: number;
   registry?: ToolRegistry;
   modelClient?: ModelClient;
@@ -80,6 +81,31 @@ export interface RunAgentLoopOptions {
   turnDelayMs?: number;
 }
 
+export function hasCompletedForcedDailyReport(
+  forcedSkillId: RunAgentLoopOptions["forcedSkillId"],
+  observations: ToolObservation[]
+): boolean {
+  return getCompletedForcedDailyReportContent(forcedSkillId, observations) !== undefined;
+}
+
+export function getCompletedForcedDailyReportContent(
+  forcedSkillId: RunAgentLoopOptions["forcedSkillId"],
+  observations: ToolObservation[]
+): string | undefined {
+  if (forcedSkillId !== "border-defense-daily-report") return undefined;
+
+  for (let index = observations.length - 1; index >= 0; index -= 1) {
+    const observation = observations[index];
+    if (observation.toolName !== "DailyReport" || !observation.ok) continue;
+    const output = observation.output;
+    if (!output || typeof output !== "object" || Array.isArray(output)) continue;
+    const reportContent = (output as Record<string, unknown>).report_content;
+    if (typeof reportContent === "string" && reportContent.trim()) return reportContent;
+  }
+
+  return undefined;
+}
+
 export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentLoopResult> {
   let finalResult: AgentLoopResult | undefined;
   const publishEvent = (event: AgentLoopEvent) => {
@@ -88,6 +114,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentL
   };
   const eventOptions: RunAgentLoopOptions = {
     ...options,
+    onEvent: publishEvent,
     onToolProgress: (event) => {
       publishEvent(event);
       options.onToolProgress?.(event);
@@ -175,6 +202,37 @@ export async function* runAgentLoopEvents(
     skillManager,
     signal: options.signal,
   });
+  if (options.forcedSkillId) {
+    const forcedSkillCall: GatewayToolCall = {
+      id: `forced-skill-${options.taskId}`,
+      toolName: "Skill",
+      displayName: "业务能力路由",
+      input: { skill: options.forcedSkillId, args: options.query },
+      reason: `该边防业务入口固定使用 ${options.forcedSkillId}`,
+    };
+    yield emitEvent(toolCallEvent({ taskId: options.taskId, turn: 0 }, forcedSkillCall));
+    const forcedSkillObservation = await callTool(registry, forcedSkillCall, {
+      taskId: options.taskId,
+      query: options.query,
+      observations,
+      signal: options.signal,
+      permissionHandler: options.permissionHandler,
+      toolUseContext,
+    });
+    observations.push(forcedSkillObservation);
+    yield emitEvent(toolObservationEvent({ taskId: options.taskId, turn: 0 }, forcedSkillObservation));
+    if (!forcedSkillObservation.ok) {
+      throw new Error(forcedSkillObservation.error?.message || `Failed to load forced skill: ${options.forcedSkillId}`);
+    }
+    // The dedicated border-defense routes must stay inside their selected
+    // business skill. Generic /tasks callers never set forcedSkillId and keep
+    // the original model-selected Skill behavior.
+    toolUseContext.skillAllowedToolNames?.delete("Skill");
+    toolUseContext.options.tools = filterToolsForActiveSkill(
+      toolUseContext.options.refreshTools?.() ?? registry.list(),
+      toolUseContext.skillAllowedToolNames,
+    );
+  }
   const memoryPrefetch = memoryManager.startRelevantMemoryPrefetch(
     toolUseContext.messages,
     toolUseContext
@@ -345,6 +403,17 @@ export async function* runAgentLoopEvents(
           query: options.query,
           observations,
           callId,
+          signal: options.signal,
+          onRetry: ({ nextAttempt, maxAttempts, error }) => {
+            const retryEvent = emitEvent({
+              type: "agent_turn",
+              taskId: options.taskId,
+              turn,
+              maxTurns,
+              message: `模型调用失败（${error.message}），正在进行第 ${nextAttempt}/${maxAttempts} 次尝试`,
+            });
+            options.onEvent?.(retryEvent);
+          },
         });
       } catch (error) {
         const finalAnswer = error instanceof Error ? error.message : String(error);
@@ -518,6 +587,37 @@ export async function* runAgentLoopEvents(
         }
       }
 
+      const dailyReportContent = getCompletedForcedDailyReportContent(
+        options.forcedSkillId,
+        observations
+      );
+      if (dailyReportContent !== undefined) {
+        // DailyReport already returns the complete report body and chart data.
+        // Return that body directly instead of spending another model turn on
+        // a redundant summary or completion message.
+        const finalAnswer = dailyReportContent;
+        const result: AgentLoopResult = {
+          finalAnswer,
+          turns: turn,
+          observations,
+          stoppedBy: "final_answer",
+        };
+        await appendTranscript({
+          turn,
+          kind: "loop_stop",
+          stoppedBy: "final_answer",
+          finalAnswer,
+        });
+        const resultWithLogFilePath = withAgentLoopLogFilePath(result, fileLogger);
+        yield emitEvent({
+          type: "loop_stop",
+          taskId: options.taskId,
+          turn,
+          result: resultWithLogFilePath,
+        });
+        return await finishAndReturn(result);
+      }
+
       const nextMemorySections = await consumeMemoryPrefetchIfReady({
         prefetch: memoryPrefetch,
         turn,
@@ -548,6 +648,7 @@ export async function* runAgentLoopEvents(
     observations,
     conversationMessages,
     callId: "max-turns-summary",
+    signal: options.signal,
   });
   await appendTranscript({
     turn: maxTurns,
@@ -1204,6 +1305,7 @@ async function buildMaxTurnsAnswer(options: {
   observations: ToolObservation[];
   conversationMessages: AgentMessage[];
   callId: string;
+  signal?: AbortSignal;
 }): Promise<string> {
   const { observations } = options;
   if (observations.length === 0) {
@@ -1233,6 +1335,7 @@ async function buildMaxTurnsAnswer(options: {
       query: options.query,
       observations,
       callId: options.callId,
+      signal: options.signal,
     });
 
     if (decision.type === "final_answer") {

@@ -5,10 +5,19 @@ const CDSE_TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDS
 const CDSE_CLIENT_ID = process.env.CDSE_CLIENT_ID || "";
 const CDSE_CLIENT_SECRET = process.env.CDSE_CLIENT_SECRET || "";
 
-const QWEN_API_KEY = process.env.QWEN_API_KEY || "";
-const QWEN_API_URL = process.env.QWEN_API_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
-const QWEN_MODEL = process.env.QWEN_MODEL || "qwen2.5-vl-72b-instruct";
-const QWEN_TIMEOUT_MS = parsePositiveIntegerEnv(process.env.DEEPSEEK_API_TIMEOUT_MS, 120_000);
+const DEFAULT_VISION_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+
+export function loadVisionModelConfig(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    apiKey: env.VISION_MODEL_API_KEY || env.QWEN_API_KEY || "",
+    apiUrl: env.VISION_MODEL_API_URL || env.QWEN_API_URL || DEFAULT_VISION_API_URL,
+    model: env.VISION_MODEL_NAME || env.IMAGE_ANALYSIS_MODEL || "",
+    timeoutMs: parsePositiveIntegerEnv(
+      env.VISION_MODEL_TIMEOUT_MS || env.QWEN_API_TIMEOUT_MS || env.DEEPSEEK_API_TIMEOUT_MS,
+      120_000
+    ),
+  };
+}
 
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB per image
 const MAX_TOTAL_IMAGES = 4;
@@ -107,6 +116,13 @@ async function executeImageAnalysis(
   context: ToolExecutionContext
 ): Promise<ImageAnalysisOutput> {
   const { imageUrls, analysisType, context: ctx } = input;
+  const visionConfig = loadVisionModelConfig();
+  if (!visionConfig.apiKey) {
+    throw new Error("VISION_MODEL_API_KEY (or legacy QWEN_API_KEY) is required for image analysis");
+  }
+  if (!visionConfig.model) {
+    throw new Error("VISION_MODEL_NAME is required for image analysis");
+  }
 
   context.onProgress?.({
     stage: "start",
@@ -138,14 +154,20 @@ async function executeImageAnalysis(
     throw new Error("All image downloads failed. Check URLs and authentication.");
   }
 
-  // Step 2: Call Qwen vision API
+  // Step 2: Call the independently configured vision model API
   context.onProgress?.({
     stage: "progress",
     message: `Running vision analysis on ${base64Images.length} image(s)...`,
     percent: 40,
   });
 
-  const rawResponse = await callQwenVision(base64Images, analysisType, ctx, context.signal);
+  const rawResponse = await callVisionModel(
+    base64Images,
+    analysisType,
+    visionConfig,
+    ctx,
+    context.signal
+  );
 
   // Step 3: Parse structured output
   context.onProgress?.({
@@ -180,10 +202,14 @@ function isCdseProtectedUrl(url: string): boolean {
   return CDSE_AUTH_DOMAINS.some((domain) => url.includes(domain));
 }
 
-/** 验证 HTTP Content-Type 是否为常见图片类型 */
+/** 验证 HTTP Content-Type 是否为常见图片类型，或 application/octet-stream（CDSE 经常返回此类型） */
 function isImageContentType(contentType: string | null): boolean {
   if (!contentType) return false;
-  return /^image\/(jpeg|jpg|png|gif|webp|bmp|tiff?)$/i.test(contentType.trim());
+  const trimmed = contentType.trim().toLowerCase();
+  if (/^image\/(jpeg|jpg|png|gif|webp|bmp|tiff?)$/i.test(trimmed)) return true;
+  // CDSE thumbnail/quicklook URLs often return application/octet-stream; validate by magic bytes later
+  if (trimmed === "application/octet-stream") return true;
+  return false;
 }
 
 /** 通过文件魔数验证是否为 JPEG 或 PNG */
@@ -204,8 +230,15 @@ async function downloadImageAsBase64(url: string, signal?: AbortSignal): Promise
   // If already a data URI, return as-is
   if (url.startsWith("data:")) return url;
 
-  // Try direct download first
-  let response = await fetchImage(url, undefined, signal);
+  // For CDSE/Creodias URLs, always include the OAuth token on the first request
+  // to avoid 401/403 and to get proper image data instead of error pages.
+  let response: Response;
+  if (isCdseProtectedUrl(url)) {
+    const token = await getAccessToken();
+    response = await fetchImage(url, token ?? undefined, signal);
+  } else {
+    response = await fetchImage(url, undefined, signal);
+  }
 
   // If unauthorized and it's a CDSE/Creodias URL, retry with token
   if ((response.status === 401 || response.status === 403) && isCdseProtectedUrl(url)) {
@@ -234,8 +267,12 @@ async function downloadImageAsBase64(url: string, signal?: AbortSignal): Promise
 
   validateImageMagicBytes(buffer);
 
-  const base64 = buffer.toString("base64");
-  return `data:${contentType!.trim()};base64,${base64}`;
+  // Use a concrete image MIME type for the data URI; fall back to image/jpeg if the server returned octet-stream
+  const concreteContentType =
+    contentType && contentType.trim().toLowerCase() !== "application/octet-stream"
+      ? contentType.trim()
+      : "image/jpeg";
+  return `data:${concreteContentType};base64,${buffer.toString("base64")}`;
 }
 
 async function fetchImage(url: string, token: string | undefined, signal?: AbortSignal): Promise<Response> {
@@ -256,18 +293,15 @@ async function fetchImage(url: string, token: string | undefined, signal?: Abort
   }
 }
 
-// ─── Qwen Vision API ───
+// ─── Vision model API ───
 
-async function callQwenVision(
+async function callVisionModel(
   base64Images: string[],
   analysisType: string,
+  visionConfig: ReturnType<typeof loadVisionModelConfig>,
   context?: string,
   parentSignal?: AbortSignal
 ): Promise<string> {
-  if (!QWEN_API_KEY) {
-    throw new Error("QWEN_API_KEY is required for image analysis");
-  }
-
   const systemPrompt = buildSystemPrompt(analysisType);
   const userText = buildUserPrompt(analysisType, context, base64Images.length);
 
@@ -280,21 +314,21 @@ async function callQwenVision(
   ];
 
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), QWEN_TIMEOUT_MS);
+  const timeout = setTimeout(() => abortController.abort(), visionConfig.timeoutMs);
   const abortFromParent = () => abortController.abort(parentSignal?.reason ?? "aborted");
   if (parentSignal?.aborted) abortFromParent();
   parentSignal?.addEventListener("abort", abortFromParent, { once: true });
 
   try {
-    const response = await fetch(QWEN_API_URL, {
+    const response = await fetch(visionConfig.apiUrl, {
       method: "POST",
       signal: abortController.signal,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${QWEN_API_KEY}`,
+        Authorization: `Bearer ${visionConfig.apiKey}`,
       },
       body: JSON.stringify({
-        model: QWEN_MODEL,
+        model: visionConfig.model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: content as unknown as string },
@@ -307,7 +341,7 @@ async function callQwenVision(
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Qwen API error: ${response.status} ${text}`);
+      throw new Error(`Vision model API error: ${response.status} ${text}`);
     }
 
     const json = await response.json() as {
@@ -316,18 +350,18 @@ async function callQwenVision(
     };
 
     if (json.error) {
-      throw new Error(`Qwen error: ${json.error.message ?? JSON.stringify(json.error)}`);
+      throw new Error(`Vision model error: ${json.error.message ?? JSON.stringify(json.error)}`);
     }
 
     const content_text = json.choices?.[0]?.message?.content;
     if (typeof content_text !== "string") {
-      throw new Error("Qwen response missing content");
+      throw new Error("Vision model response missing content");
     }
 
     return content_text;
   } catch (error) {
     if (abortController.signal.aborted) {
-      throw new Error(`Qwen API request timed out after ${QWEN_TIMEOUT_MS}ms`);
+      throw new Error(`Vision model API request timed out after ${visionConfig.timeoutMs}ms`);
     }
     throw error;
   } finally {

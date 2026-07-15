@@ -9,14 +9,17 @@ export async function createTask(req: Request, res: Response) {
   const requestMetadata = extractRequestMetadata(req);
 
   // 1. 创建任务记录并立即返回
-  const task = await taskService.createTask(body);
+  const { task, created } = await taskService.createTaskOnce(body);
 
   res.status(201).json({
     taskId: task.id,
-    status: "pending",
+    status: task.status,
+    reused: !created,
   });
 
   // 2. 异步执行 Agent Pipeline（不阻塞 HTTP 响应）
+  if (!created) return;
+
   runAgentPipeline(task.id, body, requestMetadata).catch((err) => {
     console.error(`[createTask] Pipeline error for task ${task.id}:`, err);
   });

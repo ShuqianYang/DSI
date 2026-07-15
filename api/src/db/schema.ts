@@ -8,6 +8,7 @@ import {
   boolean,
   doublePrecision,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // ============================================
@@ -18,6 +19,7 @@ export const tasks = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id"),
+    clientRequestId: text("client_request_id"),
     query: text("query").notNull(),
     status: text("status", { enum: ["pending", "running", "completed", "failed"] })
       .notNull()
@@ -36,6 +38,7 @@ export const tasks = pgTable(
   },
   (table) => [
     index("tasks_user_id_idx").on(table.userId),
+    uniqueIndex("tasks_client_request_id_unique").on(table.clientRequestId),
     index("tasks_status_idx").on(table.status),
     index("tasks_created_at_idx").on(table.createdAt),
   ]

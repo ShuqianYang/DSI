@@ -1,148 +1,261 @@
-import { z } from "zod";
+import path from "node:path";
+import fs from "node:fs/promises";
+import { createConnection } from "mysql2/promise";
+import type { Connection, RowDataPacket } from "mysql2/promise";
 import type { ToolDefinition, ToolExecutionContext } from "../../_shared/types.js";
+import { createTextGenerationClient } from "../../../model/clients/textGenerationClient.js";
+import { buildDailyReportSql } from "./dailyReportSql.js";
+import { DailyReportInputSchema } from "./dailyReportInput.js";
+import { getDailyReportFieldLabels, getDailyReportSystemPrompt } from "./dailyReportResources.js";
+import {
+  type DailyReportDataRow,
+  type DailyReportInput,
+  type DailyReportOutput,
+  type DailyReportType,
+  type ChartRenderDataOutput,
+} from "./dailyReportTypes.js";
+import { resolveDailyReportOutputDir } from "./reportOutputDir.js";
 
-const DAILY_REPORT_API_URL = process.env.DAILY_REPORT_API_URL || "http://192.168.0.27:18820/daily-report";
 const DAILY_REPORT_TIMEOUT_MS = 120_000;
 const MAX_RESULT_SIZE_CHARS = 100_000;
+const REPORT_OUTPUT_DIR = resolveDailyReportOutputDir();
 
-const ReportTypeSchema = z.enum(["all", "总体", "设备监控", "预警事态"]);
-
-type ReportType = z.infer<typeof ReportTypeSchema>;
-
-const DailyReportInputSchema = z.strictObject({
-  query: z
-    .string()
-    .min(1)
-    .describe(
-      "Date description for the report, such as '今天', '昨天', '前天', '2025-11-10', or '2025年11月10日'. If omitted, today is used."
-    ),
-  report_type: ReportTypeSchema.default("all").describe(
-    "Report category: 'all' (default), '总体', '设备监控', or '预警事态'."
-  ),
-});
-
-type DailyReportInput = z.infer<typeof DailyReportInputSchema>;
-
-interface DailyReportOutput {
-  date: string;
-  report_type: ReportType;
-  report_content: string;
-  executionTime: number;
-  source: string;
-}
-
-interface SseEvent {
-  type: string;
-  content?: string;
-}
-
-/** 从用户输入中提取日期，返回 YYYY-MM-DD 格式 */
-function extractDate(input: string): string {
-  const today = new Date();
-  const normalized = input.toLowerCase().replace(/\s+/g, "");
-
-  // 相对日期
-  if (normalized.includes("今天") || normalized.includes("今日")) {
-    return today.toISOString().slice(0, 10);
-  }
-  if (normalized.includes("昨天") || normalized.includes("昨日")) {
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    return yesterday.toISOString().slice(0, 10);
-  }
-  if (normalized.includes("前天")) {
-    const dayBefore = new Date(today);
-    dayBefore.setDate(dayBefore.getDate() - 2);
-    return dayBefore.toISOString().slice(0, 10);
-  }
-
-  // 绝对日期：2025-11-10 / 2025/11/10
-  const isoMatch = input.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (isoMatch) {
-    const [, y, m, d] = isoMatch;
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  }
-
-  // 绝对日期：2025年11月10日
-  const cnMatch = input.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
-  if (cnMatch) {
-    const [, y, m, d] = cnMatch;
-    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  }
-
-  // 兜底：今天
-  return today.toISOString().slice(0, 10);
-}
-
-async function callDailyReportApi(query: string, reportType: ReportType): Promise<string> {
-  const controller = new AbortController();
-  let streamTimeout: ReturnType<typeof setTimeout> | null = null;
-  let hasReceivedChunk = false;
-
-  const startStreamTimeout = () => {
-    if (hasReceivedChunk) return;
-    hasReceivedChunk = true;
-    streamTimeout = setTimeout(() => controller.abort(), DAILY_REPORT_TIMEOUT_MS);
+function getMysqlDatabaseConfig(): {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+} {
+  return {
+    host: process.env.BORDER_DEFENSE_DB_HOST || "127.0.0.1",
+    port: Number(process.env.BORDER_DEFENSE_DB_PORT || "3306"),
+    user: process.env.BORDER_DEFENSE_DB_USER || "",
+    password: process.env.BORDER_DEFENSE_DB_PASSWORD || "",
+    database: process.env.BORDER_DEFENSE_DB_NAME || "xjzhdd_bj",
   };
+}
+
+let createConnectionOverride: ((timeoutMs: number) => Promise<Connection>) | undefined;
+
+export function setCreateConnectionOverride(
+  override: ((timeoutMs: number) => Promise<Connection>) | undefined
+): void {
+  createConnectionOverride = override;
+}
+
+async function createMysqlConnection(timeoutMs: number): Promise<Connection> {
+  if (createConnectionOverride) {
+    return createConnectionOverride(timeoutMs);
+  }
+
+  const config = getMysqlDatabaseConfig();
+  if (!config.user || !config.database) {
+    throw new Error("MySQL border-defense database is missing required configuration (user/database).");
+  }
+
+  return createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
+    connectTimeout: timeoutMs,
+    multipleStatements: false,
+    rowsAsArray: false,
+  });
+}
+
+function getMidnightStrings(targetDate: string): { startTime: string; endTime: string } {
+  return {
+    startTime: `${targetDate} 00:00:00`,
+    endTime: `${targetDate} 23:59:59`,
+  };
+}
+
+function formatTop5BusyBuckle(value: unknown): string {
+  if (!value || value === "[]") return "无数据";
+  try {
+    const data = typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+    if (!Array.isArray(data) || data.length === 0) return "无数据";
+    const rows = data as Array<{ buckle_id?: string; buckle_name?: string; total_access_count?: number }>;
+    const lines = ["| 卡口ID | 卡口名称 | 往来对象数量 |", "| :----- | :------- | :----------- |"];
+    for (const item of rows) {
+      lines.push(
+        `| ${item.buckle_id ?? ""} | ${item.buckle_name ?? ""} | ${item.total_access_count ?? ""} |`
+      );
+    }
+    return lines.join("\n");
+  } catch {
+    return String(value);
+  }
+}
+
+function formatDataResult(reportType: DailyReportType, row: DailyReportDataRow): string {
+  const labels = getDailyReportFieldLabels()[reportType];
+  const parts: string[] = [];
+
+  for (const [key, value] of Object.entries(row)) {
+    if (value === undefined || value === null) continue;
+    const label = labels[key] ?? key;
+    if (key === "top5_busy_buckle") {
+      parts.push(`${label}：\n${formatTop5BusyBuckle(value)}`);
+    } else {
+      parts.push(`${label}： ${value}`);
+    }
+  }
+
+  return parts.join("\n");
+}
+
+async function runMysqlQuery(sql: string): Promise<DailyReportDataRow[]> {
+  const connection = await createMysqlConnection(DAILY_REPORT_TIMEOUT_MS);
+  try {
+    const [rows] = await connection.execute<RowDataPacket[]>(sql);
+    return (rows as DailyReportDataRow[]) || [];
+  } finally {
+    await connection.end().catch(() => undefined);
+  }
+}
+
+function buildDailyReportCharts(
+  reportType: DailyReportType,
+  row: DailyReportDataRow
+): ChartRenderDataOutput[] {
+  const charts: ChartRenderDataOutput[] = [];
+
+  if (reportType === "all" || reportType === "event") {
+    const levelData = [
+      { level: "一级预警", count: Number(row.level1_count ?? 0) },
+      { level: "二级预警", count: Number(row.level2_count ?? 0) },
+      { level: "三级预警", count: Number(row.level3_count ?? 0) },
+    ].filter((d) => d.count > 0);
+
+    if (levelData.length > 0) {
+      charts.push({
+        chart_type: "pie",
+        title: "预警等级占比",
+        chart_id: `chart_pie_levels_${Date.now()}`,
+        data: levelData,
+        config: {
+          label_key: "level",
+          value_key: "count",
+        },
+      });
+    }
+  }
+
+  if (reportType === "all" || reportType === "buckle") {
+    const top5 = formatTop5BusyBuckle(row.top5_busy_buckle);
+    if (top5 !== "无数据") {
+      try {
+        const parsed = JSON.parse(String(row.top5_busy_buckle ?? "[]")) as Array<{
+          buckle_name?: string;
+          total_access_count?: number;
+        }>;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          charts.push({
+            chart_type: "bar",
+            title: "卡口繁忙度Top5",
+            chart_id: `chart_bar_buckle_${Date.now()}`,
+            data: parsed.map((item) => ({
+              buckle_name: item.buckle_name ?? "未知",
+              count: item.total_access_count ?? 0,
+            })),
+            config: {
+              x_axis: "buckle_name",
+              y_axis: "count",
+            },
+          });
+        }
+      } catch {
+        // ignore invalid JSON
+      }
+    }
+  }
+
+  return charts;
+}
+
+async function generateReportWithModel(
+  reportType: DailyReportType,
+  date: string,
+  dataResult: string,
+  charts: ChartRenderDataOutput[],
+  context: ToolExecutionContext
+): Promise<{ content: string; generation: DailyReportOutput["generation"] }> {
+  const systemPrompt = getDailyReportSystemPrompt(reportType);
+  const chartPlaceholders = charts
+    .map((chart) => {
+      if (chart.chart_type === "pie") {
+        return `![${chart.title}](chart://${chart.chart_id})`;
+      }
+      if (chart.chart_type === "bar") {
+        return `![${chart.title}](chart://${chart.chart_id})`;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const userPrompt = `${date}的数据情况如下：\n\n${dataResult}\n\n${chartPlaceholders}\n\n请根据上述数据，生成日报。严格按照输出格式示例填写，只替换 XXX/XX/图片部分。`;
+
+  context.onProgress?.({
+    stage: "progress",
+    message: "正在调用模型生成日报内容",
+  });
+
+  const fallback = `# ${reportType === "all" ? "总体日报" : reportType === "buckle" ? "卡口往来日报" : "预警事态日报"}
+**统计周期： ${date} 00:00 - ${date} 23:59**
+
+${dataResult}
+
+${chartPlaceholders}
+`;
 
   try {
-    const resp = await fetch(DAILY_REPORT_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
+    const client = createTextGenerationClient("DAILY_REPORT");
+    const content = await client.generateText([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ], {
+      temperature: 0.1,
+      signal: context.signal,
+      onRetry: ({ nextAttempt, maxAttempts, error }) => {
+        context.onProgress?.({
+          stage: "progress",
+          message: `日报模型调用失败（${error.message}），正在进行第 ${nextAttempt}/${maxAttempts} 次尝试`,
+        });
       },
-      body: JSON.stringify({ query, report_type: reportType }),
-      signal: controller.signal,
     });
+    return { content, generation: { status: "generated", modelUsed: true } };
+  } catch (err) {
+    console.error("[DailyReport] LLM generation failed:", (err as Error).message);
+    context.onProgress?.({
+      stage: "progress",
+      message: "日报模型生成失败，已切换为原始数据降级报告",
+    });
+    return {
+      content: fallback,
+      generation: {
+        status: "degraded",
+        modelUsed: false,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
 
-    if (!resp.ok) {
-      throw new Error(`Daily report API error: ${resp.status} ${resp.statusText}`);
-    }
-
-    const reader = resp.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    const contentParts: string[] = [];
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        startStreamTimeout();
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (!raw) continue;
-
-          let data: SseEvent;
-          try {
-            data = JSON.parse(raw);
-          } catch {
-            continue;
-          }
-
-          if ((data.type === "thinking" || data.type === "typing") && data.content) {
-            contentParts.push(data.content);
-          }
-        }
-      }
-    } catch (err) {
-      if ((err as Error).name === "AbortError" && contentParts.length > 0) {
-        return contentParts.join("");
-      }
-      throw err;
-    }
-
-    return contentParts.join("");
-  } finally {
-    if (streamTimeout) clearTimeout(streamTimeout);
+async function saveDailyReportMarkdown(report: DailyReportOutput, taskId: string): Promise<string | undefined> {
+  try {
+    await fs.mkdir(REPORT_OUTPUT_DIR, { recursive: true });
+    const filename = `${report.date}_${report.report_type}_${taskId}.md`;
+    const filePath = path.join(REPORT_OUTPUT_DIR, filename);
+    await fs.writeFile(filePath, report.report_content, "utf-8");
+    return filename;
+  } catch (err) {
+    console.error("[DailyReport] failed to save markdown:", (err as Error).message);
+    return undefined;
   }
 }
 
@@ -152,42 +265,78 @@ export function buildDailyReportTool(): ToolDefinition {
     displayName: "日报生成",
     aliases: ["daily-report", "daily_report"],
     description:
-      "Generate a border-defense daily report for a specific date. Input: {\"query\":\"今天\",\"report_type\":\"all\"}. Supports report types: all, 总体, 设备监控, 预警事态. The tool calls the daily-report API and returns the generated report content.",
+      "Generate one border-defense daily report from a selected date and report type. Input: {\"date\":\"2026-07-11\",\"report_type\":\"all\"}. The tool loads SQL, field labels, and Markdown templates from the border-defense-daily-report skill.",
     kind: "domain",
     inputSchema: DailyReportInputSchema,
-    isReadOnly: () => true,
-    isDestructive: () => false,
-    isConcurrencySafe: () => true,
-    riskLevel: "low",
+    isReadOnly: () => false,
+    isDestructive: () => true,
+    isConcurrencySafe: () => false,
+    riskLevel: "high",
     maxResultSizeChars: MAX_RESULT_SIZE_CHARS,
     async execute(input, context) {
       const start = Date.now();
       const parsed = input as DailyReportInput;
-      const date = extractDate(parsed.query);
+      const date = parsed.date;
       const reportType = parsed.report_type;
+      const { startTime, endTime } = getMidnightStrings(date);
 
       context.onProgress?.({
         stage: "start",
-        message: `Generating daily report for ${date} (${reportType})`,
+        message: `正在生成 ${date} 的${reportType}日报`,
       });
 
       try {
-        const reportContent = await callDailyReportApi(date, reportType);
+        const sql = buildDailyReportSql(reportType, startTime, endTime);
+        const rows = await runMysqlQuery(sql);
+
+        if (rows.length === 0) {
+          return {
+            date,
+            report_type: reportType,
+            report_content: `当前时间范围内暂无相关数据（${date}）。`,
+            charts: [],
+            executionTime: Date.now() - start,
+            source: "daily-report-local",
+            generation: { status: "not_required", modelUsed: false },
+          };
+        }
+
+        const row = rows[0] as DailyReportDataRow;
+        const dataResult = formatDataResult(reportType, row);
+        const charts = buildDailyReportCharts(reportType, row);
+        const generated = await generateReportWithModel(
+          reportType,
+          date,
+          dataResult,
+          charts,
+          context
+        );
 
         context.onProgress?.({
           stage: "complete",
-          message: `Daily report generated for ${date} (${reportType}), ${reportContent.length} chars`,
+          message: generated.generation.status === "degraded"
+            ? `${date} 的${reportType}日报已生成降级版本`
+            : `${date} 的${reportType}日报生成完成`,
         });
 
-        return {
+        const output: DailyReportOutput = {
           date,
           report_type: reportType,
-          report_content: reportContent,
+          report_content: generated.content,
+          charts,
           executionTime: Date.now() - start,
-          source: "daily-report-api",
+          source: "daily-report-local",
+          generation: generated.generation,
         };
+
+        const markdownFilename = await saveDailyReportMarkdown(output, context.taskId);
+        if (markdownFilename) {
+          (output as unknown as Record<string, unknown>).markdown_filename = markdownFilename;
+        }
+
+        return output;
       } catch (err) {
-        throw new Error(`日报生成服务调用失败: ${(err as Error).message}`);
+        throw new Error(`日报生成失败: ${(err as Error).message}`);
       }
     },
   };

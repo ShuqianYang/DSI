@@ -408,11 +408,12 @@ function scoreEntry(
     return toCandidate(entry, 0.92, "query_contains_name");
   }
 
-  if (!hasExplicitRegionName) {
-    const matchedAlias = normalizedAliases.find((alias) => queryText.includes(alias));
-    if (matchedAlias) {
-      return toCandidate(entry, 0.9, "query_contains_alias");
-    }
+  // Allow regionName like "柳州柳南区" to match alias "柳南区" inside it.
+  const searchOrQueryText = hasExplicitRegionName ? searchText : queryText;
+  const matchedAlias = normalizedAliases.find((alias) => searchOrQueryText.includes(alias));
+  if (matchedAlias) {
+    const confidence = hasExplicitRegionName ? 0.88 : 0.9;
+    return toCandidate(entry, confidence, "query_contains_alias");
   }
 
   if (searchText.length >= 2 && (normalizedName.includes(searchText) || normalizedAliases.some((alias) => alias.includes(searchText)))) {

@@ -383,7 +383,7 @@ docker exec ds_postgis psql -U postgres -d show_room -c "CREATE SCHEMA IF NOT EX
 docker cp "path/to/dump-show_room-*.sql" ds_postgis:/tmp/dump.sql
 
 # 4. 恢复 dump
-docker exec ds_postgis pg_restore -U postgres -d show_room --no-owner --no-privileges /tmp/dump.sql
+docker exec ds_postgis bash -c "pg_restore -U postgres -d show_room --no-owner --no-privileges /tmp/dump.sql" 
 
 # 5. 验证表数量和记录数
 docker exec ds_postgis psql -U postgres -d show_room -c "SELECT tablename FROM pg_tables WHERE schemaname = 'region_geom' ORDER BY tablename;"

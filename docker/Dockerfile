@@ -36,6 +36,7 @@ COPY public/ public/
 COPY src/ src/
 COPY packages/ packages/
 COPY api/ api/
+COPY skills/ skills/
 
 RUN pnpm --filter @datasourceintelligence/shared build
 
@@ -91,6 +92,7 @@ COPY --from=api-build /app/api/dist ./api/dist
 COPY --from=api-build /app/api/public ./api/public
 COPY --from=api-build /app/api/drizzle.config.ts ./api/drizzle.config.ts
 COPY --from=api-build /app/api/src/db ./api/src/db
+COPY --from=api-build /app/skills ./skills
 COPY docker/entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh

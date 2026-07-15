@@ -40,7 +40,7 @@ async function fetchJson<T>(path: string, options?: RequestInit, retries = 1): P
   const url = `${apiUrl(path)}${separator}_t=${Date.now()}`;
   try {
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json; charset=utf-8" },
       cache: "no-store",
       ...options,
     });
