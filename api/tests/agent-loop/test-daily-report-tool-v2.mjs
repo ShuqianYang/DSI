@@ -28,6 +28,21 @@ function createContext() {
   assert.equal(tool.isReadOnly?.({ date: "2026-06-16", report_type: "all" }), false);
   assert.equal(tool.isDestructive?.({ date: "2026-06-16", report_type: "all" }), true);
   assert.equal(tool.isConcurrencySafe?.({ date: "2026-06-16", report_type: "all" }), false);
+
+  const allowed = await tool.checkPermissions?.(
+    { date: "2026-06-16", report_type: "all" },
+    {
+      ...createContext(),
+      toolUseContext: { skillAllowedToolNames: new Set(["DailyReport"]) },
+    },
+  );
+  assert.equal(allowed?.behavior, "allow", "the loaded daily-report skill should authorize its artifact write");
+
+  const outsideSkill = await tool.checkPermissions?.(
+    { date: "2026-06-16", report_type: "all" },
+    createContext(),
+  );
+  assert.equal(outsideSkill?.behavior, "ask", "DailyReport should still require permission outside its skill");
 }
 
 // Input schema validation

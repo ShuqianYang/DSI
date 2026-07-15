@@ -27,60 +27,61 @@ await fs.rm(outputDir, { recursive: true, force: true });
 await fs.mkdir(outputDir, { recursive: true });
 
 let executedSql = "";
+let mockRows = [
+  {
+    total_alarms: 12,
+    valid_intrusion: 5,
+    handle_rate: "83.33%",
+    avg_handle_seconds: 320,
+    sla_rate: "91.67%",
+    device_total: 8,
+    online_count: 7,
+    offline_count: 1,
+    online_rate: "87.50%",
+    top1_name: "一号点位",
+    top1_count: 5,
+    top2_name: "二号点位",
+    top2_count: 4,
+    top3_name: "三号点位",
+    top3_count: 3,
+    most_freq_device: "一号摄像头",
+    most_freq_count: 5,
+    level1_count: 5,
+    level1_ratio: "41.67%",
+    level1_avg_sec: 240,
+    level2_count: 4,
+    level2_ratio: "33.33%",
+    level2_avg_sec: 360,
+    level3_count: 3,
+    level3_ratio: "25.00%",
+    peak_start_hour: 8,
+    peak_end_hour: 9,
+    peak_count: 6,
+    total_access: 30,
+    person_times: 18,
+    vehicle_times: 12,
+    normal_entry: 20,
+    normal_leave: 8,
+    reject_entry: 2,
+    black_count: 1,
+    black_objects: 1,
+    stranger_count: 3,
+    stranger_objects: 3,
+    white_count: 26,
+    white_objects: 20,
+    stay_cnt: 2,
+    curr_stay_cnt: 1,
+    top5_busy_buckle: JSON.stringify([
+      { buckle_id: "buckle-1", buckle_name: "一号卡口", total_access_count: 20 },
+      { buckle_id: "buckle-2", buckle_name: "二号卡口", total_access_count: 10 },
+    ]),
+  },
+];
 
 setCreateConnectionOverride(async () => ({
   async execute(sql) {
     executedSql = String(sql);
-    return [[
-      {
-        total_alarms: 12,
-        valid_intrusion: 5,
-        handle_rate: "83.33%",
-        avg_handle_seconds: 320,
-        sla_rate: "91.67%",
-        device_total: 8,
-        online_count: 7,
-        offline_count: 1,
-        online_rate: "87.50%",
-        top1_name: "一号点位",
-        top1_count: 5,
-        top2_name: "二号点位",
-        top2_count: 4,
-        top3_name: "三号点位",
-        top3_count: 3,
-        most_freq_device: "一号摄像头",
-        most_freq_count: 5,
-        level1_count: 5,
-        level1_ratio: "41.67%",
-        level1_avg_sec: 240,
-        level2_count: 4,
-        level2_ratio: "33.33%",
-        level2_avg_sec: 360,
-        level3_count: 3,
-        level3_ratio: "25.00%",
-        peak_start_hour: 8,
-        peak_end_hour: 9,
-        peak_count: 6,
-        total_access: 30,
-        person_times: 18,
-        vehicle_times: 12,
-        normal_entry: 20,
-        normal_leave: 8,
-        reject_entry: 2,
-        black_count: 1,
-        black_objects: 1,
-        stranger_count: 3,
-        stranger_objects: 3,
-        white_count: 26,
-        white_objects: 20,
-        stay_cnt: 2,
-        curr_stay_cnt: 1,
-        top5_busy_buckle: JSON.stringify([
-          { buckle_id: "buckle-1", buckle_name: "一号卡口", total_access_count: 20 },
-          { buckle_id: "buckle-2", buckle_name: "二号卡口", total_access_count: 10 },
-        ]),
-      },
-    ]];
+    return [mockRows];
   },
   async end() {
     return undefined;
@@ -105,7 +106,7 @@ try {
   assert.equal(report.report_type, "all");
   assert.ok(report.report_content.includes("总体日报"), "fallback markdown should include report title");
   assert.ok(report.report_content.includes("chart://"), "markdown should include chart placeholders");
-  assert.ok(report.charts.length >= 2, "all report should include level and buckle charts");
+  assert.ok(report.charts.length >= 3, "all report should include device, level and buckle charts");
   assert.ok(report.markdown_filename?.endsWith(".md"), "markdown artifact should be saved");
 
   const markdownPath = path.join(outputDir, report.markdown_filename);
@@ -125,6 +126,29 @@ try {
   const files = await fs.readdir(outputDir);
   assert.ok(files.includes(filename), "docx should be written");
   assert.ok(files.some((file) => file.endsWith(".png")), "chart PNG files should be written");
+
+  mockRows = [{
+    total_alarms: 0,
+    device_total: 5,
+    online_count: 5,
+    offline_count: 0,
+    level1_count: 0,
+    level2_count: 0,
+    level3_count: 0,
+    top5_busy_buckle: "[]",
+  }];
+  const zeroEventReport = await tool.execute(
+    { date: "2026-07-15", report_type: "all" },
+    {
+      taskId: "daily-report-zero-event-task",
+      query: "生成 2026-07-15 总体日报",
+      observations: [],
+      onProgress: () => undefined,
+    },
+  );
+  assert.equal(zeroEventReport.charts.length, 1, "device chart should remain available with zero events");
+  assert.equal(zeroEventReport.charts[0].title, "设备在线状态");
+  assert.match(zeroEventReport.report_content, /chart:\/\/chart_pie_devices_/);
 } finally {
   setCreateConnectionOverride(undefined);
   if (originalOutputDir === undefined) {

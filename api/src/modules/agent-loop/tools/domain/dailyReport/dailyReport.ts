@@ -125,6 +125,28 @@ function buildDailyReportCharts(
   const charts: ChartRenderDataOutput[] = [];
 
   if (reportType === "all" || reportType === "event") {
+    const onlineCount = Number(row.online_count ?? 0);
+    const offlineCount = Number(row.offline_count ?? 0);
+    const deviceTotal = Number(row.device_total ?? onlineCount + offlineCount);
+
+    if (deviceTotal > 0 || onlineCount > 0 || offlineCount > 0) {
+      charts.push({
+        chart_type: "pie",
+        title: "设备在线状态",
+        chart_id: `chart_pie_devices_${Date.now()}`,
+        data: [
+          { status: "在线", count: onlineCount },
+          { status: "离线", count: offlineCount },
+        ],
+        config: {
+          label_key: "status",
+          value_key: "count",
+        },
+      });
+    }
+  }
+
+  if (reportType === "all" || reportType === "event") {
     const levelData = [
       { level: "一级预警", count: Number(row.level1_count ?? 0) },
       { level: "二级预警", count: Number(row.level2_count ?? 0) },
@@ -177,6 +199,19 @@ function buildDailyReportCharts(
   return charts;
 }
 
+function appendMissingChartPlaceholders(
+  content: string,
+  charts: ChartRenderDataOutput[]
+): string {
+  const missing = charts.filter((chart) => !content.includes(`chart://${chart.chart_id}`));
+  if (missing.length === 0) return content;
+
+  const placeholders = missing
+    .map((chart) => `![${chart.title}](chart://${chart.chart_id})`)
+    .join("\n\n");
+  return `${content.trimEnd()}\n\n## 数据图表\n\n${placeholders}\n`;
+}
+
 async function generateReportWithModel(
   reportType: DailyReportType,
   date: string,
@@ -215,20 +250,37 @@ ${chartPlaceholders}
 
   try {
     const client = createTextGenerationClient("DAILY_REPORT");
-    const content = await client.generateText([
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ], {
-      temperature: 0.1,
-      signal: context.signal,
-      onRetry: ({ nextAttempt, maxAttempts, error }) => {
-        context.onProgress?.({
-          stage: "progress",
-          message: `日报模型调用失败（${error.message}），正在进行第 ${nextAttempt}/${maxAttempts} 次尝试`,
-        });
-      },
-    });
-    return { content, generation: { status: "generated", modelUsed: true } };
+    const modelStartedAt = Date.now();
+    const heartbeat = setInterval(() => {
+      const elapsedSeconds = Math.max(1, Math.round((Date.now() - modelStartedAt) / 1000));
+      context.onProgress?.({
+        stage: "progress",
+        message: `日报正文生成中，已等待 ${elapsedSeconds} 秒`,
+      });
+    }, 10_000);
+    heartbeat.unref?.();
+
+    try {
+      const content = await client.generateText([
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ], {
+        temperature: 0.1,
+        signal: context.signal,
+        onRetry: ({ nextAttempt, maxAttempts, error }) => {
+          context.onProgress?.({
+            stage: "progress",
+            message: `日报模型调用失败（${error.message}），正在进行第 ${nextAttempt}/${maxAttempts} 次尝试`,
+          });
+        },
+      });
+      return {
+        content: appendMissingChartPlaceholders(content, charts),
+        generation: { status: "generated", modelUsed: true },
+      };
+    } finally {
+      clearInterval(heartbeat);
+    }
   } catch (err) {
     console.error("[DailyReport] LLM generation failed:", (err as Error).message);
     context.onProgress?.({
@@ -272,6 +324,16 @@ export function buildDailyReportTool(): ToolDefinition {
     isDestructive: () => true,
     isConcurrencySafe: () => false,
     riskLevel: "high",
+    checkPermissions(_input, context) {
+      const allowedByActiveSkill = context.toolUseContext?.skillAllowedToolNames?.has("DailyReport") === true;
+      if (allowedByActiveSkill) {
+        return { behavior: "allow" };
+      }
+      return {
+        behavior: "ask",
+        message: "DailyReport can create report artifacts. Load the border-defense-daily-report skill before running it.",
+      };
+    },
     maxResultSizeChars: MAX_RESULT_SIZE_CHARS,
     async execute(input, context) {
       const start = Date.now();
@@ -288,6 +350,11 @@ export function buildDailyReportTool(): ToolDefinition {
       try {
         const sql = buildDailyReportSql(reportType, startTime, endTime);
         const rows = await runMysqlQuery(sql);
+
+        context.onProgress?.({
+          stage: "progress",
+          message: "日报数据查询完成，正在整理指标和图表",
+        });
 
         if (rows.length === 0) {
           return {
