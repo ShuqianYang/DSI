@@ -221,6 +221,9 @@ export async function runAgentPipelineWithDependencies(
       }
     }
 
+    const shouldDisableMemory =
+      body.forcedSkillId === "border-defense-daily-report";
+
     const loopResult = await dependencies.runAgentLoop({
       taskId,
       query: body.query,
@@ -234,7 +237,7 @@ export async function runAgentPipelineWithDependencies(
         transcriptStore,
         dependencies.logger
       ),
-      memoryManager: body.forcedSkillId
+      memoryManager: shouldDisableMemory
         ? noopMemoryManager
         : dependencies.createMemoryManager({
             currentTaskId: taskId,

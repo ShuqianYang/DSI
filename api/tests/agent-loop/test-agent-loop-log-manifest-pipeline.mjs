@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { runAgentPipelineWithDependencies } from "../../src/modules/tasks/pipeline.ts";
+import { noopMemoryManager } from "../../src/modules/agent-loop/memoryManager.ts";
 
 const taskId = "00000000-0000-4000-8000-000000000001";
 const body = {
@@ -149,6 +150,54 @@ assert.deepEqual(
 assert.deepEqual(
   failedDeps.taskServiceCalls.filter(([kind]) => kind === "status").map(([, , status]) => status),
   ["running", "failed"],
+);
+
+const memoryManagerSentinel = { source: "pipeline-memory" };
+const capturedMemoryManagers = [];
+const forcedSkillDeps = createDependencies({
+  createMemoryManager: () => memoryManagerSentinel,
+  runAgentLoop: async (options) => {
+    capturedMemoryManagers.push(options.memoryManager);
+    return {
+      finalAnswer: "done",
+      turns: 1,
+      observations: [],
+      stoppedBy: "final_answer",
+    };
+  },
+});
+
+await runAgentPipelineWithDependencies(
+  `${taskId.slice(0, -1)}2`,
+  {
+    ...body,
+    query: "border qa memory check",
+    forcedSkillId: "border-defense-qa",
+  },
+  metadata,
+  forcedSkillDeps,
+);
+
+await runAgentPipelineWithDependencies(
+  `${taskId.slice(0, -1)}3`,
+  {
+    ...body,
+    query: "daily report memory check",
+    forcedSkillId: "border-defense-daily-report",
+  },
+  metadata,
+  forcedSkillDeps,
+);
+
+assert.equal(
+  capturedMemoryManagers[0],
+  memoryManagerSentinel,
+  "forced border QA must still use pipeline memory",
+);
+assert.equal(
+  capturedMemoryManagers[1],
+  noopMemoryManager,
+  "forced daily report must keep memory disabled",
 );
 
 console.log("test-agent-loop-log-manifest-pipeline passed");
