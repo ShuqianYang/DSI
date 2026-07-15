@@ -1,27 +1,21 @@
 /**
  * Episode Extractor (P1-4) - LLM-based structured episode extraction.
  *
- * Uses the main LLM (DeepSeek) instruction-following capability to extract
- * structured episode information from completed agent conversations. Falls back
- * to rule-based extraction when the LLM is unavailable or returns invalid output.
- *
- * Model responsibilities are decoupled: episode extraction uses DeepSeek chat
- * (DEEPSEEK_*), while vectorization uses the Ollama embedding model (GTE_*).
- *
- * Flow:
- * 1. Format conversation as text
- * 2. POST to DeepSeek chat/completions with JSON Schema + few-shot examples, temperature=0.1
- * 3. Parse returned JSON, validate schema
- * 4. If JSON parse fails, retry once with "请只输出JSON" instruction
- * 5. If still fails, rule-based fallback
+ * Now reuses the unified model adapter layer (MODEL_* / AGENT_MODEL_*).
+ * Falls back to rule-based extraction when the model adapter is unavailable
+ * or returns invalid output.
  */
 
 import type { RememberInput } from "./memoryManager.js";
 import type { AgentMessage, ToolObservation } from "./tools/_shared/types.js";
 import { safeJsonStringify, truncateText } from "./tools/_shared/serialization.js";
+import { loadModelConfig } from "./model/config.js";
+import { createModelGateway } from "./model/modelGateway.js";
+import type { ModelGatewayLike } from "./model/modelGateway.js";
+import type { ModelConfig } from "./model/types.js";
 
 // ---------------------------------------------------------------------------
-// Types (already exported from stub — re-exported here for completeness)
+// Types
 // ---------------------------------------------------------------------------
 
 export interface ExtractedEpisode {
@@ -46,11 +40,10 @@ export interface EpisodeExtractor {
 }
 
 export interface CreateEpisodeExtractorInput {
-  /** Full chat completions URL. Defaults to DEEPSEEK_API_URL. */
-  apiUrl?: string;
-  apiKey?: string;
-  model?: string;
-  timeoutMs?: number;
+  /** Optional explicit model config. When omitted, AGENT_MODEL_* / MODEL_* env vars are used. */
+  config?: ModelConfig;
+  /** Optional gateway instance for dependency injection / testing. */
+  gateway?: ModelGatewayLike;
   logger?: Pick<Console, "warn">;
 }
 
@@ -58,8 +51,6 @@ export interface CreateEpisodeExtractorInput {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_CHAT_URL = "https://api.deepseek.com/chat/completions";
-const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_FINAL_RESULT_CHARS = 300;
 const MAX_OUTPUT_SUMMARY_CHARS = 200;
@@ -139,19 +130,20 @@ const RETRY_SUFFIX = "\n\n请只输出JSON，不要输出任何其他内容。";
 export function createEpisodeExtractor(
   input?: CreateEpisodeExtractorInput
 ): EpisodeExtractor | undefined {
-  const apiKey = input?.apiKey ?? process.env.DEEPSEEK_API_KEY ?? "";
-  if (!apiKey || apiKey.trim() === "") return undefined;
-
-  const chatUrl =
-    input?.apiUrl ?? process.env.DEEPSEEK_API_URL ?? DEFAULT_CHAT_URL;
-  const model = input?.model ?? process.env.DEEPSEEK_MODEL ?? DEFAULT_MODEL;
-  const timeoutMs = parsePositiveInt(
-    input?.timeoutMs ?? process.env.DEEPSEEK_API_TIMEOUT_MS,
-    DEFAULT_TIMEOUT_MS
-  );
   const logger = input?.logger ?? console;
 
-  return new LlmEpisodeExtractor(chatUrl, apiKey, model, timeoutMs, logger);
+  let gateway: ModelGatewayLike;
+  try {
+    gateway = input?.gateway ?? createModelGateway(input?.config ?? loadModelConfig("AGENT"));
+  } catch (error) {
+    logger.warn(
+      "[EpisodeExtractor] Model adapter is not configured; episode extraction disabled.",
+      error instanceof Error ? error.message : String(error)
+    );
+    return undefined;
+  }
+
+  return new LlmEpisodeExtractor(gateway, logger);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,10 +152,7 @@ export function createEpisodeExtractor(
 
 class LlmEpisodeExtractor implements EpisodeExtractor {
   constructor(
-    private readonly url: string,
-    private readonly apiKey: string,
-    private readonly model: string,
-    private readonly timeoutMs: number,
+    private readonly gateway: ModelGatewayLike,
     private readonly logger: Pick<Console, "warn">
   ) {}
 
@@ -193,8 +182,17 @@ class LlmEpisodeExtractor implements EpisodeExtractor {
         ? SYSTEM_PROMPT + RETRY_SUFFIX
         : SYSTEM_PROMPT;
 
-      const response = await this.callChatApi(systemContent, conversationText);
-      return parseEpisodeJson(response);
+      const response = await this.gateway.generate({
+        messages: [
+          { role: "system", content: systemContent },
+          { role: "user", content: conversationText },
+        ],
+        purpose: "text-generation",
+        temperature: 0.1,
+        maxTokens: 2048,
+      });
+
+      return parseEpisodeJson(response.content);
     } catch (error) {
       this.logger.warn(
         "[EpisodeExtractor] LLM call failed:",
@@ -202,58 +200,6 @@ class LlmEpisodeExtractor implements EpisodeExtractor {
       );
       return undefined;
     }
-  }
-
-  private async callChatApi(
-    systemContent: string,
-    userContent: string
-  ): Promise<string> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
-    let response: Response;
-    try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (this.apiKey) {
-        headers.Authorization = `Bearer ${this.apiKey}`;
-      }
-
-      response = await fetch(this.url, {
-        method: "POST",
-        signal: controller.signal,
-        headers,
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            { role: "system", content: systemContent },
-            { role: "user", content: userContent },
-          ],
-          temperature: 0.1,
-          max_tokens: 2048,
-        }),
-      });
-    } catch (error) {
-      if (controller.signal.aborted) {
-        throw new Error(`Episode extraction API timed out after ${this.timeoutMs}ms`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`Episode extraction API error: ${response.status} ${text}`);
-    }
-
-    const json = (await response.json()) as ChatCompletionResponse;
-    const content = json.choices?.[0]?.message?.content;
-    if (!content || typeof content !== "string") {
-      throw new Error("Episode extraction API returned empty content");
-    }
-    return content;
   }
 }
 
@@ -435,18 +381,5 @@ function validateEpisode(obj: Record<string, unknown>): ExtractedEpisode | undef
   };
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-interface ChatCompletionResponse {
-  choices?: Array<{
-    message?: { content?: string };
-  }>;
-}
-
-function parsePositiveInt(value: string | number | undefined, fallback: number): number {
-  if (value === undefined || value === null) return fallback;
-  const parsed = typeof value === "number" ? value : Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
+export type { ModelConfig } from "./model/types.js";
+export type { ModelGatewayLike } from "./model/modelGateway.js";
