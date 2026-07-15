@@ -5,10 +5,12 @@ const {
 } = await import("../../src/modules/agent-loop/tools/domain/dailyReport/dailyReport.ts");
 const {
   createDailyReportSmokeModelClient,
-  installMockDailyReportFetch,
   getDailyReportTool,
   validateDailyReportSmoke,
 } = await import("../../scripts/agent-loop/agent-loop-smoke-daily-report.ts");
+const { buildDailyReportSql } = await import(
+  "../../src/modules/agent-loop/tools/domain/dailyReport/dailyReportSql.ts"
+);
 
 function createContext() {
   return {
@@ -25,93 +27,50 @@ function createContext() {
   assert.ok(tool.aliases?.includes("daily-report"));
   assert.ok(tool.aliases?.includes("daily_report"));
   assert.equal(tool.kind, "domain");
-  assert.equal(tool.isReadOnly?.({ query: "昨天", report_type: "all" }), true);
+  assert.equal(tool.isReadOnly?.({ date: "2026-06-16", report_type: "all" }), false);
 }
 
 // Input schema validation
 {
   const tool = buildDailyReportTool();
 
-  const valid = tool.inputSchema.safeParse({ query: "今天", report_type: "设备监控" });
+  const valid = tool.inputSchema.safeParse({ date: "2026-06-16", report_type: "all" });
   assert.equal(valid.success, true, "DailyReport should accept valid input");
 
-  const defaulted = tool.inputSchema.safeParse({ query: "今天" });
+  const defaulted = tool.inputSchema.safeParse({ date: "2026-06-16" });
   assert.equal(defaulted.success, true);
   assert.equal(defaulted.data.report_type, "all");
 
-  const missingQuery = tool.inputSchema.safeParse({ report_type: "all" });
-  assert.equal(missingQuery.success, false, "DailyReport requires query");
+  const missingDate = tool.inputSchema.safeParse({ report_type: "all" });
+  assert.equal(missingDate.success, false, "DailyReport requires date");
 
-  const invalidType = tool.inputSchema.safeParse({ query: "今天", report_type: "invalid" });
+  const invalidType = tool.inputSchema.safeParse({ date: "2026-06-16", report_type: "invalid" });
   assert.equal(invalidType.success, false, "DailyReport should reject unknown report_type");
 }
 
-// Successful tool execution with mocked SSE API
+// SQL template variable substitution
 {
-  const tool = buildDailyReportTool();
-  const restoreFetch = installMockDailyReportFetch({
-    reportContent: "昨日边境总体平稳，设备运行正常。",
-  });
-
-  try {
-    const output = await tool.execute({ query: "昨天", report_type: "all" }, createContext());
-
-    assert.match(output.date, /^\d{4}-\d{2}-\d{2}$/);
-    assert.equal(output.report_type, "all");
-    assert.ok(output.report_content.includes("昨日边境总体平稳"));
-    assert.equal(output.source, "daily-report-api");
-    assert.ok(output.executionTime >= 0);
-  } finally {
-    restoreFetch();
-  }
+  const sql = buildDailyReportSql("all", "2025-11-10 00:00:00", "2025-11-10 23:59:59");
+  assert.match(sql, /'2025-11-10 00:00:00'/);
+  assert.match(sql, /'2025-11-10 23:59:59'/);
+  assert.doesNotMatch(sql, /\{start_time\}/);
+  assert.doesNotMatch(sql, /\{end_time\}/);
 }
 
-// Report type mapping preserved
+// Tool execution fails fast when DB is not configured
 {
   const tool = buildDailyReportTool();
-  const restoreFetch = installMockDailyReportFetch({ reportContent: "设备监控报告" });
-
-  try {
-    const output = await tool.execute(
-      { query: "2025-06-01", report_type: "设备监控" },
-      createContext()
-    );
-    assert.equal(output.report_type, "设备监控");
-    assert.equal(output.date, "2025-06-01");
-  } finally {
-    restoreFetch();
-  }
-}
-
-// Network failure handling
-{
-  const tool = buildDailyReportTool();
-  const restoreFetch = installMockDailyReportFetch({ networkError: true });
+  const originalUser = process.env.BORDER_DEFENSE_DB_USER;
+  process.env.BORDER_DEFENSE_DB_USER = "";
 
   try {
     await assert.rejects(
-      () => tool.execute({ query: "今天", report_type: "all" }, createContext()),
-      /日报生成服务调用失败/,
-      "DailyReport should surface API failures in Chinese"
+      () => tool.execute({ date: "2026-06-16", report_type: "all" }, createContext()),
+      /missing required configuration/i,
+      "DailyReport should fail fast when DB config is missing"
     );
   } finally {
-    restoreFetch();
-  }
-}
-
-// HTTP error handling
-{
-  const tool = buildDailyReportTool();
-  const restoreFetch = installMockDailyReportFetch({ httpStatus: 500 });
-
-  try {
-    await assert.rejects(
-      () => tool.execute({ query: "今天", report_type: "all" }, createContext()),
-      /Daily report API error: 500/,
-      "DailyReport should fail on HTTP errors"
-    );
-  } finally {
-    restoreFetch();
+    process.env.BORDER_DEFENSE_DB_USER = originalUser;
   }
 }
 
@@ -129,7 +88,7 @@ function createContext() {
   assert.equal(firstDecision.type, "tool_calls");
   assert.equal(firstDecision.toolCalls.length, 1);
   assert.equal(firstDecision.toolCalls[0].toolName, "DailyReport");
-  assert.equal(firstDecision.toolCalls[0].input.query, "昨天");
+  assert.equal(firstDecision.toolCalls[0].input.date, "2026-06-16");
   assert.equal(firstDecision.toolCalls[0].input.report_type, "all");
 }
 
@@ -149,6 +108,7 @@ function createContext() {
           date: "2026-06-16",
           report_type: "all",
           report_content: "昨日无异常。",
+          charts: [],
         },
       },
     ],
@@ -179,6 +139,7 @@ function createContext() {
             date: "2026-06-16",
             report_type: "all",
             report_content: "昨日无异常。",
+            charts: [],
           },
         },
       },
@@ -195,6 +156,7 @@ function createContext() {
   assert.equal(report.date, "2026-06-16");
   assert.equal(report.reportType, "all");
   assert.equal(report.contentLength, 6);
+  assert.equal(report.chartCount, 0);
   assert.deepEqual(report.toolOrder, ["DailyReport"]);
 }
 

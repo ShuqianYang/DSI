@@ -20,6 +20,7 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
           detail: event.message,
           category: 'agent',
           eventType: event.type,
+          input: { turn: event.turn, maxTurns: event.maxTurns },
         },
       ],
     };
@@ -27,23 +28,36 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
 
   if (event.type === 'assistant_message') {
     const toolCalls = event.message.toolCalls || [];
+    const agentStep: ThinkingStep = {
+      id: `agent-turn-${event.turn}`,
+      name: `Agent Turn ${event.turn}`,
+      status: 'completed',
+      detail: event.message.content?.trim() || (toolCalls.length > 0 ? `已决定调用 ${toolCalls.map((call) => call.displayName || call.toolName).join('、')}` : '本轮处理完成'),
+      category: 'agent',
+      eventType: event.type,
+      output: event.message.content || undefined,
+    };
     if (toolCalls.length > 0) {
       return {
-        steps: toolCalls.map((call) => ({
-          id: call.id,
-          name: call.displayName || call.toolName,
-          status: 'pending' as const,
-          detail: call.reason || '等待工具执行',
-          category: 'tool' as const,
-          eventType: event.type,
-          toolName: call.toolName,
-          toolCallId: call.id,
-        })),
+        steps: [
+          agentStep,
+          ...toolCalls.map((call) => ({
+            id: call.id,
+            name: call.displayName || call.toolName,
+            status: 'pending' as const,
+            detail: call.reason || '等待工具执行',
+            category: 'tool' as const,
+            eventType: event.type,
+            toolName: call.toolName,
+            toolCallId: call.id,
+            input: call.input,
+          })),
+        ],
       };
     }
 
     return {
-      steps: [],
+      steps: [agentStep],
       content: event.message.content,
     };
   }
@@ -79,6 +93,7 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
           eventType: event.type,
           toolName: event.toolName,
           toolCallId: event.toolCallId,
+          ...(event.data === undefined ? {} : { output: event.data }),
         },
       ],
     };
@@ -97,6 +112,7 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
           eventType: event.type,
           toolName: event.toolName,
           toolCallId: event.toolCallId,
+          output: event.observation.output ?? event.observation.error,
         },
       ],
     };

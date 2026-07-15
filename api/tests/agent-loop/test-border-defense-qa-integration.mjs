@@ -59,12 +59,12 @@ const skillObservation = await callTool(
 assert.equal(skillObservation.ok, true, "Skill invocation should succeed");
 assert.equal(skillObservation.toolName, "Skill");
 assert.ok(
-  skillObservation.output?.contentPreview?.includes("alarm_event"),
-  "Skill content preview should include alarm_event schema"
+  skillObservation.output?.contentPreview?.includes("Border Defense QA"),
+  "Skill content preview should include the QA skill title"
 );
 assert.deepEqual(
   skillObservation.output?.allowedTools?.sort(),
-  ["Read", "MysqlQuerySchema", "MysqlQuery"].sort(),
+  ["Read", "MysqlQuerySchema", "MysqlQuery", "ChartRenderData"].sort(),
   "Skill should restrict allowed tools"
 );
 

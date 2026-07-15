@@ -52,9 +52,9 @@ assert.ok(
   skill.allowedTools.includes("Read") && skill.allowedTools.includes("MysqlQuerySchema"),
   "allowed-tools should include Read and MysqlQuerySchema"
 );
-assert.ok(
-  skill.allowedTools.includes("MysqlQuery"),
-  "allowed-tools should include MysqlQuery"
+assert(
+  skill.allowedTools.includes("ChartRenderData"),
+  "allowed-tools should include ChartRenderData"
 );
 assert.ok(
   !skill.allowedTools.includes("Bash"),
@@ -74,8 +74,21 @@ assert(
   "Skill content should include self-introduction"
 );
 assert(
-  content.includes("抱歉，我只能回答与数据库中预警事件"),
+  content.includes("抱歉，这个问题超出了我的能力范围"),
   "Skill content should include irrelevant-question response"
+);
+
+assert(
+  content.includes("## Chart rules"),
+  "Skill content should include chart rules"
+);
+assert(
+  !content.includes("GisEntityMark"),
+  "Skill content should not mention GIS entity marking while QA GIS linkage is disabled"
+);
+assert(
+  !content.includes("Required detail fields for auto-linking") && !content.includes("data_detail_type"),
+  "Skill content should not include detail/GIS linkage rules while disabled"
 );
 
 console.log(
@@ -87,7 +100,11 @@ console.log(
       listed: listingContent.includes("border-defense-qa"),
       hasSchema: content.includes("## `alarm_event`"),
       hasSelfIntro: content.includes("你是谁") && content.includes("边防智能问答助手"),
-      hasIrrelevantResponse: content.includes("抱歉，我只能回答与数据库中预警事件"),
+      hasIrrelevantResponse: content.includes("抱歉，这个问题超出了我的能力范围"),
+      hasChartRules: content.includes("## Chart rules"),
+      hasNoGisLinkage: !content.includes("GisEntityMark"),
+      hasNoDetailLinkageRules:
+        !content.includes("Required detail fields for auto-linking") && !content.includes("data_detail_type"),
     },
     null,
     2

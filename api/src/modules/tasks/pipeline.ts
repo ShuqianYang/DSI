@@ -13,6 +13,7 @@ import type { AgentTranscriptStore } from "../agent-loop/transcriptStore.js";
 import { createDbRecentTaskLister } from "../agent-loop/sessionSummaryMemoryManager.js";
 import { createPipelineMemoryManager } from "./pipelineMemory.js";
 import type { MemoryManager } from "../agent-loop/memoryManager.js";
+import { noopMemoryManager } from "../agent-loop/memoryManager.js";
 import { buildRecentTaskContext } from "../agent-loop/referenceResolver.js";
 import { createEmbeddingClient } from "../agent-loop/embeddingClient.js";
 import { createEpisodeExtractor } from "../agent-loop/episodeExtractor.js";
@@ -29,6 +30,9 @@ import {
 
 const DEMO_TURN_DELAY_MS = 5_000;
 const DEMO_MAX_TURNS = 20;
+
+export type ForcedSkillId = "border-defense-qa" | "border-defense-daily-report";
+export type PipelineCreateTaskRequest = CreateTaskRequest & { forcedSkillId?: ForcedSkillId };
 
 export interface AgentLoopRunMetadata {
   requestId?: string;
@@ -131,7 +135,7 @@ function isDemoQuery(query: string): boolean {
  */
 export async function runAgentPipeline(
   taskId: string,
-  body: CreateTaskRequest,
+  body: PipelineCreateTaskRequest,
   metadata: AgentLoopRunMetadata = {}
 ) {
   return runAgentPipelineWithDependencies(
@@ -144,7 +148,7 @@ export async function runAgentPipeline(
 
 export async function runAgentPipelineWithDependencies(
   taskId: string,
-  body: CreateTaskRequest,
+  body: PipelineCreateTaskRequest,
   metadata: AgentLoopRunMetadata = {},
   dependencies: RunAgentPipelineDependencies
 ) {
@@ -222,6 +226,7 @@ export async function runAgentPipelineWithDependencies(
       query: body.query,
       scenarioId: body.scenarioId,
       recentTaskContext,
+      forcedSkillId: body.forcedSkillId,
       fileLogger,
       turnDelayMs: isDemoQuery(body.query) ? DEMO_TURN_DELAY_MS : undefined,
       maxTurns: isDemoQuery(body.query) ? DEMO_MAX_TURNS : undefined,
@@ -229,17 +234,21 @@ export async function runAgentPipelineWithDependencies(
         transcriptStore,
         dependencies.logger
       ),
-      memoryManager: dependencies.createMemoryManager({
-        currentTaskId: taskId,
-        currentTask,
-        env: process.env,
-        transcriptStore,
-        listRecentCompletedTasks: dependencies.listRecentCompletedTasks,
-        logger: dependencies.logger,
-      }),
-      midTaskCheckpointWriter: dependencies.createMidTaskCheckpointWriter?.({
-        userId: body.userId ?? null,
-      }),
+      memoryManager: body.forcedSkillId
+        ? noopMemoryManager
+        : dependencies.createMemoryManager({
+            currentTaskId: taskId,
+            currentTask,
+            env: process.env,
+            transcriptStore,
+            listRecentCompletedTasks: dependencies.listRecentCompletedTasks,
+            logger: dependencies.logger,
+          }),
+      midTaskCheckpointWriter: body.forcedSkillId
+        ? undefined
+        : dependencies.createMidTaskCheckpointWriter?.({
+            userId: body.userId ?? null,
+          }),
     });
 
     const result = buildAgentLoopTaskResult(loopResult);

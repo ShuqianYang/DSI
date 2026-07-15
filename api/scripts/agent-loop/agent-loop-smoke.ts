@@ -14,7 +14,7 @@ import {
   DAILY_REPORT_QUERY,
   DAILY_REPORT_SCENARIO,
   DAILY_REPORT_TOOLS,
-  installMockDailyReportFetch,
+  installMockDailyReportMysql,
   validateDailyReportSmoke,
 } from "./agent-loop-smoke-daily-report.js";
 import {
@@ -148,13 +148,13 @@ async function main() {
     options.mockWeather && options.scenario === GIS_TOOLCHAIN_SCENARIO
       ? installMockOpenMeteoFetch()
       : undefined;
-  const restoreDailyReportMock =
-    options.mockApi && options.scenario === DAILY_REPORT_SCENARIO
-      ? installMockDailyReportFetch({ reportContent: options.mockReportContent })
-      : undefined;
   const restoreBorderDefenseQaMock =
     options.mockFetch && options.scenario === BORDER_DEFENSE_QA_SCENARIO
       ? installMockBorderDefenseQaFetch()
+      : undefined;
+  const restoreDailyReportMock =
+    !options.realModel && options.scenario === DAILY_REPORT_SCENARIO
+      ? installMockDailyReportMysql()
       : undefined;
   const restoreOilSpillMock =
     options.mockApi && options.scenario === OIL_SPILL_MOCK_SCENARIO
@@ -188,7 +188,7 @@ async function main() {
   }
   if (options.realModel) console.log("[smoke] model=real");
   if (restoreWeatherMock) console.log("[smoke] weather=mock-open-meteo");
-  if (restoreDailyReportMock) console.log("[smoke] daily-report=mock-api");
+  if (restoreDailyReportMock) console.log("[smoke] daily-report=mock-mysql");
   if (restoreBorderDefenseQaMock) console.log("[smoke] border-defense-qa=mock-mysql");
   if (restoreOilSpillMock) console.log("[smoke] oil-spill=queryData-mock");
   if (restoreFireInvestigationMock) console.log("[smoke] fire-investigation=mock");
@@ -253,7 +253,6 @@ async function main() {
     }
   } finally {
     restoreWeatherMock?.();
-    restoreDailyReportMock?.();
     restoreBorderDefenseQaMock?.();
     restoreOilSpillMock?.();
     restoreFireInvestigationMock?.();
@@ -521,7 +520,6 @@ interface SmokeOptions {
   realModel: boolean;
   mockWeather: boolean;
   mockApi: boolean;
-  mockReportContent: string;
   mockFetch: boolean;
   turnDelayMs: number;
 }
@@ -537,7 +535,6 @@ function parseArgs(args: string[]): SmokeOptions {
   let realModel = false;
   let mockWeather: boolean | undefined;
   let mockApi = false;
-  let mockReportContent = "昨日边境态势总体平稳，设备运行正常，未发生重大预警事态。";
   let mockFetch: boolean | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -572,9 +569,6 @@ function parseArgs(args: string[]): SmokeOptions {
       mockWeather = false;
     } else if (arg === "--mock-api") {
       mockApi = true;
-    } else if (arg === "--mock-report-content") {
-      mockReportContent = requireValue(arg, next);
-      index += 1;
     } else if (arg === "--mock-fetch") {
       mockFetch = true;
     } else if (arg === "--no-mock-fetch") {
@@ -651,7 +645,6 @@ function parseArgs(args: string[]): SmokeOptions {
     realModel,
     mockWeather: mockWeather ?? scenario === GIS_TOOLCHAIN_SCENARIO,
     mockApi,
-    mockReportContent,
     mockFetch: mockFetch ?? scenario === BORDER_DEFENSE_QA_SCENARIO,
     turnDelayMs,
   };
@@ -677,8 +670,7 @@ Options:
   --real-model                 Use the configured model instead of the scenario fake model.
   --mock-weather               Mock Open-Meteo weather responses (gis-toolchain only).
   --no-mock-weather            Use real Open-Meteo weather responses (gis-toolchain only).
-  --mock-api                   Mock the daily-report API or oil-spill queryData API.
-  --mock-report-content <t>   Content returned by the mock daily-report API.
+  --mock-api                   Mock the oil-spill queryData API (other scenarios no longer need API mocking).
   --mock-fetch                 Mock MySQL responses (border-defense-qa only).
   --no-mock-fetch              Use real MySQL responses (border-defense-qa only).
   --verbose-tool-messages      Also print serialized tool messages.
@@ -691,7 +683,7 @@ GIS toolchain real-model example:
   tsx scripts/agent-loop-smoke.ts --scenario gis-toolchain --real-model --query "圈选东海并查询这个区域的风场。" --max-turns 8
 
 Daily report fake example:
-  tsx scripts/agent-loop-smoke.ts --scenario daily-report --mock-api --max-turns 4
+  tsx scripts/agent-loop-smoke.ts --scenario daily-report --max-turns 4
 
 Daily report real-model example:
   tsx scripts/agent-loop-smoke.ts --scenario daily-report --real-model --query "生成昨天的边防日报" --max-turns 4

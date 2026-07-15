@@ -12,6 +12,7 @@ import taskRoutes from "./modules/tasks/routes.js";
 import infoCenterRoutes from "./modules/info-center/routes.js";
 import dashboardRoutes from "./modules/dashboard/routes.js";
 import satelliteCallbackRoutes from "./modules/agent-loop/satelliteCallbackRoutes.js";
+import qaRoutes from "./modules/agent-loop/qaRoutes.js";
 import {
   registerOpenSkyJob,
   shouldRegisterOpenSkyJob,
@@ -20,6 +21,7 @@ import {
   registerAisJob,
   shouldRegisterAisJob,
 } from "./modules/ais/queue.js";
+import { startReportCleanupJob } from "./modules/agent-loop/tools/domain/dailyReport/reportCleanupJob.js";
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || "3001", 10);
@@ -43,6 +45,7 @@ app.get("/health", (_req, res) => {
 
 // Agent 任务路由（唯一入口）
 app.use("/tasks", taskRoutes);
+app.use("/api/agent", qaRoutes);
 app.use("/info-center", infoCenterRoutes);
 app.use("/", satelliteCallbackRoutes);
 app.use("/", dashboardRoutes);
@@ -86,6 +89,9 @@ if (shouldRegisterAisJob()) {
 
 // Import AIS worker to ensure it is instantiated on startup
 import "./modules/ais/worker.js";
+
+// 启动报告文件定时清理
+startReportCleanupJob();
 
 app.listen(PORT, HOST, () => {
   console.log(`[API] Server listening on http://${HOST}:${PORT}`);

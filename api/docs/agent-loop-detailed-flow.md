@@ -194,10 +194,12 @@
 ### 2.9 `ModelClient`
 
 - **位置**：`api/src/modules/agent-loop/modelClient.ts`
-- **职责**：调用 DeepSeek API。
+- **职责**：作为 Agent Loop 的稳定兼容门面，委托 `model/` 下的统一模型适配层完成配置、协议调用和响应归一化。
 - **输入**：`messages`、`tools`、`callId`。
 - **输出**：`NormalizedAgentDecision`（`final_answer` 或 `tool_calls`）。
-- **配置**：`DEEPSEEK_API_KEY/URL/MODEL/TIMEOUT_MS`。
+- **配置**：优先读取 `AGENT_MODEL_*`，未配置字段回退 `MODEL_*`；迁移期兼容 `QWEN_*` 和 `DEEPSEEK_*`。
+- **协议**：一期支持 OpenAI-compatible，可直接接入网络 API、SGLang 和 vLLM。
+- **归一化**：分离 `content` 与 `reasoning`/`<think>`，统一 native/JSON tool calls、usage 和 finish reason。
 
 ### 2.10 `DecisionAdapter`
 

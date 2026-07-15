@@ -72,6 +72,8 @@ assert.deepEqual(DEFAULT_PROMPT_COMPONENT_VERSIONS, {
   fireInvestigationRules: "fire-investigation-rules-v4",
   earthquakeAssessmentRules: "earthquake-assessment-rules-v3",
   floodAssessmentRules: "flood-assessment-rules-v2",
+  dailyReportRoutingRules: "border-defense-daily-report-routing-rules-v1",
+  databaseTimezoneRule: "database-timezone-rule-v1",
   memoryRecallRules: "memory-recall-rules-v1",
   contextPriorityRules: "context-priority-rules-v1",
   toolCatalogRenderer: "tool-catalog-renderer-v1",
@@ -105,6 +107,8 @@ assert.match(system, /# Tool Use Rules/);
 assert.match(system, /complete answer in a single final_answer/);
 assert.match(system, /Do not put the complete final answer in the same assistant message as tool calls/);
 assert.match(system, /Do not send a closing-only final answer/);
+assert.match(system, /In business\/data QA, keep database implementation details inside tool calls/);
+assert.match(system, /must not expose table names, column names, SQL aliases, SQL fragments, or encoded filter expressions/);
 assert.match(system, /# Context Priority/);
 assert.match(system, /# Available Tools/);
 assert.match(system, /# Additional Context/);

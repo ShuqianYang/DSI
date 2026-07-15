@@ -15,13 +15,12 @@ graph LR
     %% 外部数据库输入
     subgraph 外部数据库 [外部数据库 / 持久化数据]
         DB1[(摄像头<br/>patrol_cameras)]
-        DB2[(边境线<br/>patrol_boundaries)]
-        DB3[(特殊区域<br/>special_areas)]
+        DB3[(特殊区域<br/>special_areas（可选）)]
         DB4[(历史轨迹<br/>suspect_event)]
     end
 
-    DB1 --> G["获取环境数据<br/>GET /patrol/cameras<br/>GET /patrol/boundaries"]
-    DB2 --> G
+    DB1 --> GEN["按摄像头位置<br/>生成边境线/警戒线"]
+    GEN --> G["读取环境数据<br/>patrol_cameras / 生成边界 / special_areas"]
     DB3 --> G
     DB4 --> D
 
@@ -50,7 +49,7 @@ graph LR
     API2 --> M["resources_available<br/>{id, type, current_pos, speed, capability}"]
 
     %% 调度决策 + 路径规划
-    K --> N["资源调度<br/>POST /dispatch/resource_allocation"]
+    K --> N["资源调度（内部）<br/>POST /dispatch/resource_allocation"]
     M --> N
     N --> O["SchedulerGA 评估<br/>距离 ÷ 速度 + 地形/规则"]
     O --> P["启峻南路径规划<br/>_enrich_allocation_paths"]
@@ -58,11 +57,12 @@ graph LR
     P --> R{"方案可行?"}
     P -.-> NOTE_P["局限：基于静态地图/路网规划，未实时感知<br/>动态障碍物；需外部循环重触发才能更新"]
 
-    %% 结果：直接输出，不落地 active_allocation
-    R -->|是| S["直接输出 dispatch plan<br/>resourceId / type / etaSeconds /<br/>targetLng / targetLat /<br/>action / plannedPath"]
+    %% 结果：外部平台轮询获取 dispatch plan
+    R -->|是| S["生成 dispatch plan<br/>resourceId / type / etaSeconds /<br/>targetLng / targetLat /<br/>action / plannedPath / explanation"]
     R -->|否| T["返回拦截不可行"]
 
-    S --> OUT["外部设备驱动方<br/>接收 plan 并驱动智能设备"]
+    S --> POLL["外部平台轮询<br/>GET /dispatch/plan/latest"]
+    POLL --> OUT["外部设备驱动方<br/>接收 plan 并驱动智能设备"]
     OUT --> W["前端展示<br/>调度路径 + 预计到达时间（可选）"]
 
     %% 说明：新流程不再写入 patrol_allocation / Redis，也不走 GET /allocation/active
@@ -76,6 +76,7 @@ graph LR
     style N fill:#ffe6b3,stroke:#333,stroke-width:2px
     style P fill:#e6f3ff,stroke:#333,stroke-width:2px
     style S fill:#ccffcc,stroke:#333,stroke-width:2px
+    style POLL fill:#ccffcc,stroke:#333,stroke-width:2px
     style OUT fill:#e6f3ff,stroke:#333,stroke-width:2px
     style T fill:#ffcccc,stroke:#333
     style NOTE_E fill:#fffacd,stroke:#999
@@ -83,3 +84,4 @@ graph LR
     style NOTE_P fill:#fffacd,stroke:#999
     style 外部数据库 fill:#f0f0f0,stroke:#666
     style 外部接口 fill:#f0f0f0,stroke:#666
+    style GEN fill:#e6f3ff,stroke:#333,stroke-width:2px

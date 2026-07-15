@@ -20,7 +20,7 @@ import { mockUser } from '@/data/mockData';
 const EMPTY_REGIONS: Region[] = [];
 import { eventSourceUrl, getAisData, getAdsData } from '@/lib/api';
 import type { ApiAisData, ApiAdsData } from '@/lib/api';
-import type { GisOperation, CesiumMapRef } from '@/components/cesium/CesiumMap';
+import type { CesiumMapRef } from '@/components/cesium/CesiumMap';
 import { useRightPanelData } from '@/hooks/useRightPanelData';
 import {
   extractGisPushesFromAgentLoopEvent,
@@ -76,8 +76,6 @@ export default function HomePage() {
   // 真实 jobTask（含 agentTaskId）从 useRightPanelData 拿，供 swap effect 把 placeholder selectedTask 替换为真实版本
   const { tasks: apiTasks, refresh } = useRightPanelData();
   const [events, setEvents] = useState<TaskEvent[]>([]);
-  const [pendingOperations, setPendingOperations] = useState<GisOperation[]>([]);
-  const gisDataCounterRef = useRef(0);
   const highlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const cesiumMapRef = useRef<CesiumMapRef>(null);
   const taskStreamModeTrackerRef = useRef(createTaskStreamModeTracker());
@@ -396,7 +394,6 @@ export default function HomePage() {
     setSelectedTask(null);
     setActiveGisIds(new Set());
     setActiveGisDataList([]);
-    setPendingOperations([]);
   }, []);
 
   const handleTaskCreate = useCallback((task: Task, steps: ThinkingStep[]) => {
@@ -604,12 +601,6 @@ export default function HomePage() {
     setActiveGisDataList([]);
   }, []);
 
-  // GIS 操作指令：后端 capability 返回的 operations 自动触发
-  const handleGisOperation = useCallback((operations: Array<Record<string, unknown>>) => {
-    console.log('[page] Received GIS operations:', operations);
-    setPendingOperations(operations as unknown as GisOperation[]);
-  }, []);
-
   // 状态校验中：显示 loading，避免登录页闪现
   if (!isAuthChecked) {
     return (
@@ -697,13 +688,8 @@ export default function HomePage() {
               scenario={activeScenario}
               onScenarioChange={handleScenarioChange}
               onSendMessage={handleSendMessage}
-              onGisDataRequest={(gisData) => {
-                const eventId = `auto-gis-${gisDataCounterRef.current++}`;
-                pushActiveGisData(gisData, eventId);
-              }}
               onTaskCreate={handleTaskCreate}
               onTaskFinished={handleTaskFinished}
-              onGisOperation={handleGisOperation}
             />
           </div>
         </aside>
@@ -737,7 +723,6 @@ export default function HomePage() {
             onCloseEventGis={handleCloseEventGis}
             onCloseAllEventGis={handleCloseAllEventGis}
             rightPanelOpen={showRightPanel}
-            pendingOperations={pendingOperations}
           />
 
           {/* 移动端关闭按钮 */}

@@ -12,10 +12,11 @@ function createContext(query = "image analysis") {
   };
 }
 
-const QWEN_API_KEY = process.env.QWEN_API_KEY;
+const VISION_API_KEY = process.env.VISION_MODEL_API_KEY || process.env.QWEN_API_KEY;
+const VISION_MODEL_NAME = process.env.VISION_MODEL_NAME || process.env.IMAGE_ANALYSIS_MODEL;
 
-if (!QWEN_API_KEY) {
-  console.log("[SKIP] QWEN_API_KEY not set, skipping ImageAnalysis tests");
+if (!VISION_API_KEY || !VISION_MODEL_NAME) {
+  console.log("[SKIP] VISION_MODEL_API_KEY/VISION_MODEL_NAME not set, skipping ImageAnalysis tests");
   process.exit(0);
 }
 

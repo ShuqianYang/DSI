@@ -16,9 +16,11 @@ package script：
 ### 环境要求
 
 - 在 `api/.env` 配好模型和搜索相关环境变量：
-  - `DEEPSEEK_API_KEY`
-  - `DEEPSEEK_API_URL`
-  - `DEEPSEEK_MODEL`
+  - `MODEL_PROVIDER`
+  - `MODEL_API_URL`
+  - `MODEL_API_KEY`
+  - `MODEL_NAME`
+  - Agent 专用覆盖可使用 `AGENT_MODEL_*`；迁移期仍兼容 `QWEN_*` / `DEEPSEEK_*`
   - `VOLCANO_SEARCH_API_KEY`
   - `AGENT_WORKSPACE_ROOT`
   - `AGENT_TIMEZONE`

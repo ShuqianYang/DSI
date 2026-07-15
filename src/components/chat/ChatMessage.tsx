@@ -34,7 +34,7 @@ export default function ChatMessage({ msg, onToggleThinking, formatTime }: ChatM
         {/* 消息正文 */}
         {msg.role === 'assistant' ? (
           <div className="text-sm">
-            <MarkdownContent content={msg.content} />
+            <MarkdownContent content={msg.content} charts={msg.charts} />
           </div>
         ) : (
           <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
