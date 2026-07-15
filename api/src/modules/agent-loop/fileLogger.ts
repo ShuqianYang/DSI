@@ -161,6 +161,10 @@ export function formatAgentLoopLogMessage(event: AgentLoopEvent): string {
     return `loop_stop stoppedBy=${event.result.stoppedBy} final="${preview(event.result.finalAnswer)}"`;
   }
 
+  if (event.type === "memory_recall") {
+    return `memory_recall source=${event.source} recalled=${event.recalledCount}`;
+  }
+
   return event.type;
 }
 
@@ -275,6 +279,20 @@ function sanitizeEventForMode(event: AgentLoopEvent, mode: AgentLoopLogMode): un
         stoppedBy: event.result.stoppedBy,
         turns: event.result.turns,
         observationCount: event.result.observations.length,
+        message: formatAgentLoopLogMessage(event),
+      };
+    case "memory_recall":
+      return {
+        type: event.type,
+        taskId: event.taskId,
+        turn: event.turn,
+        source: event.source,
+        recalledCount: event.recalledCount,
+        snippets: event.snippets.map((s) => ({
+          query: s.query,
+          source: s.source,
+          score: s.score,
+        })),
         message: formatAgentLoopLogMessage(event),
       };
     default:

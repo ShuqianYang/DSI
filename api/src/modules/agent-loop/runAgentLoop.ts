@@ -368,6 +368,10 @@ export async function* runAgentLoopEvents(
       });
       if (prePromptMemorySections.length > 0) {
         memorySections = [...memorySections, ...prePromptMemorySections];
+        const memoryRecallEvent = buildMemoryRecallEvent(options.taskId, turn, prePromptMemorySections);
+        if (memoryRecallEvent) {
+          yield emitEvent(memoryRecallEvent);
+        }
       }
       const memoryRecallDecisionSection = buildMemoryRecallDecisionSection({
         query: options.query,
@@ -917,6 +921,7 @@ function publishAgentLoopEvent(event: AgentLoopEvent): void {
     case "tool_progress":
     case "tool_observation":
     case "assistant_message":
+    case "memory_recall":
     case "loop_stop":
       console.log(`[AgentLoop][SSE] ${formatAgentLoopEventForLog(event)}`);
       notifyTaskUpdate(event.taskId, event);
@@ -958,6 +963,8 @@ function formatAgentLoopEventForLog(event: AgentLoopEvent): string {
       const result = event.result;
       return `${prefix} stoppedBy=${result.stoppedBy} turns=${result.turns} final="${previewLog(result.finalAnswer)}"`;
     }
+    case "memory_recall":
+      return `${prefix} source=${event.source} recalled=${event.recalledCount}`;
     default:
       return prefix;
   }
@@ -966,6 +973,74 @@ function formatAgentLoopEventForLog(event: AgentLoopEvent): string {
 function previewLog(text: string, max = 120): string {
   const compact = text.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max)}...` : compact;
+}
+
+function determineMemorySource(sections: PromptSection[]): "session" | "vector" | "hybrid" {
+  const hasSession = sections.some((s) => s.id.startsWith("memory.session_summary."));
+  const hasVector = sections.some((s) => s.id.startsWith("memory.vector."));
+  if (hasSession && hasVector) return "hybrid";
+  if (hasVector) return "vector";
+  return "session";
+}
+
+function parseMemorySnippet(
+  section: PromptSection
+): { query: string; summary?: string; finalResult?: string; score?: number; source?: string } | undefined {
+  try {
+    const parsed = JSON.parse(section.content);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+
+    if (section.id.startsWith("memory.session_summary.")) {
+      const summaryObj =
+        parsed.summary && typeof parsed.summary === "object" && !Array.isArray(parsed.summary)
+          ? parsed.summary
+          : {};
+      return {
+        query: String(parsed.query ?? ""),
+        summary: typeof summaryObj.summary === "string" ? summaryObj.summary : undefined,
+        finalResult: typeof summaryObj.finalResult === "string" ? summaryObj.finalResult : undefined,
+        source: "session",
+      };
+    }
+
+    if (section.id.startsWith("memory.vector.")) {
+      return {
+        query: String(parsed.query ?? ""),
+        summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+        finalResult: typeof parsed.finalResult === "string" ? parsed.finalResult : undefined,
+        score:
+          typeof parsed.hybridScore === "number"
+            ? parsed.hybridScore
+            : typeof parsed.similarity === "number"
+              ? parsed.similarity
+              : undefined,
+        source: typeof parsed.source === "string" ? parsed.source : undefined,
+      };
+    }
+
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildMemoryRecallEvent(
+  taskId: string,
+  turn: number,
+  sections: PromptSection[]
+): Extract<AgentLoopEvent, { type: "memory_recall" }> | undefined {
+  const snippets = sections
+    .map(parseMemorySnippet)
+    .filter((s): s is NonNullable<typeof s> => !!s);
+  if (snippets.length === 0) return undefined;
+  return {
+    type: "memory_recall",
+    taskId,
+    turn,
+    source: determineMemorySource(sections),
+    recalledCount: snippets.length,
+    snippets,
+  };
 }
 
 type ToolCallBatch =

@@ -120,6 +120,20 @@ export type AgentLoopEvent =
       message: AgentMessage;
     }
   | {
+      type: "memory_recall";
+      taskId: string;
+      turn: number;
+      source: "session" | "vector" | "hybrid";
+      recalledCount: number;
+      snippets: Array<{
+        query: string;
+        summary?: string;
+        finalResult?: string;
+        score?: number;
+        source?: string;
+      }>;
+    }
+  | {
       type: "loop_stop";
       taskId: string;
       turn: number;

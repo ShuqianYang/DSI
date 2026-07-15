@@ -26,6 +26,22 @@ export function formatAgentLoopThinkingUpdate(event: AgentLoopEvent): AgentLoopT
     };
   }
 
+  if (event.type === 'memory_recall') {
+    return {
+      steps: [
+        {
+          id: `memory-recall-${event.turn}`,
+          name: '记忆召回',
+          status: 'completed',
+          detail: `从 ${event.source} 记忆召回 ${event.recalledCount} 条相关记录`,
+          category: 'memory',
+          eventType: event.type,
+          output: event.snippets,
+        },
+      ],
+    };
+  }
+
   if (event.type === 'assistant_message') {
     const toolCalls = event.message.toolCalls || [];
     const agentStep: ThinkingStep = {

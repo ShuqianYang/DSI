@@ -19,6 +19,7 @@ const agentLoopEventTypes = new Set<string>([
   'tool_progress',
   'tool_observation',
   'tool_message',
+  'memory_recall',
   'loop_stop',
 ]);
 
@@ -111,6 +112,10 @@ export function formatAgentLoopTraceLine(taskId: string, event: AgentLoopEvent):
 
   if (event.type === 'loop_stop') {
     return `${prefix} loop_stop stoppedBy=${event.result?.stoppedBy || 'unknown'} final="${preview(event.result?.finalAnswer || '')}"`;
+  }
+
+  if (event.type === 'memory_recall') {
+    return `${prefix} memory_recall source=${event.source} recalled=${event.recalledCount}`;
   }
 
   return `${prefix} ${event.type}`;

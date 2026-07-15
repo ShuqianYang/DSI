@@ -112,7 +112,7 @@ export function AgentRunTimeline({ steps, outcome, expanded, onToggle }: { steps
           return <div key={step.id} className="overflow-hidden rounded bg-[#2A2A3E]/60">
             <button type="button" disabled={!canExpand} onClick={() => canExpand && toggleStep(step.id)} className="flex w-full items-start gap-2 p-2 text-left enabled:hover:bg-[#34344A]/70 disabled:cursor-default">
               <Icon status={step.status} />
-              <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="rounded border border-[#8888AA]/40 px-1.5 py-0.5 text-[10px] text-[#C8C8DA]">{step.category === "agent" ? "智能体" : step.category === "result" ? "结果" : "工具"}</span><span className="truncate text-xs font-medium">{step.name}</span></div>{step.detail && <div className="mt-1 truncate text-[11px] leading-4 text-[#8888AA]">{step.category === "agent" ? compactMarkdown(step.detail) : step.detail}</div>}</div>
+              <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="rounded border border-[#8888AA]/40 px-1.5 py-0.5 text-[10px] text-[#C8C8DA]">{step.category === "agent" ? "智能体" : step.category === "result" ? "结果" : step.category === "memory" ? "记忆" : "工具"}</span><span className="truncate text-xs font-medium">{step.name}</span></div>{step.detail && <div className="mt-1 truncate text-[11px] leading-4 text-[#8888AA]">{step.category === "agent" ? compactMarkdown(step.detail) : step.detail}</div>}</div>
               {canExpand && (isOpen ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-[#8888AA]" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[#8888AA]" />)}
             </button>
             {isOpen && <StepDetails step={step} />}
