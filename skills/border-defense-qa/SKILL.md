@@ -78,6 +78,9 @@ The current system date is part of the task context. When the user does not spec
 - "上周" / "自然周" = previous Monday to previous Sunday
 - "最近24小时" = now minus 1 day to now
 - "本月" / "本月至今" = first day of current month to now
+- **Calendar month number (without `个`)**: "N月以来" / "N月至今" / "最近N月以来" means from the first day of calendar month N in the current year to now. For example, on 2026-07-15, "3月以来"、"3月至今" and "最近3月以来" all mean 2026-03-01 00:00:00 through now. SQL must include `event_time >= '2026-03-01 00:00:00'` and `event_time <= NOW()` and must not use a rolling three-month subtraction. Normalize the final wording to "今年3月以来".
+- **Rolling duration (with `个`)**: "N个月以来" / "近N个月以来" / "最近N个月" / "过去N个月" means from the current timestamp backward by N months to now. For example, on 2026-07-15, "3个月以来" and "近三个月以来" mean `DATE_SUB(NOW(), INTERVAL 3 MONTH)` through `NOW()` (approximately 2026-04-15 through 2026-07-15), not March 1 through now. Normalize the final wording to "近三个月".
+- The decisive marker is the classifier `个`: `3月` is a calendar month number; `3个月` is a rolling duration. Do not infer the opposite meaning merely from "近" or "最近".
 
 ## Core concepts
 
@@ -410,7 +413,7 @@ Device/sensor inventory. PK: `dev_id`. Note: device and sensor are the same conc
 4. 生成一条只读 SQL，并立即调用 `MysqlQuery` 执行。下面的 SQL 仅是“工具入参格式示例”，不是固定模板：
 
    ```json
-   {"database":"border-defense","sql":"SELECT event_level, event_level_name, COUNT(*) AS cnt FROM alarm_event WHERE event_time >= '2026-06-01 00:00:00' AND is_deleted = 0 GROUP BY event_level, event_level_name ORDER BY event_level;"}
+   {"database":"border-defense","sql":"SELECT event_level, CASE event_level WHEN '1' THEN '一级预警' WHEN '2' THEN '二级预警' WHEN '3' THEN '三级预警' WHEN '4' THEN '四级预警' ELSE CONCAT('未知等级(', event_level, ')') END AS level_label, COUNT(DISTINCT event_id) AS cnt FROM alarm_event WHERE event_time >= '2026-03-01 00:00:00' AND event_time <= NOW() AND is_deleted = 0 GROUP BY event_level ORDER BY CAST(event_level AS UNSIGNED) ASC;"}
    ```
 
 5. `MysqlQuery` 返回后按结果类型继续：
@@ -422,6 +425,8 @@ Device/sensor inventory. PK: `dev_id`. Note: device and sensor are the same conc
 
 - 默认需要展示图表：只要 `MysqlQuery` 返回非空统计结果，且包含分类、时间、数值等可视化字段，就调用 `ChartRenderData`。
 - 数据为空时不要画图：0 行、`rows: []`、或统计值全部为空/无效时，禁止调用 `ChartRenderData`。
+- 饼图不展示空数据或 0 值分类：调用 `ChartRenderData` 前，从饼图数据中排除数值为 `null`、空字符串、非有限数字、0 或负数的行。这些分类仍可在表格中显示为 0，但不能成为饼图扇区。
+- 如果饼图过滤后没有任何大于 0 的有效数据，则不生成饼图，并用文字说明当前范围暂无可展示数据。
 - 默认使用 `chart_type: "auto"`，除非用户指定柱状图、折线图、饼图等具体类型。
 - 最终回答只能引用真实返回的 `chart_id`，格式为 `![图表标题](chart://<chart_id>)`；不要编造图片，也不要输出绘图工具原始 JSON。
 - 图表放在对应分析段落附近，不集中堆到回答末尾。
@@ -439,7 +444,10 @@ Device/sensor inventory. PK: `dev_id`. Note: device and sensor are the same conc
 - 未指定时间范围时默认查本月；时间过滤优先使用 `event_time`、`entry_time`、`leave_time`。
 - “处理”对应 `handle_xxx` 字段；“处置”对应 `dispose_xxx` 字段，不能混用。
 - 平均处理时长优先使用 `handle_seconds`；没有该字段时再用 `handle_time - event_time` 计算。
-- 按名称字段分组时同时带上编码字段，例如 `event_level` 和 `event_level_name` 一起 `SELECT`、`GROUP BY`，并优先按编码排序。
+- 预警事件等级是特例：查询、过滤、分组和排序时只使用 `event_level`，禁止在 SQL 中使用 `event_level_name`，展示名称必须由 `event_level` 通过 `CASE` 映射：`1=一级预警`、`2=二级预警`、`3=三级预警`、`4=四级预警`。
+- 用户未指定排序方向时，数字、数字编码和可转为数字的分类字段默认按数值升序（`ASC`）排列；不得默认按数量降序或编码降序。例如预警等级默认按 `1, 2, 3, 4` 排列。
+- 仅当用户明确要求“降序/从高到低/DESC”时才使用 `DESC`；明确要求“升序/从低到高/ASC”时使用 `ASC`。
+- 其他分类字段按名称分组时，仍应同时带上对应编码字段，并优先按编码排序。
 - 开启 `ONLY_FULL_GROUP_BY` 时，非聚合字段必须进入 `GROUP BY`，或在清楚语义时使用 `ANY_VALUE()`。
 - 不编造表名、字段名；不确定时调用 `MysqlQuerySchema`。
 - SQL 字符串值用单引号；中文别名用反引号；SQL 标点必须使用英文逗号、括号和分号。
@@ -478,13 +486,20 @@ ORDER BY `报警事件数量` DESC;
 
 ```sql
 SELECT
-  event_level_name AS `预警等级`,
+  event_level AS `预警等级编码`,
+  CASE event_level
+    WHEN '1' THEN '一级预警'
+    WHEN '2' THEN '二级预警'
+    WHEN '3' THEN '三级预警'
+    WHEN '4' THEN '四级预警'
+    ELSE CONCAT('未知等级(', event_level, ')')
+  END AS `预警等级`,
   COUNT(DISTINCT event_id) AS `预警事件数量`
 FROM alarm_event
 WHERE event_time >= CURDATE()
   AND is_deleted = 0
-GROUP BY event_level, event_level_name
-ORDER BY event_level;
+GROUP BY event_level
+ORDER BY CAST(event_level AS UNSIGNED) ASC;
 ```
 
 ### 历史业务问法兼容
@@ -516,7 +531,13 @@ SELECT
   a.event_time AS `预警时间`,
   d.dev_id AS `设备ID`,
   d.dev_name AS `设备名称`,
-  a.event_level_name AS `预警等级`
+  CASE a.event_level
+    WHEN '1' THEN '一级预警'
+    WHEN '2' THEN '二级预警'
+    WHEN '3' THEN '三级预警'
+    WHEN '4' THEN '四级预警'
+    ELSE CONCAT('未知等级(', a.event_level, ')')
+  END AS `预警等级`
 FROM alarm_event a
 JOIN tb_device d ON a.device_id = d.dev_id
 WHERE d.dev_name LIKE '%xx团%'
@@ -528,8 +549,8 @@ ORDER BY a.event_time DESC;
 ## Empty or missing data
 
 - If the query returns no rows, tell the user "经查询，当前时间范围内暂无相关数据".
-- If a code field has a value but its name field is empty (e.g. `event_level = '1'` but `event_level_name = ''`), infer and display the correct Chinese name (e.g. "一级预警").
-- When the user asks "各级/各类型" statistics but the result only returns some categories, actively list all related categories in the answer and mark missing categories as 0.
+- For alarm levels, always derive the Chinese display label from `event_level`; never read or repair `event_level_name`.
+- When the user asks "各级/各类型" statistics but the result only returns some categories, actively list all related categories in the answer and mark missing categories as 0. Insert zero-count categories into the requested sort order instead of appending them afterward. For alarm levels, use `1, 2, 3, 4` by default; use `4, 3, 2, 1` only when the user explicitly requests descending order. Zero-count categories may appear in tables but must be omitted from pie-chart data.
 - When calculating proportions/percentages, the denominator must be the total sum of all relevant data in the requested scope (including categories with 0 count). Do not calculate based only on returned rows.
 - Do not output raw JSON unless the user asks for it.
 - The final answer must never contain `{"status": "success", "result": []}` or any similar JSON code block.
@@ -543,6 +564,14 @@ Return a Markdown answer with:
 - Charts
 - A short interpretation in Chinese
 
+### User-facing schema boundary (mandatory)
+
+- Database table names, column names, SQL aliases, SQL fragments, and encoded filter expressions are internal implementation details. They may appear in tool calls and reasoning, but must never appear in the formal final answer unless the user explicitly asks to see SQL or database schema details.
+- Do not expose identifiers such as `alarm_event`, `tb_device`, `device_shape_type`, `event_level`, `event_id`, `total_count`, or expressions such as `device_shape_type = '1'` in headings, paragraphs, bullet lists, tables, chart labels, or follow-up suggestions.
+- Translate technical fields into natural business Chinese. Say "枪机设备"、"一级预警"、"预警事件去重计数" instead of showing the underlying field names.
+- For a single count, give the result as one concise sentence and omit a Markdown table and technical "查询说明" section. Example: `经查询，本月所有枪机设备共产生 5 条一级预警。`
+- Before sending the final answer, scan it for raw schema identifiers and remove or rewrite every occurrence.
+
 If the user did not explicitly specify a time range, explicitly state the queried time range at the beginning of the answer (e.g. "经查询，本月（2026年4月1日至今）共有XX条预警"). Do not describe it as "全部" or "共有".
 
 ## Example queries
@@ -552,12 +581,21 @@ If the user did not explicitly specify a time range, explicitly state the querie
 ### 预警等级统计
 
 ```sql
-SELECT event_level, event_level_name, COUNT(*) AS cnt
+SELECT
+  event_level,
+  CASE event_level
+    WHEN '1' THEN '一级预警'
+    WHEN '2' THEN '二级预警'
+    WHEN '3' THEN '三级预警'
+    WHEN '4' THEN '四级预警'
+    ELSE CONCAT('未知等级(', event_level, ')')
+  END AS level_label,
+  COUNT(DISTINCT event_id) AS cnt
 FROM alarm_event
 WHERE event_time >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
   AND is_deleted = 0
-GROUP BY event_level, event_level_name
-ORDER BY event_level;
+GROUP BY event_level
+ORDER BY CAST(event_level AS UNSIGNED) ASC;
 ```
 
 ### 设备预警排行

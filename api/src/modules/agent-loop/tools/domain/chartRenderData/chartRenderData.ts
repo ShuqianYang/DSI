@@ -107,6 +107,20 @@ function generateChartId(): string {
   return `chart_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function filterPieData(
+  data: Record<string, unknown>[],
+  valueKey: string | undefined
+): Record<string, unknown>[] {
+  if (!valueKey) {
+    throw new Error("ChartRenderData pie chart requires a numeric value key");
+  }
+
+  return data.filter((row) => {
+    const value = row[valueKey];
+    return typeof value === "number" && Number.isFinite(value) && value > 0;
+  });
+}
+
 export function buildChartRenderDataTool(): ToolDefinition {
   return {
     name: "ChartRenderData",
@@ -130,11 +144,18 @@ export function buildChartRenderDataTool(): ToolDefinition {
         parsed.chart_type === "auto" ? suggestChartType(parsed.data, parsed.x_key) : parsed.chart_type;
 
       const config = buildConfig(parsed, chartType);
+      const chartData =
+        chartType === "pie"
+          ? filterPieData(parsed.data, config.value_key)
+          : parsed.data;
+      if (chartData.length === 0) {
+        throw new Error("ChartRenderData pie chart requires at least one positive numeric value");
+      }
       const output: ChartRenderDataOutput = {
         chart_type: chartType,
         title: parsed.title,
         chart_id: generateChartId(),
-        data: parsed.data,
+        data: chartData,
         config,
       };
 

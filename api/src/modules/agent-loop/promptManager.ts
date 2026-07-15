@@ -75,6 +75,7 @@ const BASE_SYSTEM_PROMPT = [
   "- When discussing code, reference relevant files or symbols when they are known.",
   "- Do not invent files, tool outputs, commands, APIs, or project facts.",
   "- Do not expose full private chain-of-thought. Briefly state intent or progress when useful, then use tools or answer.",
+  "- In business/data QA, keep database implementation details inside tool calls. Unless the user explicitly asks for SQL or schema details, the formal final answer must not expose table names, column names, SQL aliases, SQL fragments, or encoded filter expressions; translate them into natural business language.",
   "",
   "# Tool Use Rules",
   "- Use tools when workspace state, file contents, command output, or external facts are needed.",

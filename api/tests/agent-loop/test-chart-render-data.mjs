@@ -100,6 +100,45 @@ async function main() {
     assert.strictEqual(result.chart_type, "bar");
   });
 
+  await runTest("pie omits zero and invalid numeric slices", async () => {
+    const result = await tool.execute(
+      {
+        chart_type: "pie",
+        data: [
+          { level: "一级预警", count: 12 },
+          { level: "二级预警", count: 0 },
+          { level: "三级预警", count: -1 },
+        ],
+        title: "预警等级分布",
+        label_key: "level",
+        value_key: "count",
+      },
+      { taskId: "test-task", query: "test", observations: [] },
+    );
+
+    assert.deepStrictEqual(result.data, [{ level: "一级预警", count: 12 }]);
+  });
+
+  await runTest("pie rejects data when every slice is empty", async () => {
+    assert.throws(
+      () =>
+        tool.execute(
+          {
+            chart_type: "pie",
+            data: [
+              { level: "一级预警", count: 0 },
+              { level: "二级预警", count: 0 },
+            ],
+            title: "空预警等级分布",
+            label_key: "level",
+            value_key: "count",
+          },
+          { taskId: "test-task", query: "test", observations: [] },
+        ),
+      /requires at least one positive numeric value/,
+    );
+  });
+
   await runTest("line chart supports series_keys", async () => {
     const result = await tool.execute(
       {
