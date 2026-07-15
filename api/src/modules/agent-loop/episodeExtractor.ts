@@ -2,8 +2,8 @@
  * Episode Extractor (P1-4) - LLM-based structured episode extraction.
  *
  * Now reuses the unified model adapter layer (MODEL_* / AGENT_MODEL_*).
- * Falls back to rule-based extraction when the model adapter is unavailable
- * or returns invalid output.
+ * Falls back to rule-based extraction when the configured model returns
+ * invalid output. Invalid shared model configuration is surfaced to callers.
  */
 
 import type { RememberInput } from "./memoryManager.js";
@@ -129,19 +129,9 @@ const RETRY_SUFFIX = "\n\n请只输出JSON，不要输出任何其他内容。";
 
 export function createEpisodeExtractor(
   input?: CreateEpisodeExtractorInput
-): EpisodeExtractor | undefined {
+): EpisodeExtractor {
   const logger = input?.logger ?? console;
-
-  let gateway: ModelGatewayLike;
-  try {
-    gateway = input?.gateway ?? createModelGateway(input?.config ?? loadModelConfig("AGENT"));
-  } catch (error) {
-    logger.warn(
-      "[EpisodeExtractor] Model adapter is not configured; episode extraction disabled.",
-      error instanceof Error ? error.message : String(error)
-    );
-    return undefined;
-  }
+  const gateway = input?.gateway ?? createModelGateway(input?.config ?? loadModelConfig("AGENT"));
 
   return new LlmEpisodeExtractor(gateway, logger);
 }

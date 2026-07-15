@@ -17,6 +17,9 @@ import { noopMemoryManager } from "../agent-loop/memoryManager.js";
 import { buildRecentTaskContext } from "../agent-loop/referenceResolver.js";
 import { createEmbeddingClient } from "../agent-loop/embeddingClient.js";
 import { createEpisodeExtractor } from "../agent-loop/episodeExtractor.js";
+import { loadModelConfig } from "../agent-loop/model/config.js";
+import { createModelGateway } from "../agent-loop/model/modelGateway.js";
+import { AgentModelClient } from "../agent-loop/model/clients/agentModelClient.js";
 import { createSessionMemoryTriggerFromEnv } from "../agent-loop/sessionMemoryTrigger.js";
 import { createMidTaskCheckpointWriter } from "../agent-loop/midTaskCheckpoint.js";
 import type { MidTaskCheckpointWriter } from "../agent-loop/midTaskCheckpoint.js";
@@ -102,11 +105,17 @@ async function createDefaultRunAgentPipelineDependencies(): Promise<RunAgentPipe
   ]);
   const transcriptStore = createDbTranscriptStore(db);
   const embeddingClient = createEmbeddingClient();
-  const episodeExtractor = createEpisodeExtractor();
+  const agentModelConfig = loadModelConfig("AGENT");
+  const agentModelGateway = createModelGateway(agentModelConfig);
+  const agentModelClient = new AgentModelClient(agentModelGateway);
+  const episodeExtractor = createEpisodeExtractor({ gateway: agentModelGateway });
   return {
     taskService,
     createFileLogger: createAgentLoopFileLogger,
-    runAgentLoop,
+    runAgentLoop: (options) => runAgentLoop({
+      ...options,
+      modelClient: options.modelClient ?? agentModelClient,
+    }),
     createTranscriptStore: () => transcriptStore,
     createBestEffortTranscriptStore,
     createMemoryManager: (input) =>

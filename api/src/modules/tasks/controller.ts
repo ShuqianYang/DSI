@@ -7,7 +7,10 @@ import {
   abortTask as abortRegisteredTask,
   getTaskAbortController,
   registerTaskAbortController,
+  unregisterTaskAbortController,
 } from "./abortRegistry.js";
+import { notifyTaskUpdate } from "../../sse/sseManager.js";
+import { buildLoopStopEventFromTaskResult } from "./agentLoopSseMode.js";
 
 export async function createTask(req: Request, res: Response) {
   const body = req.body as CreateTaskRequest;
@@ -29,8 +32,17 @@ export async function createTask(req: Request, res: Response) {
   // 2. 异步执行 Agent Pipeline（不阻塞 HTTP 响应）
   if (!created) return;
 
-  runAgentPipeline(task.id, body, requestMetadata, abortController).catch((err) => {
+  runAgentPipeline(task.id, body, requestMetadata, abortController).catch(async (err) => {
     console.error(`[createTask] Pipeline error for task ${task.id}:`, err);
+    unregisterTaskAbortController(task.id);
+    const error = err instanceof Error ? err.message : String(err);
+    await taskService.updateTaskStatus(task.id, "failed", error).catch(() => undefined);
+    notifyTaskUpdate(task.id, buildLoopStopEventFromTaskResult({
+      taskId: task.id,
+      status: "failed",
+      result: null,
+      error,
+    }));
   });
 }
 
@@ -42,8 +54,6 @@ export async function abortTask(req: Request, res: Response) {
     const task = await taskService.getTaskById(taskId);
     if (task && (task.status === "pending" || task.status === "running")) {
       await taskService.updateTaskStatus(taskId, "failed", "用户主动停止任务");
-      const { notifyTaskUpdate } = await import("../../sse/sseManager.js");
-      const { buildLoopStopEventFromTaskResult } = await import("./agentLoopSseMode.js");
       notifyTaskUpdate(taskId, buildLoopStopEventFromTaskResult({
         taskId,
         status: "failed",

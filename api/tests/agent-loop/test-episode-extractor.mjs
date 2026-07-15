@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 
+process.env.AGENT_MODEL_PROVIDER = "openai-compatible";
+process.env.AGENT_MODEL_API_URL = "http://localhost:8000/v1/chat/completions";
+process.env.AGENT_MODEL_NAME = "episode-extractor-test";
+process.env.AGENT_MODEL_AUTH_TYPE = "none";
+process.env.AGENT_MODEL_RETRY_COUNT = "0";
+
 const { createEpisodeExtractor } = await import(
   "../../src/modules/agent-loop/episodeExtractor.ts"
 );
@@ -150,9 +156,7 @@ function createTestInput(overrides = {}) {
   });
   mockChatCompletion(validJson);
 
-  const extractor = createEpisodeExtractor({
-    apiBase: "http://localhost:8000/v1",
-  });
+  const extractor = createEpisodeExtractor();
   assert.ok(extractor, "extractor should be defined");
 
   const episode = await extractor.extract(createTestInput());
@@ -189,7 +193,6 @@ function createTestInput(overrides = {}) {
 
   const warnings = [];
   const extractor = createEpisodeExtractor({
-    apiBase: "http://localhost:8000/v1",
     logger: { warn: (...args) => warnings.push(args) },
   });
 
@@ -215,7 +218,6 @@ function createTestInput(overrides = {}) {
 
   const warnings = [];
   const extractor = createEpisodeExtractor({
-    apiBase: "http://localhost:8000/v1",
     logger: { warn: (...args) => warnings.push(args) },
   });
 
@@ -242,7 +244,6 @@ function createTestInput(overrides = {}) {
   mockNetworkError();
 
   const extractor = createEpisodeExtractor({
-    apiBase: "http://localhost:8000/v1",
     logger: { warn: () => {} },
   });
 
@@ -280,9 +281,7 @@ function createTestInput(overrides = {}) {
   const wrappedContent = "```json\n" + validJson + "\n```";
   mockChatCompletion(wrappedContent);
 
-  const extractor = createEpisodeExtractor({
-    apiBase: "http://localhost:8000/v1",
-  });
+  const extractor = createEpisodeExtractor();
 
   const episode = await extractor.extract(createTestInput());
 
