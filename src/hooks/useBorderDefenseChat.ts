@@ -35,6 +35,7 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const activeTaskRef = useRef<string | undefined>(undefined);
   const submittingRef = useRef(false);
+  const messageCacheRef = useRef<Map<string, BorderMessage[]>>(new Map());
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -50,6 +51,11 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
   }, [stopPolling]);
 
   useEffect(() => closeStream, [closeStream]);
+
+  useEffect(() => {
+    if (!activeTaskId || messages.length === 0) return;
+    messageCacheRef.current.set(activeTaskId, messages);
+  }, [activeTaskId, messages]);
 
   const updateHistoryStatus = history.updateStatus;
   const reconcileHistory = history.reconcile;
@@ -233,7 +239,10 @@ export function useBorderDefenseChat(mode: BorderDefenseMode) {
     activeTaskRef.current = task.id;
     setActiveTaskId(task.id);
     setConnectionError(undefined);
-    setMessages([{ id: `user-${task.id}`, role: "user", content: task.title, timestamp: task.createdAt, taskId: task.id }, assistantMessage(task.id)]);
+    setMessages(messageCacheRef.current.get(task.id) ?? [
+      { id: `user-${task.id}`, role: "user", content: task.title, timestamp: task.createdAt, taskId: task.id },
+      assistantMessage(task.id),
+    ]);
     try {
       const detail = await getBorderTask(task.id);
       await refreshTask(task.id);
