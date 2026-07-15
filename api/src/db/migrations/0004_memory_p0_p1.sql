@@ -16,7 +16,7 @@ CREATE TABLE "task_conversation_snapshot" (
 	"stopped_by" text NOT NULL,
 	"scenario" text,
 	"entities" text[] DEFAULT '{}',
-	"embedding" vector(1536),
+	"embedding" vector(1024),
 	"is_checkpoint" boolean NOT NULL DEFAULT false,
 	"checkpoint_turn" integer,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -39,7 +39,7 @@ CREATE TABLE "episodic_memories" (
 	"importance" double precision DEFAULT 0.5,
 	"tags" text[] DEFAULT '{}',
 	"related_entities" text[] DEFAULT '{}',
-	"embedding" vector(1536),
+	"embedding" vector(1024),
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint

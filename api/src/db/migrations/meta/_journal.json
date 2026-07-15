@@ -43,6 +43,13 @@
       "when": 1784019071216,
       "tag": "0004_safe_major_mapleleaf",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784102400000,
+      "tag": "0005_memory_vector_1024",
+      "breakpoints": true
     }
   ]
 }
