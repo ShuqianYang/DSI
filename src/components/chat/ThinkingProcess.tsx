@@ -29,6 +29,7 @@ function StepBadge({ step }: { step: ThinkingStep }) {
     result: '结果',
     agent: '智能体',
     tool: '工具',
+    memory: '记忆',
   };
   const label = step.category ? labelMap[step.category] ?? step.eventType : step.eventType;
 
@@ -41,7 +42,9 @@ function StepBadge({ step }: { step: ThinkingStep }) {
         ? 'border-[#44FF44]/40 text-[#44FF44]'
         : step.category === 'agent'
           ? 'border-[#FFAA00]/40 text-[#FFAA00]'
-          : 'border-[#8888AA]/40 text-[#C8C8DA]';
+          : step.category === 'memory'
+            ? 'border-[#AA88FF]/40 text-[#AA88FF]'
+            : 'border-[#8888AA]/40 text-[#C8C8DA]';
 
   return (
     <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-none ${colorClass}`}>
