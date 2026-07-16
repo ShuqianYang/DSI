@@ -61,6 +61,9 @@ RUN apk add --no-cache libc6-compat netcat-openbsd
 ENV PATH="/app/node_modules/.bin:/app/api/node_modules/.bin:${PATH}"
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV AGENT_WORKSPACE_ROOT=/app
+ENV AGENT_LOOP_LOG_DIR=/app/logs
+ENV DAILY_REPORT_OUTPUT_DIR=/app/report
 
 WORKDIR /app
 
@@ -81,6 +84,9 @@ COPY --from=web-build /app/public ./public
 COPY --from=web-build /app/next.config.ts ./next.config.ts
 COPY --from=web-build /app/shims ./shims
 
+# Runtime directories shared with the host for logs and reports.
+RUN mkdir -p /app/logs /app/report
+
 EXPOSE 5000
 
 CMD ["node", "dist/server.js"]
@@ -94,6 +100,9 @@ COPY --from=api-build /app/api/drizzle.config.ts ./api/drizzle.config.ts
 COPY --from=api-build /app/api/src/db ./api/src/db
 COPY --from=api-build /app/skills ./skills
 COPY docker/entrypoint.sh /entrypoint.sh
+
+# Runtime directories shared with the host for logs and reports.
+RUN mkdir -p /app/logs /app/report
 
 RUN chmod +x /entrypoint.sh
 
