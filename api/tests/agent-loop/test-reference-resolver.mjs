@@ -112,27 +112,50 @@ const {
 }
 
 // ---------------------------------------------------------------------------
-// Test 8: resolveQueryReferences — 无 API key 时降级
+// Test 8: resolveQueryReferences — 统一模型客户端完成指代消解
 // ---------------------------------------------------------------------------
 
 {
-  const originalKey = process.env.DEEPSEEK_API_KEY;
-  delete process.env.DEEPSEEK_API_KEY;
+  const calls = [];
+  const result = await resolveQueryReferences({
+    query: "上一轮说的地方现在有船吗",
+    recentTaskContext: "[第1轮]\n用户查询: 查询台海风场",
+  }, {
+    modelClient: {
+      async generateText(messages, options) {
+        calls.push({ messages, options });
+        return "台海现在有船吗";
+      },
+    },
+  });
 
-  try {
-    const result = await resolveQueryReferences({
+  assert.equal(result.resolvedQuery, "台海现在有船吗");
+  assert.equal(result.wasResolved, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.temperature, 0);
+  assert.equal(calls[0].options.maxTokens, 500);
+  console.log("Test 8 passed: resolveQueryReferences uses the unified model client");
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: resolveQueryReferences — 统一模型配置不可用时降级
+// ---------------------------------------------------------------------------
+
+{
+  const result = await resolveQueryReferences({
       query: "上一轮说的地方现在有船吗",
       recentTaskContext: "[第1轮]\n用户查询: 查询台海风场",
+    }, {
+      modelClient: {
+        async generateText() {
+          throw new Error("model unavailable");
+        },
+      },
     });
 
-    assert.equal(result.resolvedQuery, "上一轮说的地方现在有船吗");
-    assert.equal(result.wasResolved, false);
-    console.log("Test 8 passed: resolveQueryReferences falls back when no API key");
-  } finally {
-    if (originalKey) {
-      process.env.DEEPSEEK_API_KEY = originalKey;
-    }
-  }
+  assert.equal(result.resolvedQuery, "上一轮说的地方现在有船吗");
+  assert.equal(result.wasResolved, false);
+  console.log("Test 9 passed: resolveQueryReferences falls back when model resolution fails");
 }
 
 console.log("\nAll reference resolver tests passed!");

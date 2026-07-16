@@ -7,6 +7,9 @@
  * 不影响权重逻辑，纯粹是查询层面的文本替换。
  */
 
+import { createTextGenerationClient } from "./model/clients/textGenerationClient.js";
+import type { ModelMessage } from "./model/types.js";
+
 // ---------------------------------------------------------------------------
 // 指代模式检测 — 快速正则预筛，避免不必要的 LLM 调用
 // ---------------------------------------------------------------------------
@@ -43,11 +46,18 @@ export function hasReferentialPatterns(query: string): boolean {
 // LLM 消解
 // ---------------------------------------------------------------------------
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
-const DEEPSEEK_API_URL =
-  process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/chat/completions";
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 const RESOLVER_TIMEOUT_MS = 15_000;
+
+export interface ReferenceResolverModelClient {
+  generateText(
+    messages: ModelMessage[],
+    options?: { temperature?: number; maxTokens?: number; signal?: AbortSignal }
+  ): Promise<string>;
+}
+
+export interface ReferenceResolverDependencies {
+  modelClient?: ReferenceResolverModelClient;
+}
 
 function buildResolvePrompt(input: {
   query: string;
@@ -69,14 +79,6 @@ ${input.query}
 5. 保留查询中非指代部分的原始表达`;
 }
 
-interface DeepSeekCompletionResponse {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
-}
-
 /**
  * 调用 LLM 消解指代。
  * 发送简单的 user message，不携带 tools，期望返回纯文本。
@@ -84,51 +86,26 @@ interface DeepSeekCompletionResponse {
 async function resolveWithLLM(input: {
   query: string;
   recentTaskContext: string;
-}): Promise<string> {
+}, modelClient: ReferenceResolverModelClient): Promise<string> {
   const prompt = buildResolvePrompt(input);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), RESOLVER_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`Reference resolver timed out after ${RESOLVER_TIMEOUT_MS}ms`)),
+    RESOLVER_TIMEOUT_MS
+  );
 
-  let response: Response;
   try {
-    response = await fetch(DEEPSEEK_API_URL, {
-      method: "POST",
+    const content = await modelClient.generateText([{ role: "user", content: prompt }], {
       signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        stream: false,
-        temperature: 0,
-        max_tokens: 500,
-      }),
+      temperature: 0,
+      maxTokens: 500,
     });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(`Reference resolver LLM call timed out after ${RESOLVER_TIMEOUT_MS}ms`);
-    }
-    throw error;
+    if (!content.trim()) throw new Error("Reference resolver returned empty response");
+    return content.trim();
   } finally {
     clearTimeout(timeout);
   }
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Reference resolver API error: ${response.status} ${text}`);
-  }
-
-  const json = (await response.json()) as DeepSeekCompletionResponse;
-  const content = json.choices?.[0]?.message?.content;
-
-  if (typeof content !== "string" || !content.trim()) {
-    throw new Error("Reference resolver returned empty response");
-  }
-
-  return content.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +136,8 @@ export interface ResolveQueryReferencesOutput {
  * 4. LLM 失败时降级返回原始 query
  */
 export async function resolveQueryReferences(
-  input: ResolveQueryReferencesInput
+  input: ResolveQueryReferencesInput,
+  dependencies: ReferenceResolverDependencies = {}
 ): Promise<ResolveQueryReferencesOutput> {
   // 空上下文或空查询，无需消解
   if (!input.query.trim() || !input.recentTaskContext.trim()) {
@@ -171,17 +149,12 @@ export async function resolveQueryReferences(
     return { resolvedQuery: input.query, wasResolved: false };
   }
 
-  // 检查 API key 是否可用
-  if (!DEEPSEEK_API_KEY) {
-    console.warn("[ReferenceResolver] DEEPSEEK_API_KEY not set, skipping resolution");
-    return { resolvedQuery: input.query, wasResolved: false };
-  }
-
   try {
+    const modelClient = dependencies.modelClient ?? createTextGenerationClient("AGENT");
     const resolved = await resolveWithLLM({
       query: input.query,
       recentTaskContext: input.recentTaskContext,
-    });
+    }, modelClient);
 
     // 如果 LLM 返回了与原查询不同的结果，且不为空
     if (resolved && resolved !== input.query) {
