@@ -1,14 +1,20 @@
 name: datasourceintelligence
 
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${DOCKER_LOG_MAX_SIZE:-20m}"
+    max-file: "${DOCKER_LOG_MAX_FILE:-5}"
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: ds_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: datasource
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      POSTGRES_DB: "${POSTGRES_DB:-datasource}"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -21,6 +27,7 @@ services:
       retries: 10
     networks:
       - ds_network
+    logging: *default-logging
 
   redis:
     image: redis:7-alpine
@@ -37,6 +44,7 @@ services:
       retries: 10
     networks:
       - ds_network
+    logging: *default-logging
 
   ollama:
     image: ollama/ollama:0.31.2
@@ -62,6 +70,7 @@ services:
       start_period: 30s
     networks:
       - ds_network
+    logging: *default-logging
 
   ollama-init:
     image: ollama/ollama:0.31.2
@@ -79,6 +88,29 @@ services:
         echo "[ollama-init] Embedding model ready!"
     networks:
       - ds_network
+    logging: *default-logging
+
+  postgis:
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64
+    container_name: ds_postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGIS_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGIS_PASSWORD:-postgres}"
+      POSTGRES_DB: "${POSTGIS_DB:-show_room}"
+    ports:
+      - "${POSTGIS_PORT:-5433}:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGIS_USER:-postgres} -d ${POSTGIS_DB:-show_room}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ds_network
+    logging: *default-logging
 
   api:
     env_file:
@@ -100,15 +132,36 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 3001
       DB_PUSH_ON_START: "${DB_PUSH_ON_START:-true}"
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/datasource
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/datasource}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      GEO_DATABASE_URL: "${GEO_DATABASE_URL:-postgresql://postgres:postgres@postgis:5432/show_room}"
       GTE_API_BASE: "${GTE_API_BASE:-http://ollama:11434/v1}"
+      AGENT_WORKSPACE_ROOT: "/app"
+      AGENT_LOOP_LOG_DIR: "/app/logs"
+      DAILY_REPORT_OUTPUT_DIR: "/app/report"
+    volumes:
+      - type: bind
+        source: ${HOST_LOG_DIR:-../logs}
+        target: /app/logs
+      - type: bind
+        source: ${HOST_REPORT_DIR:-../report}
+        target: /app/report
+      - type: bind
+        source: ${HOST_SKILLS_DIR:-../skills}
+        target: /app/skills
+        read_only: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+      postgis:
         condition: service_healthy
     healthcheck:
       test:
@@ -124,6 +177,7 @@ services:
       autoheal: "true"
     networks:
       - ds_network
+    logging: *default-logging
 
   worker:
     env_file:
@@ -141,9 +195,26 @@ services:
     environment:
       NODE_ENV: production
       DB_PUSH_ON_START: "false"
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/datasource
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/datasource}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      GEO_DATABASE_URL: "${GEO_DATABASE_URL:-postgresql://postgres:postgres@postgis:5432/show_room}"
       GTE_API_BASE: "${GTE_API_BASE:-http://ollama:11434/v1}"
+      AGENT_WORKSPACE_ROOT: "/app"
+      AGENT_LOOP_LOG_DIR: "/app/logs"
+      DAILY_REPORT_OUTPUT_DIR: "/app/report"
+    volumes:
+      - type: bind
+        source: ${HOST_LOG_DIR:-../logs}
+        target: /app/logs
+      - type: bind
+        source: ${HOST_REPORT_DIR:-../report}
+        target: /app/report
+      - type: bind
+        source: ${HOST_SKILLS_DIR:-../skills}
+        target: /app/skills
+        read_only: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -151,8 +222,13 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+      postgis:
+        condition: service_healthy
     networks:
       - ds_network
+    logging: *default-logging
 
   web:
     build:
@@ -174,6 +250,7 @@ services:
       HOSTNAME: 0.0.0.0
       PORT: 5000
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-}"
+      API_URL: "http://api:3001"
     depends_on:
       api:
         condition: service_healthy
@@ -191,6 +268,7 @@ services:
       autoheal: "true"
     networks:
       - ds_network
+    logging: *default-logging
 
   nginx:
     image: nginx:1.27-alpine
@@ -219,6 +297,7 @@ services:
       autoheal: "true"
     networks:
       - ds_network
+    logging: *default-logging
 
   autoheal:
     image: willfarrell/autoheal:1.2.0
@@ -233,11 +312,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - ds_network
+    logging: *default-logging
 
 volumes:
   postgres_data:
   redis_data:
   ollama_data:
+  postgis_data:
 
 networks:
   ds_network:
